@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="CityVisualSettings" load_steps=2 format=3]
+[ext_resource type="Script" path="res://scripts/pcg/preview/CityVisualSettings.cs" id="1"]
+[resource]
+script = ExtResource("1")
+WallHeight = 6.0
+DetailViewSize = 300.0
+Labels = true
+Details = true

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="MapSettings" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/terrain/MapSettings.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Seed = 73129
+SizeMeters = 2000.0
+GridSegments = 384
+ReliefMeters = 26.0
+RiverWidthMeters = 48.0
+ForestDensity = 0.76
+TreeSpacingMeters = 15.0

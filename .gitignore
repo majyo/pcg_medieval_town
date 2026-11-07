@@ -1,0 +1,30 @@
+# Godot generated files
+.godot/
+*.translation
+export_credentials.cfg
+
+# .NET and IDE generated files
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Generated verification output
+artifacts/
+
+# Generated town exports and local tool environments
+/generated/
+/.tools/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local credentials and operating system metadata
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
