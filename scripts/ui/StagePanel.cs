@@ -8,20 +8,21 @@ using PcgCitySandbox.City;
 namespace PcgCitySandbox.Ui;
 
 /// <summary>
-/// Right-hand panel. One section per stage with status, summary, notices and controls generated from the
-/// options' [Param] properties. Editing a value invalidates that stage and everything after it.
+/// Right-hand panel, the editor of the town graph. One section per graph node, under its group heading: status,
+/// the keys it reads and writes, summary, notices and controls generated from the options' [Param] properties.
+/// Editing a value invalidates that node and everything downstream of it.
 /// </summary>
 public partial class StagePanel : PanelContainer
 {
     private readonly List<(Label Header, Label Summary, Label Notices)> _sections = new();
-    private Pipeline _pipeline = null!;
+    private CityGraph _graph = null!;
     private CheckBox _auto = null!;
     private double _runAt = -1;
 
-    public void Bind(Pipeline pipeline)
+    public void Bind(CityGraph graph)
     {
-        _pipeline = pipeline;
-        _pipeline.Changed += Refresh;
+        _graph = graph;
+        _graph.Changed += Refresh;
         AddThemeStyleboxOverride("panel", UiStyle.Box(UiStyle.Panel));
 
         var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
@@ -32,17 +33,28 @@ public partial class StagePanel : PanelContainer
 
         var actions = new HBoxContainer();
         var run = UiStyle.Button("生成");
-        run.Pressed += () => _ = _pipeline.Run();
+        run.Pressed += () => _ = _graph.Run();
         var cancel = UiStyle.Button("取消");
-        cancel.Pressed += _pipeline.Cancel;
+        cancel.Pressed += _graph.Cancel;
         _auto = new CheckBox { Text = "改参数自动生成", ButtonPressed = true, FocusMode = FocusModeEnum.None };
         actions.AddChild(run);
         actions.AddChild(cancel);
         actions.AddChild(_auto);
         list.AddChild(actions);
 
-        for (int i = 0; i < pipeline.Stages.Count; i++)
+        string? group = null;
+        for (int i = 0; i < graph.Nodes.Count; i++)
+        {
+            if (graph.Nodes[i].Group != group)
+            {
+                group = graph.Nodes[i].Group;
+                list.AddChild(new HSeparator());
+                list.AddChild(UiStyle.Text(group, 16, UiStyle.Ink));
+            }
+
             list.AddChild(Section(i));
+        }
+
         Refresh();
     }
 
@@ -51,35 +63,45 @@ public partial class StagePanel : PanelContainer
         if (_runAt < 0 || Time.GetTicksMsec() / 1000.0 < _runAt)
             return;
         _runAt = -1;
-        _ = _pipeline.Run();
+        _ = _graph.Run();
     }
 
     private Control Section(int index)
     {
-        var stage = _pipeline.Stages[index];
+        var node = _graph.Nodes[index];
         var box = new VBoxContainer();
-        box.AddChild(new HSeparator());
-        var header = UiStyle.Text("", 15, UiStyle.Accent);
+        box.AddThemeConstantOverride("separation", 2);
+        var header = UiStyle.Text("", 14, UiStyle.Accent);
         var summary = UiStyle.Text("", 12, UiStyle.Ink);
         var notices = UiStyle.Text("", 12, new Color("e3b25f"));
         box.AddChild(header);
+        box.AddChild(UiStyle.Text(Ports(node), 11, UiStyle.Muted));
         box.AddChild(summary);
         box.AddChild(notices);
         _sections.Add((header, summary, notices));
 
         var grid = new GridContainer { Columns = 2 };
         grid.AddThemeConstantOverride("h_separation", 10);
-        foreach (var property in stage.Options.GetType().GetProperties())
+        foreach (var property in node.Options.GetType().GetProperties())
         {
             var param = property.GetCustomAttribute<ParamAttribute>();
             if (param == null)
                 continue;
             grid.AddChild(UiStyle.Text(param.Label, 12, UiStyle.Muted, wrap: false));
-            grid.AddChild(Control(stage.Options, property, param, index));
+            grid.AddChild(Control(node.Options, property, param, index));
         }
 
-        box.AddChild(grid);
+        if (grid.GetChildCount() > 0)
+            box.AddChild(grid);
         return box;
+    }
+
+    private static string Ports(CityNode node)
+    {
+        static string Names(IEnumerable<IKey> keys) => string.Join("、", keys.Select(k => k.Label));
+        var input = node.Reads.Concat(node.Edits).ToList();
+        var output = node.Writes.Concat(node.Edits).ToList();
+        return $"{(input.Count == 0 ? "地形" : Names(input))} → {Names(output)}";
     }
 
     private Control Control(object options, PropertyInfo property, ParamAttribute param, int index)
@@ -108,7 +130,7 @@ public partial class StagePanel : PanelContainer
     private void Changed(object options, PropertyInfo property, object value, int index)
     {
         property.SetValue(options, value);
-        _pipeline.Invalidate(index);
+        _graph.Invalidate(index);
         if (_auto.ButtonPressed)
             _runAt = Time.GetTicksMsec() / 1000.0 + 0.35;
     }
@@ -118,19 +140,20 @@ public partial class StagePanel : PanelContainer
         for (int i = 0; i < _sections.Count; i++)
         {
             var (header, summary, notices) = _sections[i];
-            var status = _pipeline.Status(i);
+            var status = _graph.Status(i);
             string state = status switch
             {
-                StageStatus.Valid => $"有效 · {_pipeline.Seconds(i):0.00} s",
-                StageStatus.Running => "运行中…",
-                StageStatus.Stale => "已过期",
-                StageStatus.Failed => "失败",
+                NodeStatus.Valid => $"有效 · {_graph.Seconds(i):0.00} s",
+                NodeStatus.Running => "运行中…",
+                NodeStatus.Stale => "已过期",
+                NodeStatus.Failed => "失败",
+                NodeStatus.Blocked => "等待上游",
                 _ => "未运行",
             };
-            header.Text = $"{_pipeline.Stages[i].Title}    {state}";
-            var result = _pipeline.Result(i) as IStageResult;
-            summary.Text = status == StageStatus.Failed ? _pipeline.Error(i) : result?.Summary ?? "";
-            notices.Text = string.Join("\n", result?.Notices ?? Array.Empty<string>());
+            header.Text = $"{_graph.Nodes[i].Title}    {state}";
+            summary.Text = status == NodeStatus.Failed ? _graph.Error(i) ?? "" : _graph.Summary(i);
+            summary.Visible = summary.Text.Length > 0;
+            notices.Text = string.Join("\n", _graph.Notices(i));
             notices.Visible = notices.Text.Length > 0;
         }
     }

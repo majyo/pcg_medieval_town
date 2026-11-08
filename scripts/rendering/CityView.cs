@@ -9,8 +9,8 @@ namespace PcgCitySandbox.Rendering;
 public enum CityLayer { Site, Layout, Roads, Parcels, Buildings }
 
 /// <summary>
-/// The single preview for every stage. Each layer draws one stage result and is rebuilt only when that
-/// result object changes; stale or missing results simply hide their layer.
+/// The single preview of the town graph. Each layer draws one or more keys and is rebuilt only when one of those
+/// values changes; a stale or missing value simply hides its layer. Which node wrote a key does not matter here.
 /// </summary>
 public partial class CityView : Node3D
 {
@@ -19,13 +19,13 @@ public partial class CityView : Node3D
     private static readonly Color Stone = new("a49c8c"), StoneTop = new("8c8578");
 
     private readonly Dictionary<CityLayer, Node3D> _layers = new();
-    private readonly Dictionary<CityLayer, object?> _sources = new();
+    private readonly Dictionary<CityLayer, object?[]> _sources = new();
     private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Site };
-    private Pipeline? _pipeline;
+    private CityGraph? _graph;
 
-    public void Bind(Pipeline pipeline)
+    public void Bind(CityGraph graph)
     {
-        _pipeline = pipeline;
+        _graph = graph;
         foreach (var layer in Enum.GetValues<CityLayer>())
         {
             if (!_layers.ContainsKey(layer))
@@ -34,7 +34,7 @@ public partial class CityView : Node3D
                 AddChild(_layers[layer]);
             }
 
-            _sources[layer] = null;
+            _sources[layer] = Array.Empty<object?>();
         }
 
         Refresh();
@@ -53,30 +53,39 @@ public partial class CityView : Node3D
 
     public void Refresh()
     {
-        if (_pipeline == null)
+        if (_graph == null)
             return;
 
-        Update(CityLayer.Site, _pipeline.Get<Site>(), BuildSite);
-        Update(CityLayer.Layout, _pipeline.Get<TownLayout>(), BuildLayout);
-        Update(CityLayer.Roads, _pipeline.Get<RoadGraph>(), BuildRoads);
-        Update(CityLayer.Parcels, _pipeline.Get<ParcelSet>(), BuildParcels);
-        Update(CityLayer.Buildings, _pipeline.Get<BuildingSet>(), BuildBuildings);
+        var site = _graph.Get(Keys.Site);
+        var plaza = _graph.Get(Keys.Plaza);
+        var wall = _graph.Get(Keys.Wall);
+        var gates = _graph.Get(Keys.Gates);
+        var roads = _graph.Get(Keys.Roads);
+        var parcels = _graph.Get(Keys.Parcels);
+        var buildings = _graph.Get(Keys.Buildings);
+        Update(CityLayer.Site, root => BuildSite(root, site!), site);
+        Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
+        Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
+        Update(CityLayer.Parcels, root => BuildParcels(root, parcels!), parcels);
+        Update(CityLayer.Buildings, root => BuildBuildings(root, buildings!), buildings);
     }
 
-    private void Update<T>(CityLayer layer, T? result, Action<Node3D, T> build) where T : class
+    /// <summary>Shows the layer when all its keys have values; rebuilds it when any of them changed.</summary>
+    private void Update(CityLayer layer, Action<Node3D> build, params object?[] sources)
     {
         var root = _layers[layer];
-        root.Visible = result != null && !_hidden.Contains(layer);
-        if (!root.Visible || ReferenceEquals(_sources[layer], result))
+        root.Visible = sources.All(s => s != null) && !_hidden.Contains(layer);
+        var old = _sources[layer];
+        if (!root.Visible || old.Length == sources.Length && old.Zip(sources).All(p => ReferenceEquals(p.First, p.Second)))
             return;
 
         foreach (var child in root.GetChildren())
             child.QueueFree();
-        _sources[layer] = result;
-        build(root, result!);
+        _sources[layer] = sources;
+        build(root);
     }
 
-    private float Height(Vector2 p) => _pipeline!.Terrain.HeightAt(p);
+    private float Height(Vector2 p) => _graph!.Terrain.HeightAt(p);
 
     private static void Add(Node3D root, MeshKit kit, Material material, bool shadows = true)
     {
@@ -115,20 +124,20 @@ public partial class CityView : Node3D
         Add(root, kit, MeshKit.Material(unshaded: true, alpha: 0.45f), shadows: false);
     }
 
-    private void BuildLayout(Node3D root, TownLayout layout)
+    private void BuildLayout(Node3D root, Plaza square, WallRing ring, GateSet gateSet)
     {
         var plaza = new MeshKit();
-        plaza.Drape(layout.Plaza.Triangulate(), Height, 0.35f, new Color("cdb995"));
+        plaza.Drape(square.Area.Triangulate(), Height, 0.35f, new Color("cdb995"));
         Add(root, plaza, MeshKit.Material(), shadows: false);
 
         var wall = new MeshKit();
-        var ring = layout.Wall;
-        var gates = layout.Gates.Select(g => g.Position).ToList();
+        var points = ring.Ring;
+        var gates = gateSet.Gates.Select(g => g.Position).ToList();
         const float gap = 6, thickness = 2.4f, height = 7;
-        for (int i = 0; i < ring.Length; i++)
+        for (int i = 0; i < points.Length; i++)
         {
-            var a = ring[i];
-            var b = ring[(i + 1) % ring.Length];
+            var a = points[i];
+            var b = points[(i + 1) % points.Length];
             float length = a.DistanceTo(b);
             float start = gates.Contains(a) ? gap : 0;
             float end = length - (gates.Contains(b) ? gap : 0);
@@ -147,7 +156,7 @@ public partial class CityView : Node3D
                 Tower(wall, a, along, 5, height + 3);
         }
 
-        foreach (var gate in layout.Gates)
+        foreach (var gate in gateSet.Gates)
         {
             var tangent = gate.Outward.Orthogonal();
             Tower(wall, gate.Position + tangent * (gap + 2.5f), gate.Outward, 6, height + 5);
@@ -166,10 +175,10 @@ public partial class CityView : Node3D
         kit.Prism(corners, ground - 1, corners.Max(Height) + height, Stone.Darkened(0.05f), StoneTop);
     }
 
-    private void BuildRoads(Node3D root, RoadGraph roads)
+    private void BuildRoads(Node3D root, RoadGraph roads, Plaza? plaza)
     {
         var kit = new MeshKit();
-        kit.Drape(roads.Footprint.Subtract(_pipeline!.Get<TownLayout>()?.Plaza ?? Region.Empty).Triangulate(),
+        kit.Drape(roads.Footprint.Subtract(plaza?.Area ?? Region.Empty).Triangulate(),
             Height, 0.3f, new Color("a8916c"));
         Add(root, kit, MeshKit.Material(), shadows: false);
 

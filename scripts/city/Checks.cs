@@ -8,46 +8,45 @@ using PcgCitySandbox.Terrain;
 namespace PcgCitySandbox.City;
 
 /// <summary>
-/// Headless check: runs the full chain for fixed seeds, asserts each stage's invariants and determinism.
-/// Run with `tools/project.ps1 test`. Exit code 0 means every check passed.
+/// Headless check: runs the town graph for fixed seeds and asserts every key's contract, graph wiring and
+/// invalidation, and determinism. Run with `tools/project.ps1 test`. Exit code 0 means every check passed.
 /// </summary>
 public static class Checks
 {
     private static readonly int[] Seeds = { 73129, 7, 22017 };
-    private const double Tolerance = 0.5;
 
     /// <param name="createTerrain">Builds the terrain for a seed; the checks never see how.</param>
     public static async Task<int> Run(Func<int, ITerrain> createTerrain)
     {
         var failures = new List<string>();
+        failures.AddRange(Wiring(createTerrain(Seeds[0])));
         string? firstFingerprint = null;
         foreach (int seed in Seeds)
         {
-            var pipeline = TownPipeline.Create(createTerrain(seed));
-            await pipeline.Run();
-            for (int i = 0; i < pipeline.Stages.Count; i++)
+            var graph = TownGraph.Create(createTerrain(seed));
+            await graph.Run();
+            for (int i = 0; i < graph.Nodes.Count; i++)
             {
-                var result = pipeline.Result(i) as IStageResult;
-                string line = result == null
-                    ? $"FAILED {pipeline.Error(i)}"
-                    : $"{result.Summary}  ({pipeline.Seconds(i):0.00} s)";
-                GD.Print($"seed={seed} {pipeline.Stages[i].Title}: {line}");
-                if (result == null)
-                    failures.Add($"seed={seed} {pipeline.Stages[i].Title}: {pipeline.Error(i)}");
-                foreach (var notice in result?.Notices ?? Array.Empty<string>())
+                var node = graph.Nodes[i];
+                bool valid = graph.Status(i) == NodeStatus.Valid;
+                string line = valid ? $"{graph.Summary(i)}  ({graph.Seconds(i):0.00} s)" : $"{graph.Status(i)} {graph.Error(i)}";
+                GD.Print($"seed={seed} {node.Group}/{node.Title}: {line}");
+                if (!valid)
+                    failures.Add($"seed={seed} {node.Title}: {graph.Status(i)} {graph.Error(i)}");
+                foreach (var notice in graph.Notices(i))
                     GD.Print($"    notice: {notice}");
             }
 
-            if (pipeline.Get<BuildingSet>() == null)
+            if (graph.Get(Keys.Buildings) == null)
                 continue;
 
-            var errors = Invariants(pipeline);
-            failures.AddRange(errors.Select(e => $"seed={seed} {e}"));
+            failures.AddRange(Invariants(graph).Select(e => $"seed={seed} {e}"));
+            failures.AddRange((await Invalidation(graph)).Select(e => $"seed={seed} {e}"));
             if (seed == Seeds[0])
-                firstFingerprint = Fingerprint(pipeline);
+                firstFingerprint = Fingerprint(graph);
         }
 
-        var again = TownPipeline.Create(createTerrain(Seeds[0]));
+        var again = TownGraph.Create(createTerrain(Seeds[0]));
         await again.Run();
         if (firstFingerprint == null || Fingerprint(again) != firstFingerprint)
             failures.Add("同一种子两次生成结果不一致");
@@ -58,131 +57,93 @@ public static class Checks
         return failures.Count == 0 ? 0 : 1;
     }
 
-    public static List<string> Invariants(Pipeline pipeline)
+    /// <summary>Every key contract, plus: no node changed a value it read (summaries still match what was written).</summary>
+    public static List<string> Invariants(CityGraph graph)
     {
-        var site = pipeline.Get<Site>()!;
-        var layout = pipeline.Get<TownLayout>()!;
-        var roads = pipeline.Get<RoadGraph>()!;
-        var parcels = pipeline.Get<ParcelSet>()!;
-        var buildings = pipeline.Get<BuildingSet>()!;
         var errors = new List<string>();
-        void Require(bool condition, string message)
+        foreach (var invariant in Contracts.All)
         {
-            if (!condition)
-                errors.Add(message);
+            if (!graph.Has(invariant.Key))
+                errors.Add($"缺少 {invariant.Key.Name}");
+            else
+                errors.AddRange(invariant.Check(graph).Select(e => $"{invariant.Key.Name}: {e}"));
         }
 
-        Require(site.BuildableFraction is > 0.05f and < 0.95f, $"场地可建设比例异常 {site.BuildableFraction:P0}");
-
-        Require(site.Buildable(site.CellAt(layout.Core)), "核心不在可建设格");
-        Require(layout.Plaza.Subtract(layout.Interior).Area < 1, "广场超出城墙");
-        Require(layout.Gates.Count > 0, "没有城门");
-        Require(layout.Gates.All(g => layout.Wall.Contains(g.Position)), "城门不在城墙上");
-
-        var gateCells = layout.Gates.Select(g => g.Position).ToList();
-        Require(roads.Edges.All(e => e.From < roads.Nodes.Count && e.To < roads.Nodes.Count), "路段引用了不存在的节点");
-        Require(roads.Edges.All(e => e.Length > 0.01f), "存在零长度路段");
-        Require(roads.Nodes.Count(n => n.Kind == "gate") == layout.Gates.Count, "城门未全部接入路网");
-        Require(Reachable(roads).Count == roads.Nodes.Count, "路网不连通");
-        foreach (var edge in roads.Edges)
+        for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            foreach (var p in Samples(edge.Points, 2))
-            {
-                int k = site.CellAt(p);
-                bool nearGate = gateCells.Any(g => g.DistanceTo(p) < site.CellSize * 1.5f);
-                if (k < 0 || site.Block[k] == SiteBlock.Water)
-                {
-                    errors.Add($"路段 {edge.Id} 穿过水域 {p}");
-                    break;
-                }
-
-                if (!nearGate && layout.Interior.Contains(p) != (edge.Kind != RoadKind.Outer))
-                {
-                    errors.Add($"路段 {edge.Id}（{edge.Kind}）在城门以外穿越城墙 {p}");
-                    break;
-                }
-            }
+            if (graph.Summary(i) != graph.SummaryWhenRun(i))
+                errors.Add($"{graph.Nodes[i].Title} 的输出在写入后被修改");
         }
-
-        var parcelRegions = parcels.Parcels.Select(p => Region.Polygon(p.Ring)).ToList();
-        for (int i = 0; i < parcelRegions.Count; i++)
-        {
-            var region = parcelRegions[i];
-            Require(region.Subtract(parcels.Developable).Area < Tolerance, $"地块 {i} 超出可建区");
-            Require(region.Intersect(roads.Footprint).Area < Tolerance, $"地块 {i} 压到道路");
-        }
-
-        foreach (var (a, b) in Overlaps(parcelRegions))
-            errors.Add($"地块 {a} 与 {b} 重叠");
-
-        var buildingRegions = buildings.Buildings.Select(b => Region.Polygon(b.Corners)).ToList();
-        Require(buildingRegions.Count > 0, "没有建筑");
-        for (int i = 0; i < buildingRegions.Count; i++)
-        {
-            var building = buildings.Buildings[i];
-            Require(buildingRegions[i].Subtract(parcelRegions[building.ParcelId]).Area < Tolerance, $"建筑 {i} 超出地块");
-            Require(building.Eaves > building.Base && building.Ridge > building.Eaves, $"建筑 {i} 高度无效");
-        }
-
-        foreach (var (a, b) in Overlaps(buildingRegions))
-            errors.Add($"建筑 {a} 与 {b} 重叠");
 
         return errors.Take(20).ToList();
     }
 
-    private static HashSet<int> Reachable(RoadGraph roads)
+    /// <summary>The graph rejects a missing input and a second fresh writer of a key.</summary>
+    private static IEnumerable<string> Wiring(ITerrain terrain)
     {
-        var seen = new HashSet<int> { roads.CoreNode };
-        var queue = new Queue<int>(seen);
-        while (queue.TryDequeue(out int node))
-        {
-            foreach (var edge in roads.Edges.Where(e => e.From == node || e.To == node))
-            {
-                int next = edge.From == node ? edge.To : edge.From;
-                if (seen.Add(next))
-                    queue.Enqueue(next);
-            }
-        }
-
-        return seen;
+        if (!Throws(() => new CityGraph(terrain, new ChooseCore())))
+            yield return "读取没有上游的键时没有报错";
+        if (!Throws(() => new CityGraph(terrain, new SiteAnalysis(), new SiteAnalysis())))
+            yield return "两个节点重复写入同一个键时没有报错";
     }
 
-    private static IEnumerable<Vector2> Samples(Vector2[] points, float step)
+    /// <summary>
+    /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result.
+    /// Checked on the outer roads node: site, layout, zoning and main streets must stay valid.
+    /// </summary>
+    private static async Task<List<string>> Invalidation(CityGraph graph)
     {
-        for (int i = 1; i < points.Length; i++)
+        var errors = new List<string>();
+        string before = Fingerprint(graph);
+        int outer = Index<OuterRoads>(graph);
+        graph.Invalidate(outer);
+        for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            int count = Math.Max(1, (int)(points[i - 1].DistanceTo(points[i]) / step));
-            for (int j = 0; j <= count; j++)
-                yield return points[i - 1].Lerp(points[i], j / (float)count);
+            bool upstream = graph.Nodes[i] is SiteAnalysis or ChooseCore or SquarePlaza or StarWall or PlaceGates
+                or RoadZoning or MainStreets;
+            if (upstream != (graph.Status(i) == NodeStatus.Valid))
+                errors.Add($"使 城外道路 过期后，{graph.Nodes[i].Title} 的状态为 {graph.Status(i)}");
+        }
+
+        await graph.Run();
+        if (Fingerprint(graph) != before)
+            errors.Add("局部重新生成的结果与完整生成不同");
+        return errors;
+    }
+
+    private static int Index<T>(CityGraph graph) where T : CityNode
+    {
+        for (int i = 0; i < graph.Nodes.Count; i++)
+        {
+            if (graph.Nodes[i] is T)
+                return i;
+        }
+
+        throw new InvalidOperationException($"图中没有 {typeof(T).Name}");
+    }
+
+    private static bool Throws(Action action)
+    {
+        try
+        {
+            action();
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return true;
         }
     }
 
-    private static IEnumerable<(int, int)> Overlaps(List<Region> regions)
+    private static string Fingerprint(CityGraph graph)
     {
-        var order = Enumerable.Range(0, regions.Count).OrderBy(i => regions[i].Bounds.Position.X).ToArray();
-        for (int i = 0; i < order.Length; i++)
-        {
-            var a = regions[order[i]];
-            for (int j = i + 1; j < order.Length; j++)
-            {
-                var b = regions[order[j]];
-                if (b.Bounds.Position.X > a.Bounds.End.X)
-                    break;
-                if (a.Bounds.Intersects(b.Bounds) && a.Intersect(b).Area > Tolerance)
-                    yield return (order[i], order[j]);
-            }
-        }
-    }
-
-    private static string Fingerprint(Pipeline pipeline)
-    {
-        var roads = pipeline.Get<RoadGraph>();
-        var parcels = pipeline.Get<ParcelSet>();
-        var buildings = pipeline.Get<BuildingSet>();
+        var roads = graph.Get(Keys.Roads);
+        var parcels = graph.Get(Keys.Parcels);
+        var buildings = graph.Get(Keys.Buildings);
         if (roads == null || parcels == null || buildings == null)
             return "incomplete";
         return string.Join("|",
-            pipeline.Get<TownLayout>()!.Core,
+            graph.Get(Keys.Core)!.Position,
             roads.Edges.Count,
             roads.Edges.Sum(e => e.Length).ToString("F2"),
             parcels.Parcels.Count,

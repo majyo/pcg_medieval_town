@@ -18,7 +18,7 @@ public partial class Main : Node3D
 {
     private MapSettings _settings = null!;
     private TemperateMapData _map = null!;
-    private Pipeline _pipeline = null!;
+    private CityGraph _graph = null!;
     private TerrainRenderer _terrain = null!;
     private CityView _city = null!;
     private MapCamera _camera = null!;
@@ -43,13 +43,13 @@ public partial class Main : Node3D
             }
 
             _map = TemperateMapData.Create(_settings, _settings.Seed);
-            _pipeline = TownPipeline.Create(_map);
-            _pipeline.Changed += OnPipelineChanged;
+            _graph = TownGraph.Create(_map);
+            _graph.Changed += OnGraphChanged;
             BuildScene();
             BuildInterface();
             ShowMap();
 
-            await _pipeline.Run();
+            await _graph.Run();
             var core = FocusOnTown();
             var capture = args.FirstOrDefault(a => a.StartsWith("--capture="));
             if (capture != null)
@@ -81,7 +81,7 @@ public partial class Main : Node3D
         AddChild(_camera);
         _city = new CityView { Name = "City" };
         AddChild(_city);
-        _city.Bind(_pipeline);
+        _city.Bind(_graph);
     }
 
     private void BuildInterface()
@@ -93,9 +93,9 @@ public partial class Main : Node3D
         _mapPanel.RebuildRequested += seed =>
         {
             _map = TemperateMapData.Create(_settings, seed);
-            _pipeline.SetTerrain(_map);
+            _graph.SetTerrain(_map);
             ShowMap();
-            _ = _pipeline.Run();
+            _ = _graph.Run();
         };
         _mapPanel.ResetViewRequested += _camera.ResetView;
         _mapPanel.AddChoice(new[] { "地表", "高程", "坡度", "适宜性" }, (int)_view, i =>
@@ -121,7 +121,7 @@ public partial class Main : Node3D
         var stages = new StagePanel { Name = "Stages" };
         ui.AddChild(stages);
         UiStyle.DockRight(stages, 364);
-        stages.Bind(_pipeline);
+        stages.Bind(_graph);
     }
 
     /// <summary>(Re)creates the terrain renderer for the current map.</summary>
@@ -143,7 +143,7 @@ public partial class Main : Node3D
 
     private Vector3 FocusOnTown()
     {
-        var center = _pipeline.Get<TownLayout>()?.Core ?? Vector2.Zero;
+        var center = _graph.Get(Keys.Core)?.Position ?? Vector2.Zero;
         var core = new Vector3(center.X, _map.HeightAt(center), center.Y);
         _camera.Frame(core, 0.83f, -0.38f, 1200);
         return core;
@@ -194,15 +194,15 @@ public partial class Main : Node3D
     /// The one place city results reach the terrain view: no trees, rocks or ground cover inside the walls or
     /// within a few meters of a road.
     /// </summary>
-    private void OnPipelineChanged()
+    private void OnGraphChanged()
     {
         _city.Refresh();
-        var layout = _pipeline.Get<TownLayout>();
-        var roads = _pipeline.Get<RoadGraph>();
+        var wall = _graph.Get(Keys.Wall);
+        var roads = _graph.Get(Keys.Roads);
         if (ReferenceEquals(_treeMaskSource, roads) || _terrain == null)
             return;
         _treeMaskSource = roads;
-        _terrain.SetExclusion(layout == null ? null : new Exclusion(layout.Interior.Contains, layout.Interior.Bounds,
+        _terrain.SetExclusion(wall == null ? null : new Exclusion(wall.Interior.Contains, wall.Interior.Bounds,
             roads?.Edges.Select(e => (e.Points, e.Width / 2 + 3)) ?? Enumerable.Empty<(Vector2[], float)>()));
     }
 
@@ -220,7 +220,7 @@ public partial class Main : Node3D
         }
 
         var sample = _map.Sample(hit);
-        var site = _pipeline.Get<Site>();
+        var site = _graph.Get(Keys.Site);
         int cell = site?.CellAt(hit) ?? -1;
         string block = cell < 0 ? "" : site!.Block[cell].Label();
         _mapPanel.Probe = $"({hit.X:0}, {hit.Y:0})  高程 {sample.Height:0.0} m  坡度 {sample.SlopeDegrees:0.0}°  {block}";

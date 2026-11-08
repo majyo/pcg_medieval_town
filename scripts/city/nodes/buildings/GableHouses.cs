@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.Terrain;
 
 namespace PcgCitySandbox.City;
 
-public sealed class BuildingOptions
+public sealed class GableHousesOptions
 {
     [Param("最小进深 m", 5, 20, 0.5)] public float DepthMin { get; set; } = 8;
     [Param("最大进深 m", 6, 25, 0.5)] public float DepthMax { get; set; } = 13;
@@ -17,41 +16,28 @@ public sealed class BuildingOptions
 }
 
 /// <summary>
-/// Street-front house: Corners are front-left, front-right, back-right, back-left. Walls rise from Base to
-/// Eaves; a gable roof peaks at Ridge, with the ridge running front-to-back when RidgeToStreet is true.
+/// One rectangular house at the street front of every plot, with random depth and floors (one more on main
+/// streets) and a gable roof; narrow, deep houses turn the gable to the street. Sometimes leaves an alley.
 /// </summary>
-public sealed record Building(int ParcelId, Vector2[] Corners, float Base, float Eaves, float Ridge, bool RidgeToStreet, int Palette);
-
-public sealed class BuildingSet : IStageResult
-{
-    public required IReadOnlyList<Building> Buildings { get; init; }
-    public List<string> Notices { get; } = new();
-
-    public string Summary => $"{Buildings.Count} 栋，占地 {Buildings.Sum(b => Footprint(b)) / 10000:0.00} ha";
-
-    IReadOnlyList<string> IStageResult.Notices => Notices;
-
-    public static float Footprint(Building b) =>
-        b.Corners[0].DistanceTo(b.Corners[1]) * b.Corners[1].DistanceTo(b.Corners[2]);
-}
-
-public sealed class BuildingStage : Stage<BuildingOptions, BuildingSet>
+public sealed class GableHouses : CityNode<GableHousesOptions>
 {
     private const float FloorHeight = 3.2f;
 
-    public override string Title => "05 建筑";
+    public override string Group => "建筑";
+    public override string Title => "临街双坡房屋";
+    public override IReadOnlyList<IKey> Reads => [Keys.Parcels];
+    public override IReadOnlyList<IKey> Writes => [Keys.Buildings];
 
-    protected override BuildingSet Run(StageInputs inputs, BuildingOptions o)
+    protected override void Run(NodeContext c, GableHousesOptions o)
     {
         if (o.DepthMax < o.DepthMin || o.FloorsMax < o.FloorsMin)
             throw new ArgumentException("最大值不能小于最小值");
 
-        var map = inputs.Terrain;
-        var parcels = inputs.Get<ParcelSet>();
+        var map = c.Terrain;
         var rng = new Random(o.Seed);
         var buildings = new List<Building>();
         int skipped = 0;
-        foreach (var parcel in parcels.Parcels)
+        foreach (var parcel in c.Get(Keys.Parcels).Parcels)
         {
             var region = Region.Polygon(parcel.Ring);
             var along = (parcel.FrontB - parcel.FrontA).Normalized();
@@ -94,9 +80,8 @@ public sealed class BuildingStage : Stage<BuildingOptions, BuildingSet>
             buildings.Add(new Building(parcel.Id, corners, heights.Min() - 0.5f, eaves, eaves + span * 0.5f, ridgeToStreet, palette));
         }
 
-        var set = new BuildingSet { Buildings = buildings };
         if (skipped > 0)
-            set.Notices.Add($"{skipped} 个地块放不下建筑");
-        return set;
+            c.Notice($"{skipped} 个地块放不下建筑");
+        c.Set(Keys.Buildings, new BuildingSet(buildings));
     }
 }

@@ -5,60 +5,35 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-public sealed class ParcelOptions
+public sealed class FrontageParcelsOptions
 {
     [Param("最小面宽 m", 4, 20, 0.5)] public float FrontageMin { get; set; } = 7;
     [Param("最大面宽 m", 5, 30, 0.5)] public float FrontageMax { get; set; } = 12;
     [Param("地块进深 m", 10, 60, 1)] public float Depth { get; set; } = 26;
     [Param("最小面积 m²", 30, 400, 5)] public float MinArea { get; set; } = 80;
-    [Param("城墙内侧退让 m", 0, 30, 1)] public float WallSetback { get; set; } = 8;
     [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
 }
 
-/// <summary>A street-fronting plot. Front runs along the street edge; Inward points away from the street.</summary>
-public sealed record Parcel(int Id, Vector2[] Ring, Vector2 FrontA, Vector2 FrontB, Vector2 Inward, RoadKind Street, float Area)
-{
-    public float Frontage => FrontA.DistanceTo(FrontB);
-}
-
-public sealed class ParcelSet : IStageResult
-{
-    public required Region Developable { get; init; }
-    public required IReadOnlyList<Region> Blocks { get; init; }
-    public required IReadOnlyList<Parcel> Parcels { get; init; }
-    public List<string> Notices { get; } = new();
-
-    public string Summary
-    {
-        get
-        {
-            double area = Parcels.Sum(p => (double)p.Area);
-            return $"{Blocks.Count} 街区，{Parcels.Count} 地块，占可建区 {area / Math.Max(1, Developable.Area):P0}";
-        }
-    }
-
-    IReadOnlyList<string> IStageResult.Notices => Notices;
-}
-
-public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
+/// <summary>
+/// Cuts fixed-depth plots of random frontage along both sides of every town street, main streets first and
+/// longer streets before shorter. A plot is clipped to the blocks and loses whatever earlier plots claimed.
+/// </summary>
+public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 {
     private const float Bucket = 40;
 
-    public override string Title => "04 街区与地块";
+    public override string Group => "街区与地块";
+    public override string Title => "临街地块";
+    public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads];
+    public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 
-    protected override ParcelSet Run(StageInputs inputs, ParcelOptions o)
+    protected override void Run(NodeContext c, FrontageParcelsOptions o)
     {
         if (o.FrontageMax < o.FrontageMin)
             throw new ArgumentException("最大面宽不能小于最小面宽");
 
-        var site = inputs.Get<Site>();
-        var layout = inputs.Get<TownLayout>();
-        var roads = inputs.Get<RoadGraph>();
-        var developable = layout.Interior.Offset(-o.WallSetback)
-            .Subtract(roads.Footprint)
-            .Subtract(Unbuildable(site, layout.Interior.Bounds));
-        var blocks = developable.Parts().Where(b => b.Area >= o.MinArea).ToList();
-
+        var blocks = c.Get(Keys.Blocks).Blocks;
+        var roads = c.Get(Keys.Roads);
         var parcels = new List<Parcel>();
         var claimed = new List<Region>();
         var index = new Dictionary<(int, int), List<int>>();
@@ -67,7 +42,7 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
             .OrderBy(e => e.Kind).ThenByDescending(e => e.Length).ThenBy(e => e.Id);
         foreach (var edge in ordered)
         {
-            inputs.Cancellation.ThrowIfCancellationRequested();
+            c.Cancellation.ThrowIfCancellationRequested();
             foreach (int side in new[] { 1, -1 })
             {
                 for (int s = 1; s < edge.Points.Length; s++)
@@ -75,7 +50,7 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
             }
         }
 
-        return new ParcelSet { Developable = developable, Blocks = blocks, Parcels = parcels };
+        c.Set(Keys.Parcels, new ParcelSet(parcels));
 
         void Frontage(RoadEdge edge, Vector2 p0, Vector2 p1, int side)
         {
@@ -91,12 +66,12 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
                 width = Math.Min(width, length - t);
                 var a = p0 + along * t + inward * (front - 0.5f);
                 var b = a + along * width;
-                Claim(edge, a, b, inward, front);
+                Claim(edge, a, b, inward);
                 t += width;
             }
         }
 
-        void Claim(RoadEdge edge, Vector2 a, Vector2 b, Vector2 inward, float front)
+        void Claim(RoadEdge edge, Vector2 a, Vector2 b, Vector2 inward)
         {
             var quad = Region.Polygon(new[] { a, b, b + inward * (o.Depth + 0.5f), a + inward * (o.Depth + 0.5f) });
             var bounds = quad.Bounds;
@@ -119,9 +94,7 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
                 return;
 
             int id = parcels.Count;
-            var frontA = a + inward * 0.5f;
-            var frontB = b + inward * 0.5f;
-            parcels.Add(new Parcel(id, part.Rings[0], frontA, frontB, inward, edge.Kind, (float)part.Area));
+            parcels.Add(new Parcel(id, part.Rings[0], a + inward * 0.5f, b + inward * 0.5f, inward, edge.Kind, (float)part.Area));
             claimed.Add(part);
             foreach (var cell in Buckets(part.Bounds))
             {
@@ -132,7 +105,7 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
         }
 
         IEnumerable<int> Nearby(Rect2 bounds) =>
-            Buckets(bounds).SelectMany(c => index.TryGetValue(c, out var list) ? list : Enumerable.Empty<int>()).Distinct();
+            Buckets(bounds).SelectMany(k => index.TryGetValue(k, out var list) ? list : Enumerable.Empty<int>()).Distinct();
     }
 
     private static IEnumerable<(int, int)> Buckets(Rect2 r)
@@ -140,24 +113,5 @@ public sealed class ParcelStage : Stage<ParcelOptions, ParcelSet>
         for (int z = (int)MathF.Floor(r.Position.Y / Bucket); z <= (int)MathF.Floor(r.End.Y / Bucket); z++)
             for (int x = (int)MathF.Floor(r.Position.X / Bucket); x <= (int)MathF.Floor(r.End.X / Bucket); x++)
                 yield return (x, z);
-    }
-
-    private static Region Unbuildable(Site site, Rect2 bounds)
-    {
-        var squares = new List<Vector2[]>();
-        float c = site.CellSize;
-        for (int k = 0; k < site.Count; k++)
-        {
-            var p = site.Center(k);
-            if (site.Buildable(k) || !bounds.Grow(c).HasPoint(p))
-                continue;
-            squares.Add(new[]
-            {
-                p + new Vector2(-c, -c) / 2, p + new Vector2(c, -c) / 2,
-                p + new Vector2(c, c) / 2, p + new Vector2(-c, c) / 2,
-            });
-        }
-
-        return squares.Count == 0 ? Region.Empty : Region.Polygons(squares);
     }
 }
