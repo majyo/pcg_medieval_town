@@ -26,7 +26,7 @@ public partial class TerrainRenderer : Node3D
         _data = data;
         _ground = new GroundSurface { Name = "Ground" };
         AddChild(_ground);
-        _ground.Build(data, i => GroundColor(TerrainView.Landscape, i));
+        _ground.Build(data, GroundMasks);
         BuildSkirt();
         BuildWater();
         AddChild(_forest);
@@ -38,7 +38,10 @@ public partial class TerrainRenderer : Node3D
         if (view == View)
             return;
         View = view;
-        _ground.SetColors(i => GroundColor(view, i));
+        if (view == TerrainView.Landscape)
+            _ground.SetMasks(GroundMasks);
+        else
+            _ground.SetColors(i => GroundColor(view, i));
     }
 
     /// <summary>Centers the ground's finest level of detail on <paramref name="focus"/>.</summary>
@@ -56,7 +59,20 @@ public partial class TerrainRenderer : Node3D
         BuildForest();
     }
 
-    /// <summary>Ground color of a view at map grid vertex <paramref name="i"/>.</summary>
+    /// <summary>
+    /// What the painterly ground shader needs at a point: R = forest cover, G = height above the river surface
+    /// (0 at the water, 1 from 3 m up), B = elevation relative to the map's range.
+    /// </summary>
+    private Color GroundMasks(Vector2 p)
+    {
+        var d = _data;
+        var sample = d.Sample(p);
+        var river = d.NearestRiver(p, 120);
+        float aboveWater = float.IsPositiveInfinity(river.Distance) ? 1 : Mathf.Clamp((sample.Height - river.WaterHeight) / 3, 0, 1);
+        return new Color(sample.Forest, aboveWater, Mathf.InverseLerp(d.MinHeight, d.MaxHeight, sample.Height));
+    }
+
+    /// <summary>Analysis-view color at map grid vertex <paramref name="i"/>.</summary>
     private Color GroundColor(TerrainView view, int i)
     {
         var d = _data;
@@ -69,9 +85,7 @@ public partial class TerrainRenderer : Node3D
                 .Lerp(new Color("be6251"), Mathf.Clamp((d.Slopes[i] - 8) / 12, 0, 1)),
             TerrainView.Suitability => d.Water[i] ? new Color("315f74")
                 : new Color("ad7860").Lerp(new Color("90bc84"), d.Suitability[i]),
-            _ => new Color("849965").Lerp(new Color("a5ae77"), h * 0.5f)
-                .Lerp(new Color("526d44"), Mathf.Clamp(d.Forest[i] * 0.85f, 0, 0.65f))
-                .Lerp(new Color("b8ae82"), Mathf.Clamp(1 - (d.RiverDistances[i] - d.Settings.RiverWidthMeters * 0.5f) / 17, 0, 0.75f)),
+            _ => throw new ArgumentOutOfRangeException(nameof(view), "地表视图由着色器按遮罩绘制。"),
         };
     }
 
