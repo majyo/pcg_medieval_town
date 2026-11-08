@@ -32,8 +32,3 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 anti_aliasing/quality/msaa_3d=2
 
-[navigation]
-
-3d/default_cell_size=0.01
-3d/default_cell_height=0.01
-3d/merge_rasterizer_cell_scale=0.01
