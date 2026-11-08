@@ -6,8 +6,6 @@ using PcgCitySandbox.Terrain;
 
 namespace PcgCitySandbox.Rendering;
 
-public enum TerrainView { Landscape, Elevation, Slope, Suitability }
-
 /// <summary>
 /// Everything drawn from the terrain: ground (Terrain3D via <see cref="GroundSurface"/>), map skirt, river surface,
 /// trees, rocks and ground cover (grass, flowers).
@@ -21,7 +19,9 @@ public partial class TerrainRenderer : Node3D
     private Rocks _rocks = null!;
     private GroundCover _cover = null!;
 
-    public TerrainView View { get; private set; }
+    private enum GroundView { Landscape, Suitability, Colors }
+
+    private GroundView _view;
 
     public void Build(TemperateMapData data)
     {
@@ -44,15 +44,29 @@ public partial class TerrainRenderer : Node3D
         _cover.Build(data, _ground.Masks);
     }
 
-    public void SetView(TerrainView view)
+    /// <summary>The painterly ground (the default).</summary>
+    public void ShowLandscape()
     {
-        if (view == View)
+        if (_view == GroundView.Landscape)
             return;
-        View = view;
-        if (view == TerrainView.Landscape)
-            _ground.SetMasks(GroundMasks);
-        else
-            _ground.SetColors(i => GroundColor(view, i));
+        _view = GroundView.Landscape;
+        _ground.SetMasks(GroundMasks);
+    }
+
+    /// <summary>The terrain's own suitability estimate.</summary>
+    public void ShowSuitability()
+    {
+        if (_view == GroundView.Suitability)
+            return;
+        _view = GroundView.Suitability;
+        _ground.SetColors(SuitabilityColor);
+    }
+
+    /// <summary>Colors the ground with <paramref name="color"/> at every height-grid point; always repaints.</summary>
+    public void ShowColors(Func<Vector2, Color> color)
+    {
+        _view = GroundView.Colors;
+        _ground.Paint(color);
     }
 
     /// <summary>
@@ -96,22 +110,9 @@ public partial class TerrainRenderer : Node3D
         return new Color(sample.Forest, aboveWater, Mathf.InverseLerp(d.MinHeight, d.MaxHeight, sample.Height));
     }
 
-    /// <summary>Analysis-view color at map grid vertex <paramref name="i"/>.</summary>
-    private Color GroundColor(TerrainView view, int i)
-    {
-        var d = _data;
-        float h = Mathf.InverseLerp(d.MinHeight, d.MaxHeight, d.Heights[i]);
-        return view switch
-        {
-            TerrainView.Elevation => new Color("315e70").Lerp(new Color("92b78e"), Mathf.Clamp(h * 2, 0, 1))
-                .Lerp(new Color("e6d3a0"), Mathf.Clamp((h - 0.5f) * 2, 0, 1)),
-            TerrainView.Slope => new Color("7db39e").Lerp(new Color("e8c36f"), Mathf.Clamp(d.Slopes[i] / 8, 0, 1))
-                .Lerp(new Color("be6251"), Mathf.Clamp((d.Slopes[i] - 8) / 12, 0, 1)),
-            TerrainView.Suitability => d.Water[i] ? new Color("315f74")
-                : new Color("ad7860").Lerp(new Color("90bc84"), d.Suitability[i]),
-            _ => throw new ArgumentOutOfRangeException(nameof(view), "地表视图由着色器按遮罩绘制。"),
-        };
-    }
+    /// <summary>Suitability color at analysis grid vertex <paramref name="i"/>.</summary>
+    private Color SuitabilityColor(int i) =>
+        _data.Water[i] ? new Color("315f74") : new Color("ad7860").Lerp(new Color("90bc84"), _data.Suitability[i]);
 
     private void BuildSkirt()
     {

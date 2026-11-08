@@ -1,0 +1,31 @@
+using System;
+using System.Collections.Generic;
+using Godot;
+
+namespace PcgCitySandbox.City;
+
+/// <summary>Panel group of the nodes that measure the site: physical quantities only, no scores or thresholds.</summary>
+public static class Sampling
+{
+    public const string Group = "场地采样";
+}
+
+public sealed class SampleGridOptions
+{
+    [Param("格距 m", 2, 16, 1)] public float CellSize { get; set; } = 4;
+}
+
+/// <summary>Chooses the grid every site field is sampled on: square cells covering the map, centered on the origin.</summary>
+public sealed class SampleGrid : CityNode<SampleGridOptions>
+{
+    public override string Group => Sampling.Group;
+    public override string Title => "采样网格";
+    public override IReadOnlyList<IKey> Writes => [Keys.Grid];
+
+    protected override void Run(NodeContext c, SampleGridOptions o)
+    {
+        int n = (int)MathF.Ceiling(c.Terrain.Half * 2 / o.CellSize - 1e-4f);
+        var origin = -new Vector2(n, n) * o.CellSize / 2;
+        c.Set(Keys.Grid, new SiteGrid(origin, o.CellSize, n, n));
+    }
+}

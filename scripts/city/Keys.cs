@@ -6,6 +6,10 @@ namespace PcgCitySandbox.City;
 /// </summary>
 public static class Keys
 {
+    public static readonly Key<SiteGrid> Grid = new("site.grid", "采样网格");
+    public static readonly Key<ScalarField> Height = new("site.height", "高程");
+    public static readonly Key<ScalarField> Slope = new("site.slope", "坡度");
+    public static readonly Key<ScalarField> Aspect = new("site.aspect", "坡向");
     public static readonly Key<Site> Site = new("site", "场地");
     public static readonly Key<TownCore> Core = new("town.core", "城址");
     public static readonly Key<Plaza> Plaza = new("town.plaza", "广场");

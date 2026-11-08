@@ -40,6 +40,7 @@ public static class Checks
             if (graph.Get(Keys.Buildings) == null)
                 continue;
 
+            GD.Print($"seed={seed} fingerprint: {Fingerprint(graph)}");
             failures.AddRange(Invariants(graph).Select(e => $"seed={seed} {e}"));
             failures.AddRange((await Invalidation(graph)).Select(e => $"seed={seed} {e}"));
             if (seed == Seeds[0])
@@ -89,25 +90,33 @@ public static class Checks
 
     /// <summary>
     /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result.
-    /// Checked on the outer roads node: site, layout, zoning and main streets must stay valid.
+    /// Checked on the outer roads node (site, layout, zoning and main streets stay valid) and on the sampled
+    /// heights (only the fields derived from them go stale; the town does not depend on them yet).
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
         var errors = new List<string>();
+        errors.AddRange(await Invalidation<OuterRoads>(graph, "城外道路", node => node.Group == Sampling.Group ||
+            node is SiteAnalysis or ChooseCore or SquarePlaza or StarWall or PlaceGates or RoadZoning or MainStreets));
+        errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is not (SampleHeight or SlopeAspect)));
+        return errors;
+    }
+
+    private static async Task<List<string>> Invalidation<T>(CityGraph graph, string title, Func<CityNode, bool> staysValid)
+        where T : CityNode
+    {
+        var errors = new List<string>();
         string before = Fingerprint(graph);
-        int outer = Index<OuterRoads>(graph);
-        graph.Invalidate(outer);
+        graph.Invalidate(Index<T>(graph));
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            bool upstream = graph.Nodes[i] is SiteAnalysis or ChooseCore or SquarePlaza or StarWall or PlaceGates
-                or RoadZoning or MainStreets;
-            if (upstream != (graph.Status(i) == NodeStatus.Valid))
-                errors.Add($"使 城外道路 过期后，{graph.Nodes[i].Title} 的状态为 {graph.Status(i)}");
+            if (staysValid(graph.Nodes[i]) != (graph.Status(i) == NodeStatus.Valid))
+                errors.Add($"使 {title} 过期后，{graph.Nodes[i].Title} 的状态为 {graph.Status(i)}");
         }
 
         await graph.Run();
         if (Fingerprint(graph) != before)
-            errors.Add("局部重新生成的结果与完整生成不同");
+            errors.Add($"{title} 局部重新生成的结果与完整生成不同");
         return errors;
     }
 
@@ -140,9 +149,11 @@ public static class Checks
         var roads = graph.Get(Keys.Roads);
         var parcels = graph.Get(Keys.Parcels);
         var buildings = graph.Get(Keys.Buildings);
-        if (roads == null || parcels == null || buildings == null)
+        var fields = new[] { Keys.Height, Keys.Slope, Keys.Aspect }.Select(graph.Get).ToArray();
+        if (roads == null || parcels == null || buildings == null || fields.Any(f => f == null))
             return "incomplete";
         return string.Join("|",
+            string.Join(",", fields.Select(f => f!.Values.Sum(v => (double)v).ToString("F3"))),
             graph.Get(Keys.Core)!.Position,
             roads.Edges.Count,
             roads.Edges.Sum(e => e.Length).ToString("F2"),

@@ -9,7 +9,8 @@ scripts/
   city/      城市生成    core/（CityGraph、CityNode、Key、Region、[Param]）、data/（键的数据类型）、nodes/（各节点）、
                          tools/（共用算法）、Keys、TownGraph、Contracts、Checks
   camera/    相机控制    MapCamera：透视环绕相机，鼠标键盘操作、复位、取景
-  rendering/ 渲染        TerrainRenderer（地面、裙边与环境资产的组装）、GroundSurface（Terrain3D 地面）、CityView（城市各键）、MeshKit
+  rendering/ 渲染        TerrainRenderer（地面、裙边与环境资产的组装）、GroundSurface（Terrain3D 地面）、CityView（城市各键）、
+                         FieldStyles（采样场的色带、图例与读数）、MeshKit
     environment/         Atmosphere（天空、太阳、雾、AO、色调映射）、WaterSurface（河面）、Forest + TreeMeshes（程序树木）、
                          GroundCover（GPU 草与野花）、Rocks（岩石）、Exclusion（植被避让区）、ProceduralMesh
 shaders/     着色器      ground（地面，Terrain3D 的 shader override）、water、tree、grass、rock；common/painterly.gdshaderinc（共用的光照、噪声、风）
@@ -35,7 +36,7 @@ camera      city ← ui
 - **高度的组成**：区域地貌（大尺度噪声 + 起伏）→ 河谷与河槽 → 米级细节（100 m 到 2.5 m 五个八度，中间两个做域扭曲；在深水河槽内淡出）。噪声是纯 C# 实现（`GradientNoise`），可并行、可复现；高度网格并行生成。
 - **最近河段查询**：按 16 m 分桶预先列出每个桶可能的最近河段（桶内任意点的真实最近河段必在列表中），查询只测这几段。生成高度时只关心 260 m 以内的河段。
 - **地面由 Terrain3D 绘制**：几何裁剪图（clipmap）网格，顶点着色器按高度图抬高顶点。`GroundSurface` 把高度网格原样导入（每个网格点一个 Terrain3D 顶点）；地图外、Terrain3D 区块多出的部分标成洞。
-- **地面着色**（`shaders/ground.gdshader`，顶点阶段和逐像素法线取自 Terrain3D 的最小着色器）：柔和的手绘风格。默认视图下颜色图存的不是颜色而是遮罩：R 林地覆盖、G 高出水面的高度、B 相对高程，由 `TerrainRenderer` 在每个高度网格点上计算。着色器据此算出草甸（两种色调，高处偏干）、林下、陡坡裸土、河滩沙、湿泥的权重，类型之间是几米宽的柔和过渡，边界再由低频噪声和两侧的细节纹理推移。近处有程序生成的地表细节：草地是两种尺寸的草丛加草叶，土和沙是卵石加细颗粒，林下是落叶和苔藓；细节同时改变颜色和法线，并按每个像素覆盖的地面大小淡出，远处不闪烁。光照以包裹漫反射为主，混入少量单阶卡通光，背光处补冷色。分析视图（高程、坡度、适宜性）把颜色直接写入颜色图，着色器按 `view_mode = 1` 原样显示。调色板、过渡宽度、细节强度和光照都是着色器的 uniform。
+- **地面着色**（`shaders/ground.gdshader`，顶点阶段和逐像素法线取自 Terrain3D 的最小着色器）：柔和的手绘风格。默认视图下颜色图存的不是颜色而是遮罩：R 林地覆盖、G 高出水面的高度、B 相对高程，由 `TerrainRenderer` 在每个高度网格点上计算。着色器据此算出草甸（两种色调，高处偏干）、林下、陡坡裸土、河滩沙、湿泥的权重，类型之间是几米宽的柔和过渡，边界再由低频噪声和两侧的细节纹理推移。近处有程序生成的地表细节：草地是两种尺寸的草丛加草叶，土和沙是卵石加细颗粒，林下是落叶和苔藓；细节同时改变颜色和法线，并按每个像素覆盖的地面大小淡出，远处不闪烁。光照以包裹漫反射为主，混入少量单阶卡通光，背光处补冷色。分析视图把颜色直接写入颜色图，着色器按 `view_mode = 1` 原样显示：采样场（高程、坡度、坡向……）按 `FieldStyles` 的色带在每个高度网格点上取色，地形自带的适宜性按分析网格取色。调色板、过渡宽度、细节强度和光照都是着色器的 uniform。
 - **环境资产**（`rendering/environment/`，全部程序生成，共用 `shaders/common/painterly.gdshaderinc` 里的柔和光照和全局风参数 `wind_direction`、`wind_strength`，后者登记在 `project.godot` 的 `[shader_globals]`）：
   - 大气：程序天空兼作环境光，指数雾带空气透视，SSAO、AgX 色调映射、轻微泛光；下午的太阳，阴影软边，阴影范围随相机距离收放。
   - 河面：沿中心线的一条连续带状网格（宽度为河宽的 `WaterSurfaceWidthFactor` 倍，压在岸坡下）；着色器按深度缓冲算出的水体厚度决定颜色和透明度，浅水泡沫，顺流波纹，掠射角偏天空色。
@@ -65,8 +66,13 @@ camera      city ← ui
 
 ## 3. 节点
 
+“场地采样”分组只输出带单位的测量值（不含评分和阈值判定），目前不被城镇节点读取；计划与进度见 [SITE_SAMPLING.md](SITE_SAMPLING.md)。
+
 | 分组 | 节点 | 读 → 写 | 内容 |
 | --- | --- | --- | --- |
+| 场地采样 | `SampleGrid` 采样网格 | 地形 → site.grid | 所有采样场共用的网格（默认 4 m），以原点为中心、覆盖全图 |
+| | `SampleHeight` 高程 | site.grid → site.height | 每格 k×k 个子样本的平均高程，滤掉米级起伏 |
+| | `SlopeAspect` 坡度坡向 | site.height → site.slope、site.aspect | Horn 3×3 差分；坡向为下坡方向的方位角（北为 −Z，顺时针），平地无坡向 |
 | 场地 | `SiteAnalysis` 场地分析 | 地形 → site | 覆盖全图的规则网格（默认 8 m）：高程、坡度、适宜性，以及不可建设的原因（水域、河岸退让、坡度、森林） |
 | 城镇布局 | `ChooseCore` 选择城址 | site → town.core | 规划半径内可建设土地多、靠河但不在河上、接近地图中部，且中心有一块可建设的方形空地 |
 | | `SquarePlaza` 方形广场 | site、town.core → town.plaza | 城址上的方形广场，不能完全放在可建设土地上时逐步缩小 |
@@ -89,13 +95,15 @@ camera      city ← ui
 
 - 地形（`TerrainChecks`）：高度网格以原点为中心、恰好覆盖地图、间距不大于设定值；没有非有限值；相邻点坡度不超过 45°；`HeightAt` 在网格点上复现网格值，分析网格的高度取自 `HeightAt`；分桶最近河段查询（含限距查询）与逐段查询结果一致；所有水域格都在渲染的河面范围内；同一种子两次生成的高度网格逐位相同。
 - 各键的契约（`Contracts`）：
+  - site.grid：覆盖整张地图，超出不到一格，以原点为中心。
+  - 所有采样场：使用共用的网格实例，每格一个有限值，统计的最小/最大值与数据一致。site.height 与格心地面高度相差不到 1 m；site.slope 在 [0, 45°]；site.aspect 在 [0, 360) 或为无值。
   - site：可建设比例在合理范围内。
   - town.core：在可建设格上。town.plaza：在城墙内。town.gates：至少一座，都在城墙上。
   - roads：引用有效，没有零长度路段，全部连通，城门全部接入；不进水域；城内道路只在城门处穿过城墙。
   - blocks：可建区在城墙内，不压铺装区。
   - parcels：在可建区内，不压道路，互不重叠。
   - buildings：在各自地块内，互不重叠，高度有效。
-- 节点图：读了没人写的键、重复新写同一个键时构建报错；没有节点改动过它读到的值；让“城外道路”过期后，恰好它和它的下游变为过期，重跑后结果与完整生成相同。
+- 节点图：读了没人写的键、重复新写同一个键时构建报错；没有节点改动过它读到的值；让“城外道路”过期后，恰好它和它的下游变为过期；让“高程”过期后，只有它和“坡度坡向”过期（城镇不依赖采样场）；两种情况重跑后结果都与完整生成相同。
 - 同一种子生成两次，结果相同。
 
 ## 5. 加功能的规则

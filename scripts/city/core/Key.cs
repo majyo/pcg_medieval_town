@@ -1,4 +1,5 @@
 using System;
+using PcgCitySandbox.Terrain;
 
 namespace PcgCitySandbox.City;
 
@@ -35,8 +36,9 @@ public interface ISummarized
     string Summary { get; }
 }
 
-/// <summary>Read access to the latest valid value of every key.</summary>
+/// <summary>Read access to the latest valid value of every key, and the terrain they were generated from.</summary>
 public interface IKeyReader
 {
+    ITerrain Terrain { get; }
     T? Get<T>(Key<T> key) where T : class;
 }

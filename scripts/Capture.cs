@@ -11,9 +11,10 @@ namespace PcgCitySandbox;
 /// <summary>Saves a fixed set of camera views of the current scene as PNG files.</summary>
 public static class Capture
 {
-    /// <summary>Fixed overview and town views, then the given close-ups.</summary>
+    /// <summary>Fixed overview and town views, then the given close-ups, then views that set up the scene themselves.</summary>
     public static async Task Save(Node host, MapCamera camera, Vector3 core,
-        IEnumerable<(string Name, Vector3 Focus, float Pitch, float Yaw, float Distance)> closeups, string directory)
+        IEnumerable<(string Name, Vector3 Focus, float Pitch, float Yaw, float Distance)> closeups,
+        IEnumerable<(string Name, Action Setup)> custom, string directory)
     {
         var path = ProjectSettings.GlobalizePath($"res://{directory}");
         Directory.CreateDirectory(path);
@@ -26,6 +27,7 @@ public static class Capture
             ("close", () => camera.Frame(core, 0.25f, 0.9f, 70)),
         };
         views.AddRange(closeups.Select(c => (c.Name, (Action)(() => camera.Frame(c.Focus, c.Pitch, c.Yaw, c.Distance)))));
+        views.AddRange(custom);
         var viewport = host.GetViewport().GetViewportRid();
         RenderingServer.ViewportSetMeasureRenderTime(viewport, true);
         foreach (var (name, setup) in views)

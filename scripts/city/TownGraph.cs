@@ -10,6 +10,9 @@ public static class TownGraph
 {
     public static CityGraph Create(ITerrain terrain) => new(
         terrain,
+        new SampleGrid(),
+        new SampleHeight(),
+        new SlopeAspect(),
         new SiteAnalysis(),
         new ChooseCore(),
         new SquarePlaza(),

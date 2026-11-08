@@ -14,6 +14,16 @@ public partial class MapPanel : PanelContainer
     private readonly Label _probe = UiStyle.Text("", 12, UiStyle.Muted);
     private readonly SpinBox _seed = new() { MinValue = 0, MaxValue = 999999, SizeFlagsHorizontal = SizeFlags.ExpandFill };
     private readonly VBoxContainer _controls = new();
+    private readonly VBoxContainer _legend = new() { Visible = false };
+    private readonly Label _legendCaption = UiStyle.Text("", 11, UiStyle.Muted);
+    private readonly TextureRect _legendRamp = new()
+    {
+        CustomMinimumSize = new Vector2(0, 10),
+        ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+        StretchMode = TextureRect.StretchModeEnum.Scale,
+    };
+    private readonly Label _legendLow = UiStyle.Text("", 11, UiStyle.Muted, wrap: false);
+    private readonly Label _legendHigh = UiStyle.Text("", 11, UiStyle.Muted, wrap: false);
 
     public MapPanel()
     {
@@ -38,6 +48,14 @@ public partial class MapPanel : PanelContainer
         reset.Pressed += () => ResetViewRequested?.Invoke();
         box.AddChild(reset);
         box.AddChild(_probe);
+        _legend.AddChild(_legendCaption);
+        _legend.AddChild(_legendRamp);
+        var ends = new HBoxContainer();
+        _legendHigh.HorizontalAlignment = HorizontalAlignment.Right;
+        ends.AddChild(_legendLow);
+        ends.AddChild(_legendHigh);
+        _legend.AddChild(ends);
+
         box.AddChild(UiStyle.Text("滚轮缩放 · WASD/中键平移 · 右键旋转", 11, UiStyle.Muted));
     }
 
@@ -49,7 +67,8 @@ public partial class MapPanel : PanelContainer
     public string Stats { set => _stats.Text = value; }
     public string Probe { set => _probe.Text = value; }
 
-    public void AddChoice(string[] names, int selected, Action<int> changed)
+    /// <summary>Adds a drop-down; the returned control lets the caller change the selection.</summary>
+    public OptionButton AddChoice(string[] names, int selected, Action<int> changed)
     {
         var choice = new OptionButton { FocusMode = FocusModeEnum.None };
         foreach (var name in names)
@@ -57,7 +76,35 @@ public partial class MapPanel : PanelContainer
         choice.Selected = selected;
         choice.ItemSelected += i => changed((int)i);
         _controls.AddChild(choice);
+        return choice;
     }
+
+    /// <summary>Places the legend (hidden until <see cref="ShowLegend"/>) at this point in the controls.</summary>
+    public void AddLegend() => _controls.AddChild(_legend);
+
+    /// <summary>A color ramp from <paramref name="low"/> to <paramref name="high"/> under a caption.</summary>
+    public void ShowLegend(string caption, Func<float, Color> ramp, string low, string high)
+    {
+        var gradient = new Gradient();
+        const int stops = 33;
+        var offsets = new float[stops];
+        var colors = new Color[stops];
+        for (int i = 0; i < stops; i++)
+        {
+            offsets[i] = i / (float)(stops - 1);
+            colors[i] = ramp(offsets[i]);
+        }
+
+        gradient.Offsets = offsets;
+        gradient.Colors = colors;
+        _legendRamp.Texture = new GradientTexture1D { Gradient = gradient, Width = 128 };
+        _legendCaption.Text = caption;
+        _legendLow.Text = low;
+        _legendHigh.Text = high;
+        _legend.Visible = true;
+    }
+
+    public void HideLegend() => _legend.Visible = false;
 
     public void AddToggle(string text, bool on, Action<bool> changed)
     {

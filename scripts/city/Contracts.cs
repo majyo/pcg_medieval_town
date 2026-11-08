@@ -18,6 +18,10 @@ public static class Contracts
 
     public static readonly IReadOnlyList<Invariant> All = new Invariant[]
     {
+        new(Keys.Grid, GridRules),
+        new(Keys.Height, r => FieldRules(r, Keys.Height).Concat(HeightRules(r))),
+        new(Keys.Slope, r => FieldRules(r, Keys.Slope).Concat(Range(r, Keys.Slope, 0, 45))),
+        new(Keys.Aspect, r => FieldRules(r, Keys.Aspect).Concat(AspectRules(r))),
         new(Keys.Site, SiteRules),
         new(Keys.Core, CoreRules),
         new(Keys.Plaza, PlazaRules),
@@ -27,6 +31,66 @@ public static class Contracts
         new(Keys.Parcels, ParcelRules),
         new(Keys.Buildings, BuildingRules),
     };
+
+    private static IEnumerable<string> GridRules(IKeyReader r)
+    {
+        var grid = r.Get(Keys.Grid)!;
+        float half = r.Terrain.Half;
+        var end = grid.Origin + grid.Size;
+        if (grid.Origin.X > -half || grid.Origin.Y > -half || end.X < half || end.Y < half)
+            yield return "采样网格没有覆盖整张地图";
+        if (-grid.Origin.X - half >= grid.CellSize || -grid.Origin.Y - half >= grid.CellSize ||
+            end.X - half >= grid.CellSize || end.Y - half >= grid.CellSize)
+            yield return "采样网格超出地图一格以上";
+        if (!(grid.Origin + grid.Size / 2).IsZeroApprox())
+            yield return "采样网格不以原点为中心";
+    }
+
+    /// <summary>Rules every scalar field obeys: on the shared grid, one finite value per cell, statistics consistent.</summary>
+    private static IEnumerable<string> FieldRules(IKeyReader r, Key<ScalarField> key)
+    {
+        var field = r.Get(key)!;
+        if (!ReferenceEquals(field.Grid, r.Get(Keys.Grid)))
+            yield return "没有使用共用的采样网格";
+        if (field.Values.Length != field.Grid.Count)
+            yield return $"数值个数 {field.Values.Length} 与格数 {field.Grid.Count} 不符";
+        if (!field.Values.All(float.IsFinite))
+            yield return "存在非有限值";
+        var valid = field.Values.Where(v => !field.IsNoData(v)).DefaultIfEmpty(0).ToArray();
+        if (valid.Min() != field.Min || valid.Max() != field.Max)
+            yield return "统计的最小/最大值与数据不符";
+    }
+
+    /// <summary>Every value (no-data cells excepted) lies in [<paramref name="min"/>, <paramref name="max"/>].</summary>
+    private static IEnumerable<string> Range(IKeyReader r, Key<ScalarField> key, float min, float max)
+    {
+        var field = r.Get(key)!;
+        if (field.Values.Any(v => !field.IsNoData(v) && (v < min || v > max)))
+            yield return $"取值超出 [{min}, {max}]：{field.Min}–{field.Max}";
+    }
+
+    private static IEnumerable<string> AspectRules(IKeyReader r)
+    {
+        var aspect = r.Get(Keys.Aspect)!;
+        if (aspect.Values.Any(v => !aspect.IsNoData(v) && v is < 0 or >= 360))
+            yield return $"坡向超出 [0, 360)：{aspect.Min}–{aspect.Max}";
+    }
+
+    /// <summary>Averaging inside a cell only filters meter-scale relief: each value stays near the ground at the cell center.</summary>
+    private static IEnumerable<string> HeightRules(IKeyReader r)
+    {
+        var height = r.Get(Keys.Height)!;
+        for (int k = 0; k < height.Grid.Count; k++)
+        {
+            var p = height.Grid.Center(k);
+            float ground = r.Terrain.HeightAt(p);
+            if (MathF.Abs(height.Values[k] - ground) >= 1)
+            {
+                yield return $"{p} 处高程 {height.Values[k]:0.00} m 与地面 {ground:0.00} m 相差 1 m 以上";
+                yield break;
+            }
+        }
+    }
 
     private static IEnumerable<string> SiteRules(IKeyReader r)
     {

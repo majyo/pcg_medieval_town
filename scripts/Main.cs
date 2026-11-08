@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using PcgCitySandbox.CameraControl;
@@ -24,7 +25,10 @@ public partial class Main : Node3D
     private MapCamera _camera = null!;
     private Atmosphere _atmosphere = null!;
     private MapPanel _mapPanel = null!;
-    private TerrainView _view = TerrainView.Landscape;
+    /// <summary>Ground coloring: 0 landscape, 1 terrain suitability, 2 + i the field of <c>FieldStyles.All[i]</c>.</summary>
+    private int _groundView;
+    private ScalarField? _paintedField;
+    private OptionButton _groundChoice = null!;
     private bool _showForest = true, _showWater = true, _showCover = true;
     private object? _treeMaskSource;
 
@@ -62,7 +66,7 @@ public partial class Main : Node3D
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
                 };
-                await Capture.Save(this, _camera, core, closeups, capture["--capture=".Length..]);
+                await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
         }
@@ -98,11 +102,9 @@ public partial class Main : Node3D
             _ = _graph.Run();
         };
         _mapPanel.ResetViewRequested += _camera.ResetView;
-        _mapPanel.AddChoice(new[] { "地表", "高程", "坡度", "适宜性" }, (int)_view, i =>
-        {
-            _view = (TerrainView)i;
-            _terrain.SetView(_view);
-        });
+        var grounds = new[] { "地表", "适宜性（地形）" }.Concat(FieldStyles.All.Select(s => "采样 · " + s.Name)).ToArray();
+        _groundChoice = _mapPanel.AddChoice(grounds, _groundView, SelectGround);
+        _mapPanel.AddLegend();
         _mapPanel.AddToggle("森林", _showForest, on => _terrain.ShowForest(_showForest = on));
         _mapPanel.AddToggle("河面", _showWater, on => _terrain.ShowWater(_showWater = on));
         _mapPanel.AddToggle("地被与岩石", _showCover, on => _terrain.ShowCover(_showCover = on));
@@ -131,7 +133,8 @@ public partial class Main : Node3D
         _terrain = new TerrainRenderer { Name = "Terrain" };
         AddChild(_terrain);
         _terrain.Build(_map);
-        _terrain.SetView(_view);
+        _paintedField = null;
+        ApplyGround();
         _terrain.ShowForest(_showForest);
         _terrain.ShowWater(_showWater);
         _terrain.ShowCover(_showCover);
@@ -139,6 +142,67 @@ public partial class Main : Node3D
         _terrain.Follow(_camera.GlobalPosition, _camera.Focus);
         _mapPanel.Stats = $"种子 {_map.Settings.Seed}\n高程 {_map.MinHeight:0}–{_map.MaxHeight:0} m\n" +
             $"林地 {_map.ForestFraction:P0}   开阔缓坡 {_map.OpenGentleFraction:P0}";
+    }
+
+    private void SelectGround(int view)
+    {
+        _groundView = view;
+        _groundChoice.Selected = view;
+        _paintedField = null;
+        ApplyGround();
+    }
+
+    /// <summary>
+    /// Shows the chosen ground coloring. A field is painted when its value changes; while it is being regenerated
+    /// the last painting stays (marked as waiting) rather than flashing back to the landscape.
+    /// </summary>
+    private void ApplyGround()
+    {
+        if (_terrain == null || _mapPanel == null)
+            return;
+        var style = _groundView >= 2 ? FieldStyles.All[_groundView - 2] : null;
+        var field = style == null ? null : _graph.Get(style.Key);
+        if (style == null || field == null && _paintedField == null)
+        {
+            _mapPanel.HideLegend();
+            if (_groundView == 1)
+                _terrain.ShowSuitability();
+            else
+                _terrain.ShowLandscape();
+            return;
+        }
+
+        var shown = field ?? _paintedField!;
+        if (!ReferenceEquals(field, _paintedField) && field != null)
+        {
+            _paintedField = field;
+            _terrain.ShowColors(p => style.ColorOf(field, field.Sample(p)));
+        }
+
+        var (low, high) = style.Range(shown);
+        string caption = $"{shown.Label}（{shown.Unit}）" + (field == null ? " · 等待重新生成" : "");
+        _mapPanel.ShowLegend(caption, style.Ramp, style.Describe(shown, low), style.Describe(shown, high));
+    }
+
+    /// <summary>Capture views: each sampled field over the whole map, then slope around the town in perspective.</summary>
+    private List<(string Name, Action Setup)> FieldViews(Vector3 core)
+    {
+        var views = new List<(string Name, Action Setup)>();
+        for (int i = 0; i < FieldStyles.All.Count; i++)
+        {
+            int view = 2 + i;
+            views.Add(($"field_{FieldStyles.All[i].Key.Name.Replace("site.", "")}", () => ShowField(view, _camera.TopView)));
+        }
+
+        int slope = 2 + FieldStyles.All.ToList().FindIndex(s => s.Key == Keys.Slope);
+        views.Add(("field_slope_town", () => ShowField(slope, () => _camera.Frame(core, 0.6f, -0.5f, 850))));
+        return views;
+    }
+
+    private void ShowField(int view, Action frame)
+    {
+        SelectGround(view);
+        frame();
     }
 
     private Vector3 FocusOnTown()
@@ -197,6 +261,7 @@ public partial class Main : Node3D
     private void OnGraphChanged()
     {
         _city.Refresh();
+        ApplyGround();
         var wall = _graph.Get(Keys.Wall);
         var roads = _graph.Get(Keys.Roads);
         if (ReferenceEquals(_treeMaskSource, roads) || _terrain == null)
@@ -219,10 +284,18 @@ public partial class Main : Node3D
             return;
         }
 
-        var sample = _map.Sample(hit);
+        var parts = new List<string> { $"({hit.X:0}, {hit.Y:0})" };
+        foreach (var style in FieldStyles.All)
+        {
+            var field = _graph.Get(style.Key);
+            if (field != null)
+                parts.Add($"{field.Label} {style.Describe(field, field.Sample(hit))}");
+        }
+
         var site = _graph.Get(Keys.Site);
         int cell = site?.CellAt(hit) ?? -1;
-        string block = cell < 0 ? "" : site!.Block[cell].Label();
-        _mapPanel.Probe = $"({hit.X:0}, {hit.Y:0})  高程 {sample.Height:0.0} m  坡度 {sample.SlopeDegrees:0.0}°  {block}";
+        if (cell >= 0)
+            parts.Add(site!.Block[cell].Label());
+        _mapPanel.Probe = string.Join("  ", parts);
     }
 }

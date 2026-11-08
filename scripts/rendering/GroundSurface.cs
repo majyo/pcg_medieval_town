@@ -72,6 +72,13 @@ public partial class GroundSurface : Node3D
         _terrain.Material.SetShaderParam("view_mode", 0);
     }
 
+    /// <summary>Analysis view: shows the sRGB color <paramref name="color"/> gives at each height-grid point as is.</summary>
+    public void Paint(Func<Vector2, Color> color)
+    {
+        Import(new Variant(), new Variant(), MaskImage(color));
+        _terrain.Material.SetShaderParam("view_mode", 1);
+    }
+
     /// <summary>Analysis view: shows per-analysis-grid-vertex sRGB colors as they are.</summary>
     public void SetColors(Func<int, Color> gridColor)
     {
@@ -117,7 +124,7 @@ public partial class GroundSurface : Node3D
     private Image HeightImage() =>
         Image.CreateFromData(_side, _side, false, Image.Format.Rf, MemoryMarshal.AsBytes(_map.HeightGrid.AsSpan()).ToArray());
 
-    /// <summary>Evaluates <paramref name="masks"/> at every height-grid point.</summary>
+    /// <summary>Evaluates <paramref name="masks"/> (masks or colors) at every height-grid point.</summary>
     private Image MaskImage(Func<Vector2, Color> masks)
     {
         var pixels = new byte[_side * _side * 4];
