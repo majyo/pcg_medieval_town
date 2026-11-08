@@ -9,15 +9,17 @@ namespace PcgCitySandbox.Rendering;
 public enum TerrainView { Landscape, Elevation, Slope, Suitability }
 
 /// <summary>
-/// Ground (Terrain3D via <see cref="GroundSurface"/>), map skirt, river surface and simple trees.
+/// Everything drawn from the terrain: ground (Terrain3D via <see cref="GroundSurface"/>), map skirt, river surface,
+/// trees, rocks and ground cover (grass, flowers).
 /// </summary>
 public partial class TerrainRenderer : Node3D
 {
     private TemperateMapData _data = null!;
     private GroundSurface _ground = null!;
-    private MeshInstance3D _water = null!;
-    private Node3D _forest = new() { Name = "Forest" };
-    private Func<Vector2, bool>? _treeMask;
+    private WaterSurface _water = null!;
+    private Forest _forest = null!;
+    private Rocks _rocks = null!;
+    private GroundCover _cover = null!;
 
     public TerrainView View { get; private set; }
 
@@ -28,9 +30,18 @@ public partial class TerrainRenderer : Node3D
         AddChild(_ground);
         _ground.Build(data, GroundMasks);
         BuildSkirt();
-        BuildWater();
+        _water = new WaterSurface { Name = "River" };
+        AddChild(_water);
+        _water.Build(data);
+        _forest = new Forest { Name = "Forest" };
         AddChild(_forest);
-        BuildForest();
+        _forest.Build(data.Trees);
+        _rocks = new Rocks { Name = "Rocks" };
+        AddChild(_rocks);
+        _rocks.Build(data);
+        _cover = new GroundCover { Name = "GroundCover" };
+        AddChild(_cover);
+        _cover.Build(data, _ground.Masks);
     }
 
     public void SetView(TerrainView view)
@@ -44,19 +55,32 @@ public partial class TerrainRenderer : Node3D
             _ground.SetColors(i => GroundColor(view, i));
     }
 
-    /// <summary>Centers the ground's finest level of detail on <paramref name="focus"/>.</summary>
-    public void Follow(Vector3 focus) => _ground.Follow(focus);
+    /// <summary>
+    /// Keeps view-dependent detail where the camera looks: the ground's finest LOD on the focus, ground cover
+    /// between the camera and the focus.
+    /// </summary>
+    public void Follow(Vector3 camera, Vector3 focus)
+    {
+        _ground.Follow(focus);
+        _cover.Follow(camera, focus);
+    }
 
     public void ShowForest(bool visible) => _forest.Visible = visible;
     public void ShowWater(bool visible) => _water.Visible = visible;
 
-    /// <summary>Hides trees where <paramref name="hidden"/> returns true (inside the town, on roads).</summary>
-    public void SetTreeMask(Func<Vector2, bool>? hidden)
+    public void ShowCover(bool visible)
     {
-        _treeMask = hidden;
-        foreach (var child in _forest.GetChildren())
-            child.QueueFree();
-        BuildForest();
+        _cover.Visible = visible;
+        _rocks.Visible = visible;
+    }
+
+    /// <summary>Keeps trees, rocks and ground cover out of <paramref name="exclusion"/> (e.g. the town and its roads).</summary>
+    public void SetExclusion(Exclusion? exclusion)
+    {
+        Func<Vector2, bool>? hidden = exclusion == null ? null : exclusion.Contains;
+        _forest.SetMask(hidden);
+        _rocks.SetMask(hidden);
+        _cover.SetExclusion(exclusion?.Rasterize(_data));
     }
 
     /// <summary>
@@ -121,95 +145,5 @@ public partial class TerrainRenderer : Node3D
         // show the skirt's inner face.
         var material = MeshKit.Material(cull: BaseMaterial3D.CullModeEnum.Front);
         AddChild(new MeshInstance3D { Name = "Skirt", Mesh = kit.Commit(), MaterialOverride = material });
-    }
-
-    private void BuildWater()
-    {
-        var kit = new MeshKit();
-        var river = _data.River;
-        for (int i = 1; i < river.Count; i++)
-        {
-            var a = river[i - 1];
-            var b = river[i];
-            var normal = (b.Position - a.Position).Normalized().Orthogonal();
-            Vector3 P(RiverPoint r, float side)
-            {
-                var p = r.Position + normal * r.HalfWidth * side * 1.08f;
-                return new Vector3(p.X, r.WaterHeight, p.Y);
-            }
-
-            kit.Quad(P(a, -1), P(b, -1), P(b, 1), P(a, 1), new Color("4d7f93"), Vector3.Up);
-        }
-
-        _water = new MeshInstance3D
-        {
-            Name = "River",
-            Mesh = kit.Commit(),
-            MaterialOverride = MeshKit.Material(alpha: 0.82f),
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        };
-        AddChild(_water);
-    }
-
-    private void BuildForest()
-    {
-        var trees = _data.Trees.Where(t => _treeMask == null || !_treeMask(new Vector2(t.Position.X, t.Position.Z))).ToArray();
-        for (int species = 0; species < 3; species++)
-        {
-            var group = trees.Where(t => t.Species == species).ToArray();
-            var multimesh = new MultiMesh
-            {
-                TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
-                UseColors = true,
-                Mesh = TreeMesh(species),
-                InstanceCount = group.Length,
-            };
-            for (int i = 0; i < group.Length; i++)
-            {
-                var t = group[i];
-                var basis = new Basis(Vector3.Up, t.Rotation).Scaled(Vector3.One * t.Scale);
-                multimesh.SetInstanceTransform(i, new Transform3D(basis, t.Position));
-                multimesh.SetInstanceColor(i, new Color(t.Tint, t.Tint, t.Tint));
-            }
-
-            _forest.AddChild(new MultiMeshInstance3D { Multimesh = multimesh });
-        }
-    }
-
-    private static ArrayMesh TreeMesh(int species)
-    {
-        var kit = new MeshKit();
-        Cone(kit, Vector3.Zero, 0.65f, 0.32f, 9, 6, new Color("68513a"));
-        if (species == 2)
-        {
-            Cone(kit, new Vector3(0, 5, 0), 4.4f, 0, 8, 7, new Color("3f6350"));
-            Cone(kit, new Vector3(0, 9, 0), 3.3f, 0, 7.5f, 7, new Color("4c7457"));
-        }
-        else
-        {
-            var leaf = new Color(species == 0 ? "638849" : "82954e");
-            Cone(kit, new Vector3(0, 5, 0), 5.2f, 3.4f, 4, 7, leaf);
-            Cone(kit, new Vector3(0, 9, 0), 3.4f, 0, 6, 7, leaf.Lightened(0.05f));
-        }
-
-        var mesh = kit.Commit()!;
-        mesh.SurfaceSetMaterial(0, MeshKit.Material());
-        return mesh;
-    }
-
-    private static void Cone(MeshKit kit, Vector3 origin, float lower, float upper, float height, int sides, Color color)
-    {
-        for (int i = 0; i < sides; i++)
-        {
-            float a = i * Mathf.Tau / sides, b = (i + 1) * Mathf.Tau / sides;
-            var p = origin + new Vector3(Mathf.Cos(a) * lower, 0, Mathf.Sin(a) * lower);
-            var q = origin + new Vector3(Mathf.Cos(b) * lower, 0, Mathf.Sin(b) * lower);
-            var r = origin + new Vector3(Mathf.Cos(a) * upper, height, Mathf.Sin(a) * upper);
-            var s = origin + new Vector3(Mathf.Cos(b) * upper, height, Mathf.Sin(b) * upper);
-            var outward = new Vector3(Mathf.Cos((a + b) / 2), 0.3f, Mathf.Sin((a + b) / 2));
-            kit.Triangle(p, q, r, color, outward);
-            if (upper > 0)
-                kit.Triangle(q, s, r, color, outward);
-        }
     }
 }

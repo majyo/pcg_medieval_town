@@ -87,6 +87,17 @@ public static class TerrainChecks
             Require(MathF.Abs(map.Heights[k] - map.HeightAt(p)) < 1e-3f, $"分析网格高度与 HeightAt 不一致 {p}");
         }
 
+        // Every wet analysis cell must lie under the rendered water surface.
+        for (int k = 0; k < map.Water.Length; k++)
+        {
+            if (!map.Water[k])
+                continue;
+            var p = map.GridPosition(k % map.Side, k / map.Side);
+            var river = map.NearestRiver(p);
+            Require(river.Distance <= river.HalfWidth * TemperateMapData.WaterSurfaceWidthFactor,
+                $"水面未覆盖水域格 {p}（离中心线 {river.Distance:0.0} m）");
+        }
+
         // The fast nearest-river search must agree with testing every segment.
         for (int i = 0; i < 2000; i++)
         {

@@ -22,6 +22,9 @@ public partial class GroundSurface : Node3D
     private Terrain3D _terrain = null!;
     private TemperateMapData _map = null!;
     private int _side, _halfIndex;
+
+    /// <summary>The landscape masks last imported, one RGBA8 pixel per height-grid point (shared with ground cover).</summary>
+    public Image Masks { get; private set; } = null!;
     private float _spacing;
 
     /// <summary>Builds the ground with the painterly look; see <see cref="SetMasks"/>.</summary>
@@ -52,7 +55,8 @@ public partial class GroundSurface : Node3D
         // samples no textures, but one placeholder asset keeps that block out.
         _terrain.Assets.SetTextureAsset(0, PlaceholderTexture());
 
-        Import(HeightImage(), new Variant(), MaskImage(masks));
+        Masks = MaskImage(masks);
+        Import(HeightImage(), new Variant(), Masks);
         CutOutsideMap();
         _terrain.Material.SetShaderParam("view_mode", 0);
     }
@@ -63,7 +67,8 @@ public partial class GroundSurface : Node3D
     /// </summary>
     public void SetMasks(Func<Vector2, Color> masks)
     {
-        Import(new Variant(), new Variant(), MaskImage(masks));
+        Masks = MaskImage(masks);
+        Import(new Variant(), new Variant(), Masks);
         _terrain.Material.SetShaderParam("view_mode", 0);
     }
 

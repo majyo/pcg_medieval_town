@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using PcgCitySandbox.CameraControl;
@@ -9,21 +11,21 @@ namespace PcgCitySandbox;
 /// <summary>Saves a fixed set of camera views of the current scene as PNG files.</summary>
 public static class Capture
 {
-    public static async Task Save(Node host, MapCamera camera, Vector3 core, (Vector3 Focus, float Yaw) bank,
-        string directory)
+    /// <summary>Fixed overview and town views, then the given close-ups.</summary>
+    public static async Task Save(Node host, MapCamera camera, Vector3 core,
+        IEnumerable<(string Name, Vector3 Focus, float Pitch, float Yaw, float Distance)> closeups, string directory)
     {
         var path = ProjectSettings.GlobalizePath($"res://{directory}");
         Directory.CreateDirectory(path);
-        var views = new (string Name, Action Setup)[]
+        var views = new List<(string Name, Action Setup)>
         {
             ("overview", camera.ResetView),
             ("top", camera.TopView),
             ("town", () => camera.Frame(core, 0.6f, -0.5f, 850)),
             ("street", () => camera.Frame(core, 0.5f, 0.9f, 250)),
             ("close", () => camera.Frame(core, 0.25f, 0.9f, 70)),
-            ("bank", () => camera.Frame(bank.Focus, 0.35f, bank.Yaw, 45)),
-            ("bank_low", () => camera.Frame(bank.Focus, 0.12f, bank.Yaw + 0.6f, 16)),
         };
+        views.AddRange(closeups.Select(c => (c.Name, (Action)(() => camera.Frame(c.Focus, c.Pitch, c.Yaw, c.Distance)))));
         var viewport = host.GetViewport().GetViewportRid();
         RenderingServer.ViewportSetMeasureRenderTime(viewport, true);
         foreach (var (name, setup) in views)

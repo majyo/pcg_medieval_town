@@ -8,8 +8,10 @@ scripts/
   terrain/   地形生成    ITerrain（对外的只读查询）、TemperateMapData（生成实现）、GradientNoise、MapSettings、TerrainChecks
   city/      城市生成    core/（Pipeline、Region、[Param]、IStageResult）、stages/（五个阶段）、TownPipeline、Checks
   camera/    相机控制    MapCamera：透视环绕相机，鼠标键盘操作、复位、取景
-  rendering/ 渲染        TerrainRenderer（地面、裙边、河面、树）、GroundSurface（Terrain3D 地面）、CityView（各阶段结果）、MeshKit
-shaders/     着色器      ground.gdshader（地面着色，作为 Terrain3D 的 shader override）
+  rendering/ 渲染        TerrainRenderer（地面、裙边与环境资产的组装）、GroundSurface（Terrain3D 地面）、CityView（各阶段结果）、MeshKit
+    environment/         Atmosphere（天空、太阳、雾、AO、色调映射）、WaterSurface（河面）、Forest + TreeMeshes（程序树木）、
+                         GroundCover（GPU 草与野花）、Rocks（岩石）、Exclusion（植被避让区）、ProceduralMesh
+shaders/     着色器      ground（地面，Terrain3D 的 shader override）、water、tree、grass、rock；common/painterly.gdshaderinc（共用的光照、噪声、风）
   ui/        界面        MapPanel（左侧）、StagePanel（右侧参数）、MapCompass、UiStyle
 ```
 
@@ -27,12 +29,19 @@ camera      city ← ui
 - **地形和城市生成不碰场景节点**，可以在无界面检查里直接运行。
 - **相机只知道自己的活动范围**，不知道地形、城镇或界面；取景由调用方传入焦点，贴地由调用方传入地面高度回调。
 - **界面只发事件、执行别人给的回调**：`MapPanel` 不知道地形渲染或城市预览的存在，`MapCompass` 只依赖 Godot 的 `Camera3D`。`StagePanel` 是管线的编辑器，所以依赖 `city`。
-- **跨组件的联动只写在 `Main` 里**，例如城内和道路上隐藏树木、鼠标探针、按种子重建地图、地面最细 LOD 跟随相机焦点、阴影距离随相机距离变化。
+- **跨组件的联动只写在 `Main` 里**，例如把城内和道路交给环境资产作为避让区（`Exclusion`）、鼠标探针、按种子重建地图、地面最细 LOD 与地被跟随相机、阴影范围随相机距离变化。
 - **地形只有一个高度来源**：`TemperateMapData` 的高度网格（默认 1 m，2001×2001，恰好覆盖 ±1000 m）。`HeightAt` 在它上面双线性插值；地面渲染原样导入它；城市叠加层和树都用 `HeightAt` 贴地。另有约 5 m 的分析网格（坡度、林地、适宜性、离河距离），其高度取自 `HeightAt`，坡度按 5 m 尺度计算，不受米级起伏影响。
 - **高度的组成**：区域地貌（大尺度噪声 + 起伏）→ 河谷与河槽 → 米级细节（100 m 到 2.5 m 五个八度，中间两个做域扭曲；在深水河槽内淡出）。噪声是纯 C# 实现（`GradientNoise`），可并行、可复现；高度网格并行生成。
 - **最近河段查询**：按 16 m 分桶预先列出每个桶可能的最近河段（桶内任意点的真实最近河段必在列表中），查询只测这几段。生成高度时只关心 260 m 以内的河段。
 - **地面由 Terrain3D 绘制**：几何裁剪图（clipmap）网格，顶点着色器按高度图抬高顶点。`GroundSurface` 把高度网格原样导入（每个网格点一个 Terrain3D 顶点）；地图外、Terrain3D 区块多出的部分标成洞。
 - **地面着色**（`shaders/ground.gdshader`，顶点阶段和逐像素法线取自 Terrain3D 的最小着色器）：柔和的手绘风格。默认视图下颜色图存的不是颜色而是遮罩：R 林地覆盖、G 高出水面的高度、B 相对高程，由 `TerrainRenderer` 在每个高度网格点上计算。着色器据此算出草甸（两种色调，高处偏干）、林下、陡坡裸土、河滩沙、湿泥的权重，类型之间是几米宽的柔和过渡，边界再由低频噪声和两侧的细节纹理推移。近处有程序生成的地表细节：草地是两种尺寸的草丛加草叶，土和沙是卵石加细颗粒，林下是落叶和苔藓；细节同时改变颜色和法线，并按每个像素覆盖的地面大小淡出，远处不闪烁。光照以包裹漫反射为主，混入少量单阶卡通光，背光处补冷色。分析视图（高程、坡度、适宜性）把颜色直接写入颜色图，着色器按 `view_mode = 1` 原样显示。调色板、过渡宽度、细节强度和光照都是着色器的 uniform。
+- **环境资产**（`rendering/environment/`，全部程序生成，共用 `shaders/common/painterly.gdshaderinc` 里的柔和光照和全局风参数 `wind_direction`、`wind_strength`，后者登记在 `project.godot` 的 `[shader_globals]`）：
+  - 大气：程序天空兼作环境光，指数雾带空气透视，SSAO、AgX 色调映射、轻微泛光；下午的太阳，阴影软边，阴影范围随相机距离收放。
+  - 河面：沿中心线的一条连续带状网格（宽度为河宽的 `WaterSurfaceWidthFactor` 倍，压在岸坡下）；着色器按深度缓冲算出的水体厚度决定颜色和透明度，浅水泡沫，顺流波纹，掠射角偏天空色。
+  - 树木：阔叶、桦类、针叶三类，每类 4 个变体，树冠由法线"球化"的团块组成；按地形数据的 `TreePlacement` 摆放；随风摆动。
+  - 地被：草丛和野花在 GPU 上摆放：固定格子的实例跟随相机整格移动，顶点着色器按格子抖动位置，读高度、地面遮罩和避让贴图决定是否生长、是否为芦苇；相机离焦点 320 m 以外隐藏。
+  - 岩石：陡坡和河岸为主，按地图种子确定位置。
+  - 城内和道路由 `Main` 构造的 `Exclusion` 交给渲染层：树木和岩石逐点判断，地被用栅格化的避让贴图。
 
 `tools/project.ps1 test` 在编译前检查这些规则：每个目录的命名空间、允许引用的组件，以及 `terrain`、`city` 不出现场景节点类型。违规即失败。
 
@@ -60,7 +69,7 @@ camera      city ← ui
 
 `tools/project.ps1 test` 对种子 73129、7、22017 跑完整条链，检查：
 
-- 地形（`TerrainChecks`）：高度网格以原点为中心、恰好覆盖地图、间距不大于设定值；没有非有限值；相邻点坡度不超过 45°；`HeightAt` 在网格点上复现网格值，分析网格的高度取自 `HeightAt`；分桶最近河段查询（含限距查询）与逐段查询结果一致；同一种子两次生成的高度网格逐位相同。
+- 地形（`TerrainChecks`）：高度网格以原点为中心、恰好覆盖地图、间距不大于设定值；没有非有限值；相邻点坡度不超过 45°；`HeightAt` 在网格点上复现网格值，分析网格的高度取自 `HeightAt`；分桶最近河段查询（含限距查询）与逐段查询结果一致；所有水域格都在渲染的河面范围内；同一种子两次生成的高度网格逐位相同。
 - 场地：可建设比例在合理范围内。
 - 布局：核心可建设；广场在城墙内；至少一座城门，城门在城墙上。
 - 路网：引用有效，没有零长度路段，全部连通，城门全部接入；道路不进水域；城内道路只在城门处穿过城墙。
@@ -85,7 +94,8 @@ camera      city ← ui
 - 地图生成约 0.6 秒，场地分析约 0.2 秒，其余阶段合计约 0.2 秒（Debug 编译）。
 - Terrain3D 没有纹理资源时会在着色器末尾追加棋盘格调试代码，所以 `GroundSurface` 注册了一个不会被采样的占位纹理。
 - 远离焦点的粗 LOD 网格碰到地图边缘的洞时整块三角形会被丢弃，地图近侧边缘与裙边之间可能露出一条细缝。
-- 城市部分（房屋、道路）仍是普通的顶点色材质，风格还没有和地面统一。
+- 城市部分（房屋、道路）仍是普通的顶点色材质，风格还没有和地面、植被统一。
+- 环境资产只做到基本效果：树木没有 LOD 和叶片卡；地被只覆盖相机附近约 50 m；岩石形状简单；天空没有云；全图视角的雾偏重。
 - 河面是逐段的四边形，段与段之间有楔形缝隙，近看明显；属于河流/水面的工作，尚未处理。
 - 道路、广场直接贴着带起伏的地面，没有整平。
 

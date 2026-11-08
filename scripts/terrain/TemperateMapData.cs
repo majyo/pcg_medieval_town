@@ -29,6 +29,12 @@ public sealed class TemperateMapData : ITerrain
         return new TemperateMapData(copy);
     }
 
+    /// <summary>
+    /// Half-width of the rendered water surface as a multiple of the river's half-width. It reaches under the
+    /// banks so the shoreline is where the ground rises through the water; checks ensure all wet ground is covered.
+    /// </summary>
+    public const float WaterSurfaceWidthFactor = 1.35f;
+
     /// <summary>Small relief added on top of the landform: (wavelength m, amplitude m), largest first.</summary>
     private static readonly (float Wavelength, float Amplitude)[] DetailOctaves =
     {

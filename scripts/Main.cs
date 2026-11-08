@@ -22,10 +22,10 @@ public partial class Main : Node3D
     private TerrainRenderer _terrain = null!;
     private CityView _city = null!;
     private MapCamera _camera = null!;
-    private DirectionalLight3D _sun = null!;
+    private Atmosphere _atmosphere = null!;
     private MapPanel _mapPanel = null!;
     private TerrainView _view = TerrainView.Landscape;
-    private bool _showForest = true, _showWater = true;
+    private bool _showForest = true, _showWater = true, _showCover = true;
     private object? _treeMaskSource;
 
     public override async void _Ready()
@@ -54,7 +54,15 @@ public partial class Main : Node3D
             var capture = args.FirstOrDefault(a => a.StartsWith("--capture="));
             if (capture != null)
             {
-                await Capture.Save(this, _camera, core, BankView(core), capture["--capture=".Length..]);
+                var bank = BankView(core);
+                var forest = ForestEdgeView(core);
+                var closeups = new (string, Vector3, float, float, float)[]
+                {
+                    ("bank", bank.Focus, 0.35f, bank.Yaw, 45),
+                    ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
+                    ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
+                };
+                await Capture.Save(this, _camera, core, closeups, capture["--capture=".Length..]);
                 GetTree().Quit();
             }
         }
@@ -67,25 +75,8 @@ public partial class Main : Node3D
 
     private void BuildScene()
     {
-        AddChild(new WorldEnvironment
-        {
-            Environment = new Godot.Environment
-            {
-                BackgroundMode = Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color("d6dfdc"),
-                AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color("d3dfe4"),
-                AmbientLightEnergy = 0.45f,
-            },
-        });
-        _sun = new DirectionalLight3D
-        {
-            RotationDegrees = new Vector3(-38, -38, 0),
-            LightColor = new Color("fff7ed"),
-            LightEnergy = 0.85f,
-            ShadowEnabled = true,
-        };
-        AddChild(_sun);
+        _atmosphere = new Atmosphere { Name = "Atmosphere" };
+        AddChild(_atmosphere);
         _camera = new MapCamera { MapSize = _settings.SizeMeters, GroundHeight = p => _map.HeightAt(p) };
         AddChild(_camera);
         _city = new CityView { Name = "City" };
@@ -114,6 +105,7 @@ public partial class Main : Node3D
         });
         _mapPanel.AddToggle("森林", _showForest, on => _terrain.ShowForest(_showForest = on));
         _mapPanel.AddToggle("河面", _showWater, on => _terrain.ShowWater(_showWater = on));
+        _mapPanel.AddToggle("地被与岩石", _showCover, on => _terrain.ShowCover(_showCover = on));
         foreach (var (layer, name) in new[]
         {
             (CityLayer.Site, "场地限制"), (CityLayer.Layout, "广场与城墙"), (CityLayer.Roads, "道路"),
@@ -142,8 +134,9 @@ public partial class Main : Node3D
         _terrain.SetView(_view);
         _terrain.ShowForest(_showForest);
         _terrain.ShowWater(_showWater);
+        _terrain.ShowCover(_showCover);
         _treeMaskSource = null;
-        _terrain.Follow(_camera.Focus);
+        _terrain.Follow(_camera.GlobalPosition, _camera.Focus);
         _mapPanel.Stats = $"种子 {_map.Settings.Seed}\n高程 {_map.MinHeight:0}–{_map.MaxHeight:0} m\n" +
             $"林地 {_map.ForestFraction:P0}   开阔缓坡 {_map.OpenGentleFraction:P0}";
     }
@@ -180,7 +173,27 @@ public partial class Main : Node3D
         return (new Vector3(focus.X, _map.HeightAt(focus), focus.Y), Mathf.Atan2(normal.X, normal.Y));
     }
 
-    /// <summary>The one place city results reach the terrain view: trees vanish inside the walls and on roads.</summary>
+    /// <summary>
+    /// A forest edge seen from the meadow: the tree 300–600 m from the town core closest to 350 m, looked at
+    /// from 18 m further toward the town.
+    /// </summary>
+    private (Vector3 Focus, float Yaw) ForestEdgeView(Vector3 core)
+    {
+        var town = new Vector2(core.X, core.Z);
+        var tree = _map.Trees
+            .Select(t => new Vector2(t.Position.X, t.Position.Z))
+            .Where(p => p.DistanceTo(town) is > 300 and < 600)
+            .DefaultIfEmpty(town + new Vector2(350, 0))
+            .MinBy(p => Mathf.Abs(p.DistanceTo(town) - 350));
+        var toTown = (town - tree).Normalized();
+        var focus = tree + toTown * 18;
+        return (new Vector3(focus.X, _map.HeightAt(focus), focus.Y), Mathf.Atan2(toTown.X, toTown.Y));
+    }
+
+    /// <summary>
+    /// The one place city results reach the terrain view: no trees, rocks or ground cover inside the walls or
+    /// within a few meters of a road.
+    /// </summary>
     private void OnPipelineChanged()
     {
         _city.Refresh();
@@ -189,17 +202,16 @@ public partial class Main : Node3D
         if (ReferenceEquals(_treeMaskSource, roads) || _terrain == null)
             return;
         _treeMaskSource = roads;
-        var near = roads?.Footprint.Offset(4);
-        _terrain.SetTreeMask(layout == null ? null : p => layout.Interior.Contains(p) || near?.Contains(p) == true);
+        _terrain.SetExclusion(layout == null ? null : new Exclusion(layout.Interior.Contains, layout.Interior.Bounds,
+            roads?.Edges.Select(e => (e.Points, e.Width / 2 + 3)) ?? Enumerable.Empty<(Vector2[], float)>()));
     }
 
     public override void _Process(double delta)
     {
         if (_mapPanel == null)
             return;
-        // Spend the shadow map on what the camera is looking at: tight up close, wide when zoomed out.
-        _sun.DirectionalShadowMaxDistance = Mathf.Clamp(_camera.Distance * 3, 60, 8000);
-        _terrain.Follow(_camera.Focus);
+        _atmosphere.FitShadows(_camera.Distance);
+        _terrain.Follow(_camera.GlobalPosition, _camera.Focus);
         var mouse = GetViewport().GetMousePosition();
         if (!_map.Pick(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit))
         {
