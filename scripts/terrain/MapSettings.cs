@@ -1,6 +1,6 @@
 using Godot;
 
-namespace PcgCitySandbox;
+namespace PcgCitySandbox.Terrain;
 
 [GlobalClass]
 public partial class MapSettings : Resource

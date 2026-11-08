@@ -2,12 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox.Core;
+namespace PcgCitySandbox.City;
 
 public enum StageStatus { Empty, Valid, Stale, Running, Failed }
 
-/// <summary>Read access to the base map and to results of earlier stages.</summary>
+/// <summary>What every stage result shows in the stage panel and the headless checks.</summary>
+public interface IStageResult
+{
+    string Summary { get; }
+    IReadOnlyList<string> Notices { get; }
+}
+
+/// <summary>Read access to the terrain and to results of earlier stages.</summary>
 public sealed class StageInputs
 {
     private readonly Pipeline _pipeline;
@@ -20,7 +28,7 @@ public sealed class StageInputs
         Cancellation = cancellation;
     }
 
-    public TemperateMapData Map => _pipeline.Map;
+    public ITerrain Terrain => _pipeline.Terrain;
     public CancellationToken Cancellation { get; }
 
     public T Get<T>() where T : class
@@ -36,7 +44,7 @@ public sealed class StageInputs
 }
 
 /// <summary>
-/// One generation step. Run must be a pure function of the map, upstream results and options.
+/// One generation step. Run must be a pure function of the terrain, upstream results and options.
 /// Options are copied before each run, so the UI may edit the live object at any time.
 /// </summary>
 public abstract class Stage
@@ -74,7 +82,7 @@ public abstract class Stage<TOptions, TResult> : Stage
 }
 
 /// <summary>
-/// Linear pipeline: map -> stage 0 -> stage 1 -> ... Changing a stage's options invalidates it and
+/// Linear pipeline: terrain -> stage 0 -> stage 1 -> ... Changing a stage's options invalidates it and
 /// every later stage. A failed or cancelled stage publishes nothing; its downstream stays stale.
 /// </summary>
 public sealed class Pipeline
@@ -86,9 +94,9 @@ public sealed class Pipeline
     private readonly double[] _seconds;
     private CancellationTokenSource? _running;
 
-    public Pipeline(TemperateMapData map, params Stage[] stages)
+    public Pipeline(ITerrain terrain, params Stage[] stages)
     {
-        Map = map;
+        Terrain = terrain;
         _stages = stages;
         _results = new object?[stages.Length];
         _status = new StageStatus[stages.Length];
@@ -96,7 +104,7 @@ public sealed class Pipeline
         _seconds = new double[stages.Length];
     }
 
-    public TemperateMapData Map { get; private set; }
+    public ITerrain Terrain { get; private set; }
     public IReadOnlyList<Stage> Stages => _stages;
     public bool IsRunning => _running != null;
 
@@ -119,9 +127,9 @@ public sealed class Pipeline
         return null;
     }
 
-    public void SetMap(TemperateMapData map)
+    public void SetTerrain(ITerrain terrain)
     {
-        Map = map;
+        Terrain = terrain;
         Invalidate(0);
     }
 

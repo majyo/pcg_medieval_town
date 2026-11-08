@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.Core;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox.Stages;
+namespace PcgCitySandbox.City;
 
 public sealed class BuildingOptions
 {
@@ -46,7 +46,7 @@ public sealed class BuildingStage : Stage<BuildingOptions, BuildingSet>
         if (o.DepthMax < o.DepthMin || o.FloorsMax < o.FloorsMin)
             throw new ArgumentException("最大值不能小于最小值");
 
-        var map = inputs.Map;
+        var map = inputs.Terrain;
         var parcels = inputs.Get<ParcelSet>();
         var rng = new Random(o.Seed);
         var buildings = new List<Building>();

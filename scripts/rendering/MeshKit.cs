@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 
-namespace PcgCitySandbox.View;
+namespace PcgCitySandbox.Rendering;
 
 /// <summary>Small vertex-colored mesh builder. Faces are double-sided, so winding never matters.</summary>
 public sealed class MeshKit

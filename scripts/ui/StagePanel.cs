@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Godot;
-using PcgCitySandbox.Core;
-using PcgCitySandbox.Stages;
+using PcgCitySandbox.City;
 
-namespace PcgCitySandbox.View;
+namespace PcgCitySandbox.Ui;
 
 /// <summary>
 /// Right-hand panel. One section per stage with status, summary, notices and controls generated from the
@@ -23,7 +22,7 @@ public partial class StagePanel : PanelContainer
     {
         _pipeline = pipeline;
         _pipeline.Changed += Refresh;
-        AddThemeStyleboxOverride("panel", Ui.Box(new Color(0.075f, 0.12f, 0.10f, 0.94f)));
+        AddThemeStyleboxOverride("panel", UiStyle.Box(UiStyle.Panel));
 
         var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         AddChild(scroll);
@@ -32,9 +31,9 @@ public partial class StagePanel : PanelContainer
         scroll.AddChild(list);
 
         var actions = new HBoxContainer();
-        var run = Ui.Button("生成");
+        var run = UiStyle.Button("生成");
         run.Pressed += () => _ = _pipeline.Run();
-        var cancel = Ui.Button("取消");
+        var cancel = UiStyle.Button("取消");
         cancel.Pressed += _pipeline.Cancel;
         _auto = new CheckBox { Text = "改参数自动生成", ButtonPressed = true, FocusMode = FocusModeEnum.None };
         actions.AddChild(run);
@@ -60,9 +59,9 @@ public partial class StagePanel : PanelContainer
         var stage = _pipeline.Stages[index];
         var box = new VBoxContainer();
         box.AddChild(new HSeparator());
-        var header = Ui.Text("", 15, Ui.Accent);
-        var summary = Ui.Text("", 12, Ui.Ink);
-        var notices = Ui.Text("", 12, new Color("e3b25f"));
+        var header = UiStyle.Text("", 15, UiStyle.Accent);
+        var summary = UiStyle.Text("", 12, UiStyle.Ink);
+        var notices = UiStyle.Text("", 12, new Color("e3b25f"));
         box.AddChild(header);
         box.AddChild(summary);
         box.AddChild(notices);
@@ -75,7 +74,7 @@ public partial class StagePanel : PanelContainer
             var param = property.GetCustomAttribute<ParamAttribute>();
             if (param == null)
                 continue;
-            grid.AddChild(Ui.Text(param.Label, 12, Ui.Muted, wrap: false));
+            grid.AddChild(UiStyle.Text(param.Label, 12, UiStyle.Muted, wrap: false));
             grid.AddChild(Control(stage.Options, property, param, index));
         }
 
@@ -135,39 +134,4 @@ public partial class StagePanel : PanelContainer
             notices.Visible = notices.Text.Length > 0;
         }
     }
-}
-
-/// <summary>Shared look for the few hand-built controls.</summary>
-public static class Ui
-{
-    public static readonly Color Ink = new("e6ede0"), Muted = new("a8b6a8"), Accent = new("cbdca0");
-
-    public static Label Text(string text, int size, Color color, bool wrap = true)
-    {
-        var label = new Label
-        {
-            Text = text,
-            AutowrapMode = wrap ? TextServer.AutowrapMode.WordSmart : TextServer.AutowrapMode.Off,
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-        };
-        label.AddThemeFontSizeOverride("font_size", size);
-        label.AddThemeColorOverride("font_color", color);
-        return label;
-    }
-
-    public static Button Button(string text) =>
-        new() { Text = text, CustomMinimumSize = new Vector2(0, 32), FocusMode = Control.FocusModeEnum.None };
-
-    public static StyleBoxFlat Box(Color color) => new()
-    {
-        BgColor = color,
-        CornerRadiusTopLeft = 10,
-        CornerRadiusTopRight = 10,
-        CornerRadiusBottomLeft = 10,
-        CornerRadiusBottomRight = 10,
-        ContentMarginLeft = 14,
-        ContentMarginRight = 14,
-        ContentMarginTop = 12,
-        ContentMarginBottom = 12,
-    };
 }

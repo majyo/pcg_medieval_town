@@ -2,10 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.Core;
-using PcgCitySandbox.Stages;
+using PcgCitySandbox.City;
 
-namespace PcgCitySandbox.View;
+namespace PcgCitySandbox.Rendering;
 
 public enum CityLayer { Site, Layout, Roads, Parcels, Buildings }
 
@@ -77,7 +76,7 @@ public partial class CityView : Node3D
         build(root, result!);
     }
 
-    private float Height(Vector2 p) => _pipeline!.Map.HeightAt(p);
+    private float Height(Vector2 p) => _pipeline!.Terrain.HeightAt(p);
 
     private static void Add(Node3D root, MeshKit kit, Material material, bool shadows = true)
     {

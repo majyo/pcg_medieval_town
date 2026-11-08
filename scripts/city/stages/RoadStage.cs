@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.Core;
 
-namespace PcgCitySandbox.Stages;
+namespace PcgCitySandbox.City;
 
 public enum RoadKind { Main, Outer, Street }
 

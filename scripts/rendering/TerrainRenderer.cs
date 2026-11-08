@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.View;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox;
+namespace PcgCitySandbox.Rendering;
 
 public enum TerrainView { Landscape, Elevation, Slope, Suitability }
 

@@ -1,6 +1,6 @@
 using System;
 
-namespace PcgCitySandbox.Core;
+namespace PcgCitySandbox.City;
 
 /// <summary>Marks an options property as user-editable; the stage panel builds its control from this.</summary>
 [AttributeUsage(AttributeTargets.Property)]

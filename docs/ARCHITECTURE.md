@@ -1,26 +1,36 @@
 # 架构
 
-## 1. 结构
+## 1. 组件
 
 ```
 scripts/
-  Main.cs              组合入口：地图、管线、预览、面板；--test / --capture
-  Town.cs              管线的阶段顺序
-  Checks.cs            无界面检查：每阶段的不变量 + 可复现性
-  core/
-    Pipeline.cs        线性管线、阶段基类、状态与失效
-    Region.cs          唯一的平面多边形类型（封装 Clipper2）
-    ParamAttribute.cs  标记可在界面编辑的参数
-  stages/              五个阶段：选项、结果类型和算法各在一个文件里
-  view/                CityView（统一预览）、StagePanel（自动参数面板）、MeshKit
-  terrain/             基础地图数据（TemperateMapData）与地形渲染
+  Main.cs, Capture.cs  组合入口：创建各组件并接线；--test / --capture。自身不含生成、渲染、相机或控件逻辑
+  terrain/   地形生成    ITerrain（对外的只读查询）、TemperateMapData（生成实现）、MapSettings
+  city/      城市生成    core/（Pipeline、Region、[Param]、IStageResult）、stages/（五个阶段）、TownPipeline、Checks
+  camera/    相机控制    MapCamera：正交环绕相机，鼠标键盘操作、复位、取景
+  rendering/ 渲染        TerrainRenderer（地表、河面、树）、CityView（各阶段结果）、MeshKit
+  ui/        界面        MapPanel（左侧）、StagePanel（右侧参数）、MapCompass、UiStyle
 ```
 
-依赖方向只有一个：`stages` 只依赖 `core` 和地图数据；`view` 读取阶段结果；`Main` 把它们组合起来。阶段代码不引用任何 Godot 节点。
+依赖方向（箭头表示“可以引用”）：
+
+```
+terrain   ← city ← rendering
+camera      city ← ui
+（Main 引用全部；camera 和 terrain 不引用任何其他组件）
+```
+
+- **城市生成只通过 `ITerrain` 读地形**：高程、采样、最近河段、地图范围。换一种地形实现不需要改城市代码。
+- **地形和城市生成不碰场景节点**，可以在无界面检查里直接运行。
+- **相机只知道自己的活动范围**，不知道地形、城镇或界面；取景由调用方传入焦点。
+- **界面只发事件、执行别人给的回调**：`MapPanel` 不知道地形渲染或城市预览的存在，`MapCompass` 只依赖 Godot 的 `Camera3D`。`StagePanel` 是管线的编辑器，所以依赖 `city`。
+- **跨组件的联动只写在 `Main` 里**，例如城内和道路上隐藏树木、鼠标探针、按种子重建地图。
+
+`tools/project.ps1 test` 在编译前检查这些规则：每个目录的命名空间、允许引用的组件，以及 `terrain`、`city` 不出现场景节点类型。违规即失败。
 
 ## 2. 管线
 
-- 阶段是纯函数：`Run(地图 + 上游结果, 选项) → 结果`。同样的输入必然得到同样的结果。
+- 阶段是纯函数：`Run(地形 + 上游结果, 选项) → 结果`。同样的输入必然得到同样的结果。
 - 管线是线性的。修改第 i 个阶段的参数，第 i 个阶段及之后的阶段都变为“已过期”。
 - 每次运行先复制一份选项，界面可以随时修改正在使用的选项对象。
 - 阶段在后台线程运行；取消或失败时不发布结果，下游保持过期。
@@ -54,8 +64,9 @@ scripts/
 1. **先广后深。** 整条链在三个种子下都“看起来对”，才加深某一个阶段。
 2. **一次只加深一个阶段。** 需要改上游输出时，先改上游结果类型并跑检查，再继续。
 3. **每个新功能附带一条不变量**，写进 `Checks.Invariants`，不另建验证脚本或命令行开关。
-4. **展示细节放到最后。** 门窗、材质、植被、LOD 等，等生成结果稳定后再做。
-5. **代码格式由 `.editorconfig` 约束：** 一行一条语句，单行不超过 140 字符，提交前执行 `dotnet format whitespace`。
+4. **新代码放进它所属的组件**；需要跨组件联动时写在 `Main`，不要让组件互相引用。新增组件时在 `tools/project.ps1` 里登记它允许的依赖。
+5. **展示细节放到最后。** 门窗、材质、植被、LOD 等，等生成结果稳定后再做。
+6. **代码格式由 `.editorconfig` 约束：** 一行一条语句，单行不超过 140 字符，提交前执行 `dotnet format whitespace`。
 
 ## 6. 已知局限与后续方向
 

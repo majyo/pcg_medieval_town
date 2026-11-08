@@ -12,7 +12,7 @@
 
 ```powershell
 .\tools\project.ps1 run       # 打开沙盒，启动后自动生成整座城镇
-.\tools\project.ps1 test      # 无界面检查：三个固定种子 × 全部不变量 + 可复现性
+.\tools\project.ps1 test      # 组件依赖检查 + 无界面检查：三个固定种子 × 全部不变量 + 可复现性
 .\tools\project.ps1 capture   # 生成后保存四张截图到 artifacts/capture/
 .\tools\project.ps1 build     # 只编译
 ```

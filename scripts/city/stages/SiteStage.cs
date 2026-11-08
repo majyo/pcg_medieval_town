@@ -1,17 +1,23 @@
 using System;
 using System.Collections.Generic;
 using Godot;
-using PcgCitySandbox.Core;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox.Stages;
-
-public interface IStageResult
-{
-    string Summary { get; }
-    IReadOnlyList<string> Notices { get; }
-}
+namespace PcgCitySandbox.City;
 
 public enum SiteBlock : byte { None, Water, Bank, Slope, Forest }
+
+public static class SiteBlocks
+{
+    public static string Label(this SiteBlock block) => block switch
+    {
+        SiteBlock.None => "可建设",
+        SiteBlock.Water => "水域",
+        SiteBlock.Bank => "河岸退让",
+        SiteBlock.Slope => "坡度过大",
+        _ => "森林",
+    };
+}
 
 public sealed class SiteOptions
 {
@@ -74,8 +80,8 @@ public sealed class SiteStage : Stage<SiteOptions, Site>
 
     protected override Site Run(StageInputs inputs, SiteOptions o)
     {
-        var map = inputs.Map;
-        float size = map.Settings.SizeMeters;
+        var map = inputs.Terrain;
+        float size = map.Half * 2;
         int n = (int)MathF.Floor(size / o.CellSize);
         var site = new Site(new Vector2(-map.Half, -map.Half), o.CellSize, n, n);
         int buildable = 0;

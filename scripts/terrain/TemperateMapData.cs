@@ -2,16 +2,27 @@ using Godot;
 using System;
 using System.Collections.Generic;
 
-namespace PcgCitySandbox;
+namespace PcgCitySandbox.Terrain;
 
 public readonly record struct RiverPoint(Vector2 Position, float WaterHeight, float HalfWidth);
 public readonly record struct TreePlacement(Vector3 Position, float Scale, float Rotation, int Species, float Tint);
 public readonly record struct TerrainSample(float Height, float SlopeDegrees, bool IsWater,
     float Forest, float Suitability, float RiverDistance);
 
-// Scene-independent environment data. World X/Z are horizontal; one unit is one meter.
-public sealed class TemperateMapData
+/// <summary>
+/// Generated temperate map: height field, river, forest cover and tree placements. Scene-independent;
+/// world X/Z are horizontal and one unit is one meter.
+/// </summary>
+public sealed class TemperateMapData : ITerrain
 {
+    /// <summary>Generates a map from <paramref name="settings"/> with its seed replaced by <paramref name="seed"/>.</summary>
+    public static TemperateMapData Create(MapSettings settings, int seed)
+    {
+        var copy = (MapSettings)settings.Duplicate();
+        copy.Seed = seed;
+        return new TemperateMapData(copy);
+    }
+
     public MapSettings Settings { get; }
     public int Side => Settings.GridSegments + 1;
     public float Spacing => Settings.SizeMeters / Settings.GridSegments;

@@ -4,7 +4,7 @@ using System.Linq;
 using Clipper2Lib;
 using Godot;
 
-namespace PcgCitySandbox.Core;
+namespace PcgCitySandbox.City;
 
 /// <summary>
 /// The single planar polygon type: an immutable set of rings (outer rings and holes, non-zero fill)

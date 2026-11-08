@@ -6,8 +6,46 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+
+# Which components each component may reference (folder under scripts/ -> namespace).
+# Files directly under scripts/ are the composition root and may reference everything.
+$components = [ordered]@{
+    terrain   = @{ Namespace = 'Terrain';       Allowed = @() }
+    city      = @{ Namespace = 'City';          Allowed = @('Terrain') }
+    camera    = @{ Namespace = 'CameraControl'; Allowed = @() }
+    rendering = @{ Namespace = 'Rendering';     Allowed = @('Terrain', 'City') }
+    ui        = @{ Namespace = 'Ui';            Allowed = @('City') }
+}
+$sceneTypes = '\b(Node|Node3D|Control|Camera3D|CanvasLayer|MeshInstance3D|SceneTree|GetTree)\b'
+
+function Test-Dependencies {
+    $violations = @()
+    foreach ($folder in $components.Keys) {
+        $rule = $components[$folder]
+        $allowed = @($rule.Namespace) + $rule.Allowed
+        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot "scripts/$folder") -Recurse -Filter *.cs) {
+            $text = Get-Content -LiteralPath $file.FullName -Raw
+            $relative = $file.FullName.Substring($projectRoot.Length + 1)
+            foreach ($match in [regex]::Matches($text, 'PcgCitySandbox\.(\w+)')) {
+                $target = $match.Groups[1].Value
+                if ($allowed -notcontains $target) { $violations += "${relative}: $folder must not use $target" }
+            }
+            if ($text -cnotmatch "namespace PcgCitySandbox\.$($rule.Namespace);") {
+                $violations += "${relative}: expected namespace PcgCitySandbox.$($rule.Namespace)"
+            }
+            if ($folder -in 'terrain', 'city' -and $text -cmatch $sceneTypes) {
+                $violations += "${relative}: generation code must not touch scene nodes ($($Matches[1]))"
+            }
+        }
+    }
+    $violations | Sort-Object -Unique | ForEach-Object { Write-Host "DEPENDENCY: $_" -ForegroundColor Red }
+    if ($violations) { throw 'Component dependency check failed.' }
+    Write-Host 'DEPENDENCIES OK'
+}
+
 Push-Location -LiteralPath $projectRoot
 try {
+    if ($Action -eq 'test') { Test-Dependencies }
     & dotnet build PcgCitySandbox.csproj
     if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }
     if ($Action -eq 'build') { return }

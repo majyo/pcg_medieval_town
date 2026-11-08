@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Godot;
-using PcgCitySandbox.Core;
-using PcgCitySandbox.Stages;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox;
+namespace PcgCitySandbox.City;
 
 /// <summary>
 /// Headless check: runs the full chain for fixed seeds, asserts each stage's invariants and determinism.
@@ -17,13 +16,14 @@ public static class Checks
     private static readonly int[] Seeds = { 73129, 7, 22017 };
     private const double Tolerance = 0.5;
 
-    public static async Task<int> Run(MapSettings settings)
+    /// <param name="createTerrain">Builds the terrain for a seed; the checks never see how.</param>
+    public static async Task<int> Run(Func<int, ITerrain> createTerrain)
     {
         var failures = new List<string>();
         string? firstFingerprint = null;
         foreach (int seed in Seeds)
         {
-            var pipeline = Town.CreatePipeline(Town.CreateMap(settings, seed));
+            var pipeline = TownPipeline.Create(createTerrain(seed));
             await pipeline.Run();
             for (int i = 0; i < pipeline.Stages.Count; i++)
             {
@@ -47,7 +47,7 @@ public static class Checks
                 firstFingerprint = Fingerprint(pipeline);
         }
 
-        var again = Town.CreatePipeline(Town.CreateMap(settings, Seeds[0]));
+        var again = TownPipeline.Create(createTerrain(Seeds[0]));
         await again.Run();
         if (firstFingerprint == null || Fingerprint(again) != firstFingerprint)
             failures.Add("同一种子两次生成结果不一致");

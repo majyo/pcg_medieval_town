@@ -1,12 +1,17 @@
 using Godot;
 
-namespace PcgCitySandbox;
+namespace PcgCitySandbox.CameraControl;
 
+/// <summary>
+/// Orthographic map camera orbiting a ground focus point. Mouse: wheel zoom, right-drag rotate, middle-drag pan.
+/// Keys: WASD pan, Q/E rotate, Home reset. Knows only its bounds; nothing about terrain, town or UI.
+/// </summary>
 public partial class MapCamera : Camera3D
 {
     public Vector3 Focus { get; set; } = new(0, 12, 0);
     public float Yaw { get; set; } = -0.38f;
     public float Pitch { get; set; } = 0.83f;
+    /// <summary>Side length of the square area the focus may move over, centered on the origin.</summary>
     public float MapSize { get; set; } = 2000;
     private bool _rotating, _panning;
 
@@ -21,7 +26,6 @@ public partial class MapCamera : Camera3D
 
     public void ResetView()
     {
-        // Leave the center of the viewport clear between the map and sampling panels.
         Focus = new Vector3(0, 15, 0);
         Yaw = -0.38f;
         Pitch = 0.83f;
@@ -38,15 +42,32 @@ public partial class MapCamera : Camera3D
         UpdateTransform();
     }
 
+    /// <summary>Looks at <paramref name="focus"/> from the given angles with the given orthographic size.</summary>
+    public void Frame(Vector3 focus, float pitch, float yaw, float size)
+    {
+        Focus = focus;
+        Pitch = pitch;
+        Yaw = yaw;
+        Size = size;
+        UpdateTransform();
+    }
+
     public override void _Input(InputEvent e)
     {
         // Release drags even if the pointer moved over a GUI control.
         if (e is InputEventMouseButton { Pressed: false } b)
-        { if (b.ButtonIndex == MouseButton.Right) _rotating = false; if (b.ButtonIndex == MouseButton.Middle) _panning = false; }
+        {
+            if (b.ButtonIndex == MouseButton.Right)
+                _rotating = false;
+            if (b.ButtonIndex == MouseButton.Middle)
+                _panning = false;
+        }
     }
 
     public override void _UnhandledInput(InputEvent e)
     {
+        if (e is InputEventKey { Pressed: true, Keycode: Key.Home })
+            ResetView();
         if (e is InputEventMouseButton b)
         {
             if (b.ButtonIndex == MouseButton.Right)
@@ -61,7 +82,10 @@ public partial class MapCamera : Camera3D
         if (e is InputEventMouseMotion m)
         {
             if (_rotating)
-            { Yaw -= m.Relative.X * 0.005f; Pitch = Mathf.Clamp(Pitch + m.Relative.Y * 0.005f, 0.22f, 1.55f); }
+            {
+                Yaw -= m.Relative.X * 0.005f;
+                Pitch = Mathf.Clamp(Pitch + m.Relative.Y * 0.005f, 0.22f, 1.55f);
+            }
             if (_panning)
             {
                 float pixel = Size / GetViewport().GetVisibleRect().Size.Y;
@@ -75,7 +99,8 @@ public partial class MapCamera : Camera3D
 
     public override void _Process(double delta)
     {
-        if (GetViewport().GuiGetFocusOwner() is LineEdit or SpinBox)
+        // Typing into any text field must not move the camera.
+        if (GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit)
             return;
         Vector2 movement = new((Input.IsPhysicalKeyPressed(Key.D) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.A) ? 1 : 0),
             (Input.IsPhysicalKeyPressed(Key.S) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.W) ? 1 : 0));

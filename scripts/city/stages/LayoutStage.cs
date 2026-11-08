@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using PcgCitySandbox.Core;
+using PcgCitySandbox.Terrain;
 
-namespace PcgCitySandbox.Stages;
+namespace PcgCitySandbox.City;
 
 public sealed class LayoutOptions
 {
@@ -44,7 +44,7 @@ public sealed class LayoutStage : Stage<LayoutOptions, TownLayout>
     protected override TownLayout Run(StageInputs inputs, LayoutOptions o)
     {
         var site = inputs.Get<Site>();
-        var map = inputs.Map;
+        var map = inputs.Terrain;
         var core = ChooseCore(site, map, o);
         var ring = TraceWall(site, core, o);
         var gates = PlaceGates(site, map, core, ring, o);
@@ -70,7 +70,7 @@ public sealed class LayoutStage : Stage<LayoutOptions, TownLayout>
     }
 
     /// <summary>Best spot for the town: mostly buildable land within the wall radius, near (not on) the river.</summary>
-    private static Vector2 ChooseCore(Site site, TemperateMapData map, LayoutOptions o)
+    private static Vector2 ChooseCore(Site site, ITerrain map, LayoutOptions o)
     {
         int stride = Math.Max(1, (int)(o.Radius / 3 / site.CellSize));
         int sample = Math.Max(1, (int)(o.Radius / 12 / site.CellSize));
@@ -171,7 +171,7 @@ public sealed class LayoutStage : Stage<LayoutOptions, TownLayout>
     }
 
     /// <summary>Gates go on ring points that face open, passable country; each gets a map-edge entry point.</summary>
-    private static List<Gate> PlaceGates(Site site, TemperateMapData map, Vector2 core, Vector2[] ring, LayoutOptions o)
+    private static List<Gate> PlaceGates(Site site, ITerrain map, Vector2 core, Vector2[] ring, LayoutOptions o)
     {
         var rng = new Random(o.Seed * 31 + 7);
         float start = rng.NextSingle() * MathF.Tau;
@@ -221,7 +221,7 @@ public sealed class LayoutStage : Stage<LayoutOptions, TownLayout>
     }
 
     /// <summary>Where the outward ray from a gate leaves the map, pulled 10 m inside and snapped to a cell.</summary>
-    private static Vector2 EdgePoint(Site site, TemperateMapData map, Vector2 from, Vector2 direction)
+    private static Vector2 EdgePoint(Site site, ITerrain map, Vector2 from, Vector2 direction)
     {
         float limit = map.Half - 10;
         float tx = MathF.Abs(direction.X) < 1e-4f ? float.MaxValue : (MathF.Sign(direction.X) * limit - from.X) / direction.X;
