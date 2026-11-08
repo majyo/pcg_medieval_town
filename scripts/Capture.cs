@@ -17,8 +17,9 @@ public static class Capture
         {
             ("overview", camera.ResetView),
             ("top", camera.TopView),
-            ("town", () => camera.Frame(core, 0.6f, -0.5f, 620)),
-            ("street", () => camera.Frame(core, 0.5f, 0.9f, 180)),
+            ("town", () => camera.Frame(core, 0.6f, -0.5f, 850)),
+            ("street", () => camera.Frame(core, 0.5f, 0.9f, 250)),
+            ("close", () => camera.Frame(core, 0.25f, 0.9f, 70)),
         };
         foreach (var (name, setup) in views)
         {

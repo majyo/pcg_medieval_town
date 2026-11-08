@@ -21,24 +21,54 @@ public interface ITerrain
 public static class TerrainQueries
 {
     /// <summary>
-    /// Where a straight ray (e.g. from an orthographic camera) meets the ground, by fixed-point refinement
-    /// on the ground height. Returns false when the ray misses the map.
+    /// Where a ray (e.g. through a camera pixel) first meets the ground. Marches by a fraction of the
+    /// clearance above the ground, then bisects. Returns false when the ray misses the map.
     /// </summary>
-    public static bool Pick(this ITerrain terrain, Vector3 origin, Vector3 direction, out Vector2 hit)
+    public static bool Pick(this ITerrain terrain, Vector3 origin, Vector3 direction, out Vector2 hit,
+        float maxDistance = 20000)
     {
         hit = Vector2.Zero;
-        if (Mathf.Abs(direction.Y) < 1e-4f)
-            return false;
-        float y = 15;
-        for (int i = 0; i < 4; i++)
+        direction = direction.Normalized();
+        float Clearance(float t)
         {
-            var p = origin + direction * ((y - origin.Y) / direction.Y);
-            hit = new Vector2(p.X, p.Z);
-            if (!terrain.Contains(hit))
-                return false;
-            y = terrain.HeightAt(hit);
+            var p = origin + direction * t;
+            return p.Y - terrain.HeightAt(new Vector2(p.X, p.Z));
         }
 
-        return true;
+        float before = 0, after = -1;
+        for (int i = 0; i < 1024 && before < maxDistance; i++)
+        {
+            float clearance = Clearance(before);
+            if (clearance <= 0)
+            {
+                after = before;
+                break;
+            }
+
+            // Ground slopes stay well below 45°, so half the vertical clearance is a safe step.
+            float step = Mathf.Max(0.05f, clearance * 0.5f);
+            if (Clearance(before + step) <= 0)
+            {
+                after = before + step;
+                break;
+            }
+
+            before += step;
+        }
+
+        if (after < 0)
+            return false;
+        for (int i = 0; i < 12; i++)
+        {
+            float mid = (before + after) / 2;
+            if (Clearance(mid) > 0)
+                before = mid;
+            else
+                after = mid;
+        }
+
+        var point = origin + direction * after;
+        hit = new Vector2(point.X, point.Z);
+        return terrain.Contains(hit);
     }
 }

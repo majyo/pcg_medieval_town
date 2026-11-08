@@ -22,6 +22,7 @@ public partial class Main : Node3D
     private TerrainRenderer _terrain = null!;
     private CityView _city = null!;
     private MapCamera _camera = null!;
+    private DirectionalLight3D _sun = null!;
     private MapPanel _mapPanel = null!;
     private TerrainView _view = TerrainView.Landscape;
     private bool _showForest = true, _showWater = true;
@@ -75,15 +76,15 @@ public partial class Main : Node3D
                 AmbientLightEnergy = 0.45f,
             },
         });
-        AddChild(new DirectionalLight3D
+        _sun = new DirectionalLight3D
         {
             RotationDegrees = new Vector3(-38, -38, 0),
             LightColor = new Color("fff7ed"),
             LightEnergy = 0.85f,
             ShadowEnabled = true,
-            DirectionalShadowMaxDistance = 4500,
-        });
-        _camera = new MapCamera { MapSize = _settings.SizeMeters };
+        };
+        AddChild(_sun);
+        _camera = new MapCamera { MapSize = _settings.SizeMeters, GroundHeight = p => _map.HeightAt(p) };
         AddChild(_camera);
         _city = new CityView { Name = "City" };
         AddChild(_city);
@@ -121,7 +122,7 @@ public partial class Main : Node3D
         }
 
         ui.AddChild(_mapPanel);
-        ui.AddChild(new MapCompass { Camera = _camera, Position = new Vector2(280, 16) });
+        ui.AddChild(new MapCompass { Camera = _camera, MetersPerPixel = _camera.MetersPerPixel, Position = new Vector2(280, 16) });
 
         var stages = new StagePanel { Name = "Stages" };
         ui.AddChild(stages);
@@ -148,7 +149,7 @@ public partial class Main : Node3D
     {
         var center = _pipeline.Get<TownLayout>()?.Core ?? Vector2.Zero;
         var core = new Vector3(center.X, _map.HeightAt(center), center.Y);
-        _camera.Frame(core, 0.83f, -0.38f, 900);
+        _camera.Frame(core, 0.83f, -0.38f, 1200);
         return core;
     }
 
@@ -169,6 +170,8 @@ public partial class Main : Node3D
     {
         if (_mapPanel == null)
             return;
+        // Spend the shadow map on what the camera is looking at: tight up close, wide when zoomed out.
+        _sun.DirectionalShadowMaxDistance = Mathf.Clamp(_camera.Distance * 3, 60, 8000);
         var mouse = GetViewport().GetMousePosition();
         if (!_map.Pick(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit))
         {
