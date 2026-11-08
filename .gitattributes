@@ -39,3 +39,6 @@
 *.mov filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.7z filter=lfs diff=lfs merge=lfs -text
+
+# Native GDExtension libraries (Terrain3D)
+*.dll filter=lfs diff=lfs merge=lfs -text

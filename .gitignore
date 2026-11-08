@@ -28,3 +28,8 @@ venv/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Addon native libraries are not build output (the bin/ rule above is for .NET);
+# only the copies Godot makes of loaded libraries are.
+!addons/terrain_3d/bin/
+addons/**/bin/~*

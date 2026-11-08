@@ -13,3 +13,7 @@ max_line_length = 140
 csharp_preserve_single_line_statements = false
 csharp_preserve_single_line_blocks = true
 csharp_new_line_before_open_brace = all
+
+# Third-party addons: generated C# wrappers, not ours to format or lint.
+[addons/**.cs]
+generated_code = true
