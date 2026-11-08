@@ -8,16 +8,15 @@ namespace PcgCitySandbox.Rendering;
 
 public enum TerrainView { Landscape, Elevation, Slope, Suitability }
 
-/// <summary>Ground, map skirt, river surface and simple trees. Vertex colors only; no custom shaders.</summary>
+/// <summary>
+/// Ground (Terrain3D via <see cref="GroundSurface"/>), map skirt, river surface and simple trees.
+/// </summary>
 public partial class TerrainRenderer : Node3D
 {
     private TemperateMapData _data = null!;
-    private MeshInstance3D _ground = null!;
+    private GroundSurface _ground = null!;
     private MeshInstance3D _water = null!;
     private Node3D _forest = new() { Name = "Forest" };
-    private Vector3[] _vertices = Array.Empty<Vector3>();
-    private int[] _indices = Array.Empty<int>();
-    private readonly Dictionary<TerrainView, ArrayMesh> _meshes = new();
     private Func<Vector2, bool>? _treeMask;
 
     public TerrainView View { get; private set; }
@@ -25,32 +24,9 @@ public partial class TerrainRenderer : Node3D
     public void Build(TemperateMapData data)
     {
         _data = data;
-        _vertices = new Vector3[data.Heights.Length];
-        for (int z = 0; z < data.Side; z++)
-            for (int x = 0; x < data.Side; x++)
-            {
-                var p = data.GridPosition(x, z);
-                _vertices[data.Index(x, z)] = new Vector3(p.X, data.Heights[data.Index(x, z)], p.Y);
-            }
-
-        int segments = data.Side - 1;
-        _indices = new int[segments * segments * 6];
-        int i = 0;
-        for (int z = 0; z < segments; z++)
-            for (int x = 0; x < segments; x++)
-            {
-                int a = data.Index(x, z), b = a + 1, c = a + data.Side, d = c + 1;
-                _indices[i++] = a;
-                _indices[i++] = b;
-                _indices[i++] = c;
-                _indices[i++] = b;
-                _indices[i++] = d;
-                _indices[i++] = c;
-            }
-
-        _ground = new MeshInstance3D { Name = "Ground", MaterialOverride = MeshKit.Material() };
+        _ground = new GroundSurface { Name = "Ground" };
         AddChild(_ground);
-        SetView(TerrainView.Landscape);
+        _ground.Build(data, i => GroundColor(TerrainView.Landscape, i));
         BuildSkirt();
         BuildWater();
         AddChild(_forest);
@@ -59,11 +35,14 @@ public partial class TerrainRenderer : Node3D
 
     public void SetView(TerrainView view)
     {
+        if (view == View)
+            return;
         View = view;
-        if (!_meshes.TryGetValue(view, out var mesh))
-            _meshes[view] = mesh = GroundMesh(view);
-        _ground.Mesh = mesh;
+        _ground.SetColors(i => GroundColor(view, i));
     }
+
+    /// <summary>Centers the ground's finest level of detail on <paramref name="focus"/>.</summary>
+    public void Follow(Vector3 focus) => _ground.Follow(focus);
 
     public void ShowForest(bool visible) => _forest.Visible = visible;
     public void ShowWater(bool visible) => _water.Visible = visible;
@@ -77,52 +56,44 @@ public partial class TerrainRenderer : Node3D
         BuildForest();
     }
 
-    private ArrayMesh GroundMesh(TerrainView view)
+    /// <summary>Ground color of a view at map grid vertex <paramref name="i"/>.</summary>
+    private Color GroundColor(TerrainView view, int i)
     {
         var d = _data;
-        var colors = new Color[d.Heights.Length];
-        Color meadow = new("849965"), forest = new("526d44"), bank = new("b8ae82");
-        for (int i = 0; i < colors.Length; i++)
+        float h = Mathf.InverseLerp(d.MinHeight, d.MaxHeight, d.Heights[i]);
+        return view switch
         {
-            float h = Mathf.InverseLerp(d.MinHeight, d.MaxHeight, d.Heights[i]);
-            colors[i] = view switch
-            {
-                TerrainView.Elevation => new Color("315e70").Lerp(new Color("92b78e"), Mathf.Clamp(h * 2, 0, 1))
-                    .Lerp(new Color("e6d3a0"), Mathf.Clamp((h - 0.5f) * 2, 0, 1)),
-                TerrainView.Slope => new Color("7db39e").Lerp(new Color("e8c36f"), Mathf.Clamp(d.Slopes[i] / 8, 0, 1))
-                    .Lerp(new Color("be6251"), Mathf.Clamp((d.Slopes[i] - 8) / 12, 0, 1)),
-                TerrainView.Suitability => d.Water[i] ? new Color("315f74")
-                    : new Color("ad7860").Lerp(new Color("90bc84"), d.Suitability[i]),
-                _ => meadow.Lerp(new Color("a5ae77"), h * 0.5f)
-                    .Lerp(forest, Mathf.Clamp(d.Forest[i] * 0.85f, 0, 0.65f))
-                    .Lerp(bank, Mathf.Clamp(1 - (d.RiverDistances[i] - d.Settings.RiverWidthMeters * 0.5f) / 17, 0, 0.75f)),
-            };
-        }
-
-        var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = _vertices;
-        arrays[(int)Mesh.ArrayType.Normal] = d.Normals;
-        arrays[(int)Mesh.ArrayType.Color] = colors;
-        arrays[(int)Mesh.ArrayType.Index] = _indices;
-        var mesh = new ArrayMesh();
-        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-        return mesh;
+            TerrainView.Elevation => new Color("315e70").Lerp(new Color("92b78e"), Mathf.Clamp(h * 2, 0, 1))
+                .Lerp(new Color("e6d3a0"), Mathf.Clamp((h - 0.5f) * 2, 0, 1)),
+            TerrainView.Slope => new Color("7db39e").Lerp(new Color("e8c36f"), Mathf.Clamp(d.Slopes[i] / 8, 0, 1))
+                .Lerp(new Color("be6251"), Mathf.Clamp((d.Slopes[i] - 8) / 12, 0, 1)),
+            TerrainView.Suitability => d.Water[i] ? new Color("315f74")
+                : new Color("ad7860").Lerp(new Color("90bc84"), d.Suitability[i]),
+            _ => new Color("849965").Lerp(new Color("a5ae77"), h * 0.5f)
+                .Lerp(new Color("526d44"), Mathf.Clamp(d.Forest[i] * 0.85f, 0, 0.65f))
+                .Lerp(new Color("b8ae82"), Mathf.Clamp(1 - (d.RiverDistances[i] - d.Settings.RiverWidthMeters * 0.5f) / 17, 0, 0.75f)),
+        };
     }
 
     private void BuildSkirt()
     {
         var kit = new MeshKit();
         int n = _data.Side - 1;
+        Vector3 Edge(int x, int z)
+        {
+            var p = _data.GridPosition(x, z);
+            return new Vector3(p.X, _data.Heights[_data.Index(x, z)], p.Y);
+        }
+
         var edge = new List<Vector3>();
         for (int i = 0; i < n; i++)
-            edge.Add(_vertices[_data.Index(i, 0)]);
+            edge.Add(Edge(i, 0));
         for (int i = 0; i < n; i++)
-            edge.Add(_vertices[_data.Index(n, i)]);
+            edge.Add(Edge(n, i));
         for (int i = n; i > 0; i--)
-            edge.Add(_vertices[_data.Index(i, n)]);
+            edge.Add(Edge(i, n));
         for (int i = n; i > 0; i--)
-            edge.Add(_vertices[_data.Index(0, i)]);
+            edge.Add(Edge(0, i));
         for (int i = 0; i < edge.Count; i++)
         {
             var a = edge[i];
@@ -131,7 +102,10 @@ public partial class TerrainRenderer : Node3D
                 new Vector3(a.X, 0, a.Z));
         }
 
-        AddChild(new MeshInstance3D { Name = "Skirt", Mesh = kit.Commit(), MaterialOverride = MeshKit.Material() });
+        // One-sided, seen only from outside: the ground leaves a thin gap at the map edge that would otherwise
+        // show the skirt's inner face.
+        var material = MeshKit.Material(cull: BaseMaterial3D.CullModeEnum.Front);
+        AddChild(new MeshInstance3D { Name = "Skirt", Mesh = kit.Commit(), MaterialOverride = material });
     }
 
     private void BuildWater()

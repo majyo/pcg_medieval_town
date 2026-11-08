@@ -4,7 +4,7 @@ using Godot;
 
 namespace PcgCitySandbox.Rendering;
 
-/// <summary>Small vertex-colored mesh builder. Faces are double-sided, so winding never matters.</summary>
+/// <summary>Small vertex-colored mesh builder. Materials are double-sided unless a cull mode is given.</summary>
 public sealed class MeshKit
 {
     private readonly SurfaceTool _tool = new();
@@ -15,16 +15,17 @@ public sealed class MeshKit
         _tool.Begin(type);
     }
 
-    public static StandardMaterial3D Material(bool unshaded = false, float alpha = 1) => new()
-    {
-        VertexColorUseAsAlbedo = true,
-        VertexColorIsSrgb = true,
-        Roughness = 1,
-        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-        ShadingMode = unshaded ? BaseMaterial3D.ShadingModeEnum.Unshaded : BaseMaterial3D.ShadingModeEnum.PerPixel,
-        Transparency = alpha < 1 ? BaseMaterial3D.TransparencyEnum.Alpha : BaseMaterial3D.TransparencyEnum.Disabled,
-        AlbedoColor = new Color(1, 1, 1, alpha),
-    };
+    public static StandardMaterial3D Material(bool unshaded = false, float alpha = 1,
+        BaseMaterial3D.CullModeEnum cull = BaseMaterial3D.CullModeEnum.Disabled) => new()
+        {
+            VertexColorUseAsAlbedo = true,
+            VertexColorIsSrgb = true,
+            Roughness = 1,
+            CullMode = cull,
+            ShadingMode = unshaded ? BaseMaterial3D.ShadingModeEnum.Unshaded : BaseMaterial3D.ShadingModeEnum.PerPixel,
+            Transparency = alpha < 1 ? BaseMaterial3D.TransparencyEnum.Alpha : BaseMaterial3D.TransparencyEnum.Disabled,
+            AlbedoColor = new Color(1, 1, 1, alpha),
+        };
 
     /// <summary>Normal is taken from the winding, then flipped to face <paramref name="toward"/> if given.</summary>
     public void Triangle(Vector3 a, Vector3 b, Vector3 c, Color color, Vector3? toward = null)

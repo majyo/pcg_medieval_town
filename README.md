@@ -28,5 +28,8 @@
 ## 仓库
 
 - 地图参数：`configs/temperate_plain.tres`。阶段参数是代码中的默认值，在界面上修改，只在本次运行有效。
-- Git LFS 管理二进制资源（见 `.gitattributes`）。首次使用先执行 `git lfs install`。
+- Git LFS 管理二进制资源（见 `.gitattributes`），包括插件的 DLL。首次使用先执行 `git lfs install`。
+- 地面使用 [Terrain3D](https://github.com/TokisanGames/Terrain3D) v1.1.0（MIT），位于 `addons/terrain_3d`，只保留了 Windows x86_64 的库。升级时从其发布页下载对应 Godot 版本的压缩包，替换该目录并删掉其他平台的库。
+- 新克隆的仓库需要让 Godot 扫描一次项目才会加载插件；`tools/project.ps1` 会在需要时自动执行 `--import`。
+- 在 Godot 编辑器里保存 C# 文件会把缩进改成 Tab；提交前执行 `dotnet format whitespace` 改回空格，或把编辑器的缩进设置改为空格。
 - `.godot/`、`bin/`、`obj/`、`artifacts/` 为生成内容，不纳入版本库。

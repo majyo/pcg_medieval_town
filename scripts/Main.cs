@@ -141,6 +141,7 @@ public partial class Main : Node3D
         _terrain.ShowForest(_showForest);
         _terrain.ShowWater(_showWater);
         _treeMaskSource = null;
+        _terrain.Follow(_camera.Focus);
         _mapPanel.Stats = $"种子 {_map.Settings.Seed}\n高程 {_map.MinHeight:0}–{_map.MaxHeight:0} m\n" +
             $"林地 {_map.ForestFraction:P0}   开阔缓坡 {_map.OpenGentleFraction:P0}";
     }
@@ -172,6 +173,7 @@ public partial class Main : Node3D
             return;
         // Spend the shadow map on what the camera is looking at: tight up close, wide when zoomed out.
         _sun.DirectionalShadowMaxDistance = Mathf.Clamp(_camera.Distance * 3, 60, 8000);
+        _terrain.Follow(_camera.Focus);
         var mouse = GetViewport().GetMousePosition();
         if (!_map.Pick(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit))
         {

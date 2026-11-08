@@ -7,8 +7,8 @@ scripts/
   Main.cs, Capture.cs  组合入口：创建各组件并接线；--test / --capture。自身不含生成、渲染、相机或控件逻辑
   terrain/   地形生成    ITerrain（对外的只读查询）、TemperateMapData（生成实现）、MapSettings
   city/      城市生成    core/（Pipeline、Region、[Param]、IStageResult）、stages/（五个阶段）、TownPipeline、Checks
-  camera/    相机控制    MapCamera：正交环绕相机，鼠标键盘操作、复位、取景
-  rendering/ 渲染        TerrainRenderer（地表、河面、树）、CityView（各阶段结果）、MeshKit
+  camera/    相机控制    MapCamera：透视环绕相机，鼠标键盘操作、复位、取景
+  rendering/ 渲染        TerrainRenderer（地面、裙边、河面、树）、GroundSurface（Terrain3D 地面）、CityView（各阶段结果）、MeshKit
   ui/        界面        MapPanel（左侧）、StagePanel（右侧参数）、MapCompass、UiStyle
 ```
 
@@ -20,11 +20,14 @@ camera      city ← ui
 （Main 引用全部；camera 和 terrain 不引用任何其他组件）
 ```
 
+第三方插件 `addons/terrain_3d`（Terrain3D v1.1.0，C++ GDExtension + 生成的 C# 封装）只由 `rendering/GroundSurface.cs` 使用。
+
 - **城市生成只通过 `ITerrain` 读地形**：高程、采样、最近河段、地图范围。换一种地形实现不需要改城市代码。
 - **地形和城市生成不碰场景节点**，可以在无界面检查里直接运行。
-- **相机只知道自己的活动范围**，不知道地形、城镇或界面；取景由调用方传入焦点。
+- **相机只知道自己的活动范围**，不知道地形、城镇或界面；取景由调用方传入焦点，贴地由调用方传入地面高度回调。
 - **界面只发事件、执行别人给的回调**：`MapPanel` 不知道地形渲染或城市预览的存在，`MapCompass` 只依赖 Godot 的 `Camera3D`。`StagePanel` 是管线的编辑器，所以依赖 `city`。
-- **跨组件的联动只写在 `Main` 里**，例如城内和道路上隐藏树木、鼠标探针、按种子重建地图。
+- **跨组件的联动只写在 `Main` 里**，例如城内和道路上隐藏树木、鼠标探针、按种子重建地图、地面最细 LOD 跟随相机焦点、阴影距离随相机距离变化。
+- **地面由 Terrain3D 绘制**：几何裁剪图（clipmap）网格，顶点着色器按高度图抬高顶点。`GroundSurface` 把地图高度重采样到约 0.98 m 间距、恰好覆盖 ±1000 m 的网格导入；地表颜色写入它的颜色图（分析视图只替换颜色图）。高度的唯一来源仍是 `TemperateMapData`，城市叠加层用同一个 `HeightAt` 贴地。
 
 `tools/project.ps1 test` 在编译前检查这些规则：每个目录的命名空间、允许引用的组件，以及 `terrain`、`city` 不出现场景节点类型。违规即失败。
 
@@ -74,5 +77,6 @@ camera      city ← ui
 - 道路贴着原地形，没有纵断面或地形修整。如果以后要做，用“叠加高度场”实现，不复制地形数据。
 - 地块只有临街一种类型，街区深处留作后院，没有公共建筑（教堂、市政厅）和城外街带。
 - 场地分析约 1.8 秒（每格都在查最近河段），其余阶段合计不到 0.2 秒。
+- 地面网格已有约 1 m 精度，但地形生成的高度数据只有 5.2 m 精度，近景看不到更细的起伏。下一步是让地形生成直接产出约 1 m 的高度图，并作为 `HeightAt` 和地面网格的共同来源。
 
 建议的加深顺序：路网形态 → 街区与地块形态 → 公共建筑与建筑类型 → 城外街带与桥 → 地形修整 → 视觉细节。

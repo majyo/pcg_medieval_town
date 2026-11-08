@@ -50,6 +50,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }
     if ($Action -eq 'build') { return }
     if (-not (Test-Path -LiteralPath $GodotPath -PathType Leaf)) { throw "Godot not found: $GodotPath" }
+    # GDExtensions (Terrain3D) load only once the editor has scanned the project, e.g. on a fresh clone.
+    if (-not (Test-Path -LiteralPath (Join-Path $projectRoot '.godot/extension_list.cfg'))) {
+        & $GodotPath --headless --path $projectRoot --import | Out-Null
+    }
     switch ($Action) {
         'run' { & $GodotPath --path $projectRoot }
         'test' {
