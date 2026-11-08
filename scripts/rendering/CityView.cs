@@ -198,7 +198,7 @@ public partial class CityView : Node3D
         {
             var region = Region.Polygon(parcel.Ring);
             var color = new Color("98a46c").Lerp(new Color("b3aa78"), rng.NextSingle());
-            fill.Drape(region.Triangulate(), Height, 0.15f, color, 5);
+            fill.Drape(region.Triangulate(), Height, 0.15f, color);
             for (int i = 0; i < parcel.Ring.Length; i++)
                 DrapedLine(lines, parcel.Ring[i], parcel.Ring[(i + 1) % parcel.Ring.Length], 0.35f, new Color("5c5a3c"));
         }
@@ -253,7 +253,7 @@ public partial class CityView : Node3D
 
     private void DrapedLine(MeshKit kit, Vector2 a, Vector2 b, float lift, Color color)
     {
-        int steps = Math.Max(1, (int)(a.DistanceTo(b) / 4));
+        int steps = Math.Max(1, (int)(a.DistanceTo(b) / 1.5f));
         for (int i = 0; i < steps; i++)
         {
             var p = a.Lerp(b, i / (float)steps);

@@ -77,12 +77,13 @@ public partial class TerrainRenderer : Node3D
 
     private void BuildSkirt()
     {
+        // Follow the height grid's edge vertex by vertex so the skirt meets the ground exactly.
         var kit = new MeshKit();
-        int n = _data.Side - 1;
+        int n = _data.HeightSide - 1;
         Vector3 Edge(int x, int z)
         {
-            var p = _data.GridPosition(x, z);
-            return new Vector3(p.X, _data.Heights[_data.Index(x, z)], p.Y);
+            var p = _data.HeightPosition(x, z);
+            return new Vector3(p.X, _data.HeightGrid[_data.HeightIndex(x, z)], p.Y);
         }
 
         var edge = new List<Vector3>();

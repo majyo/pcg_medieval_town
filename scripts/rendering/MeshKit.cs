@@ -84,7 +84,7 @@ public sealed class MeshKit
     }
 
     /// <summary>Planar triangles, split until no edge exceeds <paramref name="maxEdge"/>, lifted onto the ground.</summary>
-    public void Drape(Vector2[] triangles, Func<Vector2, float> height, float lift, Color color, float maxEdge = 4)
+    public void Drape(Vector2[] triangles, Func<Vector2, float> height, float lift, Color color, float maxEdge = 1.5f)
     {
         var stack = new Stack<(Vector2, Vector2, Vector2, int)>();
         for (int i = 0; i + 2 < triangles.Length; i += 3)
@@ -93,7 +93,7 @@ public sealed class MeshKit
         {
             var (a, b, c, depth) = stack.Pop();
             float longest = Math.Max(a.DistanceSquaredTo(b), Math.Max(b.DistanceSquaredTo(c), c.DistanceSquaredTo(a)));
-            if (longest > maxEdge * maxEdge && depth < 8)
+            if (longest > maxEdge * maxEdge && depth < 10)
             {
                 Vector2 ab = (a + b) / 2, bc = (b + c) / 2, ca = (c + a) / 2;
                 stack.Push((a, ab, ca, depth + 1));

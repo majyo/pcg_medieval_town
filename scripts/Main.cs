@@ -36,7 +36,9 @@ public partial class Main : Node3D
             var args = OS.GetCmdlineUserArgs();
             if (args.Contains("--test"))
             {
-                GetTree().Quit(await Checks.Run(seed => TemperateMapData.Create(_settings, seed)));
+                int terrain = TerrainChecks.Run(_settings);
+                int city = await Checks.Run(seed => TemperateMapData.Create(_settings, seed));
+                GetTree().Quit(Math.Max(terrain, city));
                 return;
             }
 
@@ -52,7 +54,7 @@ public partial class Main : Node3D
             var capture = args.FirstOrDefault(a => a.StartsWith("--capture="));
             if (capture != null)
             {
-                await Capture.Save(this, _camera, core, capture["--capture=".Length..]);
+                await Capture.Save(this, _camera, core, BankView(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
         }
@@ -152,6 +154,30 @@ public partial class Main : Node3D
         var core = new Vector3(center.X, _map.HeightAt(center), center.Y);
         _camera.Frame(core, 0.83f, -0.38f, 1200);
         return core;
+    }
+
+    /// <summary>
+    /// A riverbank close-up away from the town: a point just inland of the water line, about 230 m upstream of
+    /// where the river passes the town, seen from the land side.
+    /// </summary>
+    private (Vector3 Focus, float Yaw) BankView(Vector3 core)
+    {
+        var river = _map.River;
+        var town = new Vector2(core.X, core.Z);
+        int nearest = 0;
+        for (int i = 1; i < river.Count; i++)
+        {
+            if (river[i].Position.DistanceSquaredTo(town) < river[nearest].Position.DistanceSquaredTo(town))
+                nearest = i;
+        }
+
+        int i0 = Math.Clamp(nearest - 30, 0, river.Count - 2);
+        var point = river[i0];
+        var normal = (river[i0 + 1].Position - point.Position).Normalized().Orthogonal();
+        if (normal.Dot(town - point.Position) < 0)
+            normal = -normal;
+        var focus = point.Position + normal * (point.HalfWidth + 3);
+        return (new Vector3(focus.X, _map.HeightAt(focus), focus.Y), Mathf.Atan2(normal.X, normal.Y));
     }
 
     /// <summary>The one place city results reach the terrain view: trees vanish inside the walls and on roads.</summary>

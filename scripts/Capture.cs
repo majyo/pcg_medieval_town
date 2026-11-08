@@ -9,7 +9,8 @@ namespace PcgCitySandbox;
 /// <summary>Saves a fixed set of camera views of the current scene as PNG files.</summary>
 public static class Capture
 {
-    public static async Task Save(Node host, MapCamera camera, Vector3 core, string directory)
+    public static async Task Save(Node host, MapCamera camera, Vector3 core, (Vector3 Focus, float Yaw) bank,
+        string directory)
     {
         var path = ProjectSettings.GlobalizePath($"res://{directory}");
         Directory.CreateDirectory(path);
@@ -20,6 +21,8 @@ public static class Capture
             ("town", () => camera.Frame(core, 0.6f, -0.5f, 850)),
             ("street", () => camera.Frame(core, 0.5f, 0.9f, 250)),
             ("close", () => camera.Frame(core, 0.25f, 0.9f, 70)),
+            ("bank", () => camera.Frame(bank.Focus, 0.35f, bank.Yaw, 45)),
+            ("bank_low", () => camera.Frame(bank.Focus, 0.12f, bank.Yaw + 0.6f, 16)),
         };
         var viewport = host.GetViewport().GetViewportRid();
         RenderingServer.ViewportSetMeasureRenderTime(viewport, true);

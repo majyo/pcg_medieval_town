@@ -15,7 +15,11 @@ public interface ITerrain
     bool Contains(Vector2 p);
     float HeightAt(Vector2 p);
     TerrainSample Sample(Vector2 p);
-    (float Distance, float WaterHeight, float HalfWidth) NearestRiver(Vector2 p);
+    /// <summary>
+    /// Nearest point on the river centerline. Segments beyond <paramref name="maxDistance"/> are not searched;
+    /// if none is closer, the distance is infinite and the water height and width are zero.
+    /// </summary>
+    (float Distance, float WaterHeight, float HalfWidth) NearestRiver(Vector2 p, float maxDistance = float.PositiveInfinity);
 }
 
 public static class TerrainQueries
