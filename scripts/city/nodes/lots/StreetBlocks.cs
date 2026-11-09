@@ -16,14 +16,14 @@ public sealed class StreetBlocksOptions
 
 /// <summary>
 /// Developable land = built cells inside the wall, minus a setback from the wall, the paved area, landmark plots and
-/// unbuildable cells; blocks are its parts. The unbuilt land inside the wall stays gardens.
+/// unbuildable cells; blocks are its parts. Unbuilt land inside the wall (gardens, if phase three leaves any) stays open.
 /// </summary>
 public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
 {
     public override string Group => "街区与地块";
     public override string Title => "街区";
     public override string Description =>
-        "城内已建成的地退让城墙后，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区；城内没建成的地留作菜园。";
+        "城内已建成的地退让城墙后，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区；城内没建成的地（陡坡，或填充比例调小时的菜园）不建房。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 

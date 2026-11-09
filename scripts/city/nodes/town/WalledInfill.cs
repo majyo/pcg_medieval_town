@@ -7,8 +7,8 @@ namespace PcgCitySandbox.City;
 public sealed class WalledInfillOptions : SpreadOptions
 {
     [Param("填充比例", 0.2, 1, 0.05,
-        Hint = "这一期结束时，城内可建设的地有多大比例建成；其余留作菜园、果园")]
-    public float Fill { get; set; } = 0.7f;
+        Hint = "这一期结束时，城内可建设的地有多大比例建成。1 是填满（菜园在各家地块的后院）；调小后城内留出成片的菜园")]
+    public float Fill { get; set; } = 1;
     [Param("离墙 m", 0, 30, 1,
         Hint = "离城墙这么近的地不建房（墙根空地），与街区的城墙退让一致")]
     public float WallSetback { get; set; } = 8;
@@ -16,7 +16,8 @@ public sealed class WalledInfillOptions : SpreadOptions
 
 /// <summary>
 /// Phase three: the walled town fills in. It grows along the roads from the market and the gates, only inside the
-/// wall and clear of it, until the given share of the buildable land inside is built; the rest stays gardens.
+/// wall and clear of it, until the given share of the buildable land inside is built (all of it by default; gardens
+/// are then the backs of the plots).
 /// </summary>
 public sealed class WalledInfill : CityNode<WalledInfillOptions>
 {
@@ -26,7 +27,7 @@ public sealed class WalledInfill : CityNode<WalledInfillOptions>
     public override string Group => TownGrowth.Group;
     public override string Title => "三期 城内填充";
     public override string Description =>
-        "筑墙之后，城内从市场和各城门沿道路继续生长，直到城内可建设的地建成一定比例；离墙太近的地不建，其余留作菜园。";
+        "筑墙之后，城内从市场和各城门沿道路继续生长，直到城内可建设的地建成一定比例（默认填满）；离墙太近的地不建。";
     public override IReadOnlyList<IKey> Reads =>
         [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Habitability, Keys.Buildable];
     public override IReadOnlyList<IKey> Edits => [Keys.Growth];

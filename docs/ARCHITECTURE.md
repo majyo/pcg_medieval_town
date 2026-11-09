@@ -97,13 +97,13 @@ camera      city ← ui
 | | `MarketGrowth` 二期 市镇 | town.plaza、town.landmarks、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 市场和教堂用地先算作二期建成，再以市场下的道路格为起点同样生长，到累计 6 ha |
 | | `EnclosingWall` 城墙 | town.growth、town.plaza、town.landmarks、region.routes、site.shore、site.slope → town.wall | 从市场和教堂用地向外，在离水 20 m 以外、坡度 15° 以内的格上按“离市场的路程 − 50 m × 是否已建成”从低到高收入，到筑墙前建成面积的 1.6 倍；收进墙外 40 m 内的路口和出墙不到 120 m 又回来的路段；闭运算（20 m）填凹口、填洞，取外轮廓，切角平滑、简化成墙线。平滑后再按墙线检查道路，仍有短距离出入的路段就再收进来重做，最多三遍。长臂的末端可以留在墙外 |
 | | `RouteGates` 城门 | region.routes、site.shore；编辑 town.wall → town.gates | 过境道路每穿过墙线一次开一座门：门点是穿墙处城外一侧的道路格格心（在水里时取城内一侧），插进墙线（因此编辑城墙）；城门通向沿道路往墙外走最先到达的图边入口 |
-| | `WalledInfill` 三期 城内填充 | town.wall、town.gates、town.plaza、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 只在城内、离墙 8 m 以外，从市场和城门下的道路格同样生长，到城内可建设地的 70%；其余留作菜园 |
+| | `WalledInfill` 三期 城内填充 | town.wall、town.gates、town.plaza、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 只在城内、离墙 8 m 以外，从市场和城门下的道路格同样生长，默认填满城内可建设的地（菜园在各家地块后院）；调小填充比例可以留出成片菜园 |
 | 路网 | `RoadZoning` 通行区 | site、town.wall、town.gates → road.zones | 哪些格可以修路：不是水、坡度不超限，城内或城外，只能在城门处穿墙 |
 | | `SkeletonLinks` 骨架道路 | region.routes、town.wall、town.gates、town.plaza → road.links | 过境道路的格子连线原样抄入：两端都在城内的是主街，其余是城外道路，一直到图边，过河处走渡口；锚点是市场（市场里离中心最近的道路格）、城门、图边入口 |
 | | `StreetMesh` 街巷网 | road.zones；编辑 road.links | 城内按间距撒点，最近点对连成树，再加少量不形成锐角的环 |
 | | `ExtractRoads` 提取路网 | site、road.links、town.plaza → roads | 网格连线中度为 2 的链变成折线，锚点、路口、端点和道路等级变化处成为节点；道路加广场成为铺装区。不需要线段求交。街巷按 0.4 格简化；主街和城外道路抄自拉直的过境道路，按 0.75 格简化（否则格子台阶留下小折，铺装会切掉地块的角），碰到水的段仍按 0.4 格 |
-| 街区与地块 | `StreetBlocks` 街区 | site、town.wall、roads、town.landmarks、town.growth → blocks | 可建区 = 城墙内退让 ∩ 建成格（格边圆滑 4 m）− 铺装区 − 地标用地 − 不可建设格，按连通部分分成街区；城内没建成的地留作菜园 |
-| | `FrontageParcels` 临街地块 | blocks、roads → parcels | 沿每条街两侧按面宽切出进深固定的地块，先主街后街巷，后切的扣除已占用部分 |
+| 街区与地块 | `StreetBlocks` 街区 | site、town.wall、roads、town.landmarks、town.growth → blocks | 可建区 = 城墙内退让 ∩ 建成格（格边圆滑 4 m）− 铺装区 − 地标用地 − 不可建设格，按连通部分分成街区；城内没建成的地（陡坡，或填充比例调小时的菜园）不建房 |
+| | `FrontageParcels` 临街地块 | blocks、roads → parcels | 沿每条街两侧按面宽切出 16 m 深的地块，先主街后街巷，后切的扣除已占用部分；然后所有地块每轮各向后取一条 2 m 的条带，两边街道的地块在街区中间相遇，最深 50 m；街角、弯处剩下的空隙（不超过 1500 m²）并给相邻边界最长的地块 |
 | 建筑 | `GableHouses` 临街双坡房屋 | parcels → buildings | 每个地块临街一栋矩形房屋，层数随机，主街加一层；双坡屋顶，窄长房屋山墙朝街；偶尔留出小巷 |
 
 `road.links` 是累加型数据：骨架道路新建，街巷网在副本上添加；A\* 偏好已有连线，所以街巷会并入主街。`town.growth` 也是：每格记下建成于第几期，后一期在副本上加格，所以点“一期 村落”只看到一期，点“二期 市镇”看到一、二期两种颜色。
@@ -150,7 +150,6 @@ camera      city ← ui
 - 城墙、城门、路网、街区节点仍读过渡用的 `site` 键（由 `LegacySite` 从评价键打包），整座城镇已在 4 m 采样网格上生成；改读评价键是城市规划阶段的最后一步（见 [CITY_PLANNING.md](CITY_PLANNING.md) §8）。
 - 地图生成约 0.6 秒，场地采样约 0.15–0.3 秒，场地评价约 0.1 秒，区域格局约 0.2–0.4 秒（大部分是全图寻路），城镇生长约 0.3–0.5 秒，其余节点合计约 0.5 秒（Debug 编译）。
 - 墙外还没有房子：城外道路边不切地块，墙外的一、二期建成格也不建房，城外的作坊和农田还没有。按 [CITY_PLANNING.md](CITY_PLANNING.md) 第 5 步补上。
-- 街巷网仍在整个城内撒点，菜园里也有街巷穿过。
 - Terrain3D 没有纹理资源时会在着色器末尾追加棋盘格调试代码，所以 `GroundSurface` 注册了一个不会被采样的占位纹理。
 - 远离焦点的粗 LOD 网格碰到地图边缘的洞时整块三角形会被丢弃，地图近侧边缘与裙边之间可能露出一条细缝。
 - 城市部分（房屋、道路）仍是普通的顶点色材质，风格还没有和地面、植被统一。

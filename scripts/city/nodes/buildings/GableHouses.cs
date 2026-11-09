@@ -35,6 +35,9 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
 {
     private const float FloorHeight = 3.2f;
 
+    private static readonly (float Left, float Right)[] Trims =
+        [(0, 0), (1.5f, 0), (0, 1.5f), (1.5f, 1.5f), (3, 0), (0, 3), (3, 3)];
+
     public override string Group => "建筑";
     public override string Title => "临街双坡房屋";
     public override string Description =>
@@ -64,21 +67,28 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
                     right = 1.5f;
             }
 
-            var a = parcel.FrontA + along * left + parcel.Inward * 0.3f;
-            var b = parcel.FrontB - along * right + parcel.Inward * 0.3f;
-            float width = a.DistanceTo(b);
             float depth = o.DepthMin + rng.NextSingle() * (o.DepthMax - o.DepthMin);
             int floors = rng.Next(o.FloorsMin, o.FloorsMax + 1) + (parcel.Street == RoadKind.Main ? 1 : 0);
             int palette = rng.Next(4);
+            // A plot cut short at a corner by an earlier plot gets a narrower house before a shallower one.
             Vector2[]? corners = null;
-            for (int attempt = 0; attempt < 4 && width >= 3; attempt++, depth *= 0.75f)
+            foreach (var (trimLeft, trimRight) in Trims)
             {
-                var candidate = new[] { a, b, b + parcel.Inward * depth, a + parcel.Inward * depth };
-                if (depth >= 4 && Region.Polygon(candidate).Subtract(region).Area < 0.2)
+                var a = parcel.FrontA + along * (left + trimLeft) + parcel.Inward * 0.3f;
+                var b = parcel.FrontB - along * (right + trimRight) + parcel.Inward * 0.3f;
+                if (a.DistanceTo(b) < 3 || (b - a).Dot(along) <= 0)
+                    continue;
+
+                float tryDepth = depth;
+                for (int attempt = 0; attempt < 4 && corners == null; attempt++, tryDepth *= 0.75f)
                 {
-                    corners = candidate;
-                    break;
+                    var candidate = new[] { a, b, b + parcel.Inward * tryDepth, a + parcel.Inward * tryDepth };
+                    if (tryDepth >= 4 && Region.Polygon(candidate).Subtract(region).Area < 0.2)
+                        corners = candidate;
                 }
+
+                if (corners != null)
+                    break;
             }
 
             if (corners == null)
@@ -87,6 +97,8 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
                 continue;
             }
 
+            float width = corners[0].DistanceTo(corners[1]);
+            depth = corners[1].DistanceTo(corners[2]);
             var heights = corners.Select(map.HeightAt).ToArray();
             float eaves = heights.Max() + floors * FloorHeight;
             bool ridgeToStreet = width <= depth * 1.2f;
