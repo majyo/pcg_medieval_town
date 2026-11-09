@@ -29,6 +29,7 @@ public partial class Main : Node3D
     private int _groundView;
     private ScalarField? _paintedField;
     private OptionButton _groundChoice = null!;
+    private readonly Dictionary<CityLayer, CheckBox> _layerToggles = new();
     private bool _showForest = true, _showWater = true, _showCover = true;
     private object? _treeMaskSource;
 
@@ -114,7 +115,7 @@ public partial class Main : Node3D
             (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
         })
         {
-            _mapPanel.AddToggle(name, _city.IsVisible(layer), on => _city.SetVisible(layer, on));
+            _layerToggles[layer] = _mapPanel.AddToggle(name, _city.IsVisible(layer), on => _city.SetVisible(layer, on));
         }
 
         ui.AddChild(_mapPanel);
@@ -204,6 +205,7 @@ public partial class Main : Node3D
             views.Add((name, () => ShowField(view, () =>
             {
                 _city.SetVisible(CityLayer.Contours, contours);
+                _layerToggles[CityLayer.Contours].SetPressedNoSignal(contours);
                 _camera.Frame(core, 0.6f, -0.5f, 850);
             })));
         }

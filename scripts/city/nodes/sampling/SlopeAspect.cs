@@ -49,6 +49,6 @@ public sealed class SlopeAspect : CityNode<SlopeAspectOptions>
             }
         });
         c.Set(Keys.Slope, new ScalarField(grid, slope, "坡度", "°"));
-        c.Set(Keys.Aspect, new ScalarField(grid, aspect, "坡向", "°", NoAspect));
+        c.Set(Keys.Aspect, new ScalarField(grid, aspect, "坡向", "°", NoAspect, circular: true));
     }
 }

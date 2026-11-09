@@ -46,7 +46,8 @@ public sealed class SiteGrid : ISummarized
 /// </summary>
 public sealed class ScalarField : ISummarized
 {
-    public ScalarField(SiteGrid grid, float[] values, string label, string unit, float? noData = null)
+    /// <param name="circular">Values are angles that wrap at 360 (e.g. aspect): no interpolation, no median.</param>
+    public ScalarField(SiteGrid grid, float[] values, string label, string unit, float? noData = null, bool circular = false)
     {
         if (values.Length != grid.Count)
             throw new ArgumentException($"{label}: 数值个数 {values.Length} 与格数 {grid.Count} 不符");
@@ -55,6 +56,7 @@ public sealed class ScalarField : ISummarized
         Label = label;
         Unit = unit;
         NoData = noData;
+        Circular = circular;
 
         var valid = Array.FindAll(values, v => !IsNoData(v));
         Array.Sort(valid);
@@ -69,6 +71,7 @@ public sealed class ScalarField : ISummarized
     public string Label { get; }
     public string Unit { get; }
     public float? NoData { get; }
+    public bool Circular { get; }
     public float Min { get; }
     public float Max { get; }
     public float Median { get; }
@@ -76,8 +79,9 @@ public sealed class ScalarField : ISummarized
     /// <summary>Share of cells that hold a value (not <see cref="NoData"/>).</summary>
     public float DataFraction { get; }
 
-    public string Summary => $"{Label} {Format(Min)}–{Format(Max)}，中位数 {Format(Median)}" +
-        (NoData.HasValue ? $"，无值 {1 - DataFraction:P0}" : "");
+    public string Summary => Circular
+        ? $"{Label} 有值 {DataFraction:P0}"
+        : $"{Label} {Format(Min)}–{Format(Max)}，中位数 {Format(Median)}" + (NoData.HasValue ? $"，无值 {1 - DataFraction:P0}" : "");
 
     public bool IsNoData(float v) => NoData.HasValue && v == NoData.Value;
 
@@ -92,12 +96,12 @@ public sealed class ScalarField : ISummarized
     }
 
     /// <summary>
-    /// Bilinear interpolation between cell centers, clamped to the grid. Fields with no-data cells fall back to
-    /// <see cref="Nearest"/>, since blending with a placeholder value would be meaningless.
+    /// Bilinear interpolation between cell centers, clamped to the grid. Fields with no-data cells and circular
+    /// fields fall back to <see cref="Nearest"/>: blending with a placeholder, or across the 360° wrap, is meaningless.
     /// </summary>
     public float Sample(Vector2 p)
     {
-        if (NoData.HasValue)
+        if (NoData.HasValue || Circular)
             return Nearest(p);
         float gx = Math.Clamp((p.X - Grid.Origin.X) / Grid.CellSize - 0.5f, 0, Grid.Nx - 1.001f);
         float gz = Math.Clamp((p.Y - Grid.Origin.Y) / Grid.CellSize - 0.5f, 0, Grid.Nz - 1.001f);

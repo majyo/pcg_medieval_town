@@ -106,10 +106,12 @@ public partial class MapPanel : PanelContainer
 
     public void HideLegend() => _legend.Visible = false;
 
-    public void AddToggle(string text, bool on, Action<bool> changed)
+    /// <summary>Adds a check box; the returned control lets the caller change it without raising the event.</summary>
+    public CheckBox AddToggle(string text, bool on, Action<bool> changed)
     {
         var check = UiStyle.Toggle(text, on);
         check.Toggled += value => changed(value);
         _controls.AddChild(check);
+        return check;
     }
 }

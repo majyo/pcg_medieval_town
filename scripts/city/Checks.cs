@@ -118,7 +118,8 @@ public static class Checks
         var errors = new List<string>();
         errors.AddRange(await Invalidation<OuterRoads>(graph, "城外道路", node => node.Group == Sampling.Group ||
             node is SiteAnalysis or ChooseCore or SquarePlaza or StarWall or PlaceGates or RoadZoning or MainStreets));
-        errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is not (SampleHeight or SlopeAspect or SurfaceWater or LandformPosition)));
+        errors.AddRange(await Invalidation<SampleHeight>(graph, "高程",
+            node => node is not (SampleHeight or SlopeAspect or SurfaceWater or LandformPosition)));
         return errors;
     }
 
