@@ -20,6 +20,7 @@ public static class Checks
     {
         var failures = new List<string>();
         failures.AddRange(Wiring(createTerrain(Seeds[0])));
+        failures.AddRange(Documentation(TownGraph.Create(createTerrain(Seeds[0]))));
         string? firstFingerprint = null;
         foreach (int seed in Seeds)
         {
@@ -100,6 +101,28 @@ public static class Checks
     }
 
     /// <summary>The graph rejects a missing input and a second fresh writer of a key.</summary>
+    /// <summary>Everything the interface names explains itself: every node, node parameter and key has a description.</summary>
+    private static IEnumerable<string> Documentation(CityGraph graph)
+    {
+        foreach (var node in graph.Nodes)
+        {
+            if (string.IsNullOrWhiteSpace(node.Description))
+                yield return $"节点 {node.Title} 没有说明";
+            foreach (var property in node.Options.GetType().GetProperties())
+            {
+                if (property.GetCustomAttributes(typeof(ParamAttribute), false) is [ParamAttribute param] &&
+                    string.IsNullOrWhiteSpace(param.Hint))
+                    yield return $"节点 {node.Title} 的参数“{param.Label}”没有说明";
+            }
+        }
+
+        foreach (var field in typeof(Keys).GetFields())
+        {
+            if (field.GetValue(null) is IKey key && string.IsNullOrWhiteSpace(key.Description))
+                yield return $"键 {key.Name} 没有说明";
+        }
+    }
+
     private static IEnumerable<string> Wiring(ITerrain terrain)
     {
         if (!Throws(() => new CityGraph(terrain, new ChooseOrigin())))

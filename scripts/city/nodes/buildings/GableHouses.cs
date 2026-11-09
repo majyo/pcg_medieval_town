@@ -7,12 +7,24 @@ namespace PcgCitySandbox.City;
 
 public sealed class GableHousesOptions
 {
-    [Param("最小进深 m", 5, 20, 0.5)] public float DepthMin { get; set; } = 8;
-    [Param("最大进深 m", 6, 25, 0.5)] public float DepthMax { get; set; } = 13;
-    [Param("最少层数", 1, 5)] public int FloorsMin { get; set; } = 2;
-    [Param("最多层数", 1, 6)] public int FloorsMax { get; set; } = 3;
-    [Param("小巷概率", 0, 1, 0.05)] public float AlleyChance { get; set; } = 0.15f;
-    [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
+    [Param("最小进深 m", 5, 20, 0.5,
+        Hint = "房屋进深的下限（放不下时会自动缩短）")]
+    public float DepthMin { get; set; } = 8;
+    [Param("最大进深 m", 6, 25, 0.5,
+        Hint = "房屋进深的上限；每栋在上下限之间随机")]
+    public float DepthMax { get; set; } = 13;
+    [Param("最少层数", 1, 5,
+        Hint = "层数的下限（主街上再加一层）")]
+    public int FloorsMin { get; set; } = 2;
+    [Param("最多层数", 1, 6,
+        Hint = "层数的上限（主街上再加一层）")]
+    public int FloorsMax { get; set; } = 3;
+    [Param("小巷概率", 0, 1, 0.05,
+        Hint = "房屋一侧留出约 1.5 m 小巷的概率")]
+    public float AlleyChance { get; set; } = 0.15f;
+    [Param("种子", 0, 99999,
+        Hint = "只影响房屋的进深、层数、颜色和小巷的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
+    public int Seed { get; set; } = 1;
 }
 
 /// <summary>
@@ -25,6 +37,8 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
 
     public override string Group => "建筑";
     public override string Title => "临街双坡房屋";
+    public override string Description =>
+        "在每个地块临街处放一栋矩形双坡顶房屋，进深和层数随机，主街上多一层；窄长的房屋山墙朝街。";
     public override IReadOnlyList<IKey> Reads => [Keys.Parcels];
     public override IReadOnlyList<IKey> Writes => [Keys.Buildings];
 

@@ -6,7 +6,9 @@ namespace PcgCitySandbox.City;
 
 public sealed class LandformPositionOptions
 {
-    [Param("比较半径 m", 20, 200, 5)] public float Radius { get; set; } = 60;
+    [Param("比较半径 m", 20, 200, 5,
+        Hint = "和多大范围的周围比较（方窗半边长）。调小只看附近的小起伏；调大看出整片台地和河谷")]
+    public float Radius { get; set; } = 60;
 }
 
 /// <summary>
@@ -18,6 +20,8 @@ public sealed class LandformPosition : CityNode<LandformPositionOptions>
 {
     public override string Group => Sampling.Group;
     public override string Title => "地形位置";
+    public override string Description =>
+        "比较每格与周围的平均高程：高出为岗地、台地边缘，低于为谷地。";
     public override IReadOnlyList<IKey> Reads => [Keys.Height];
     public override IReadOnlyList<IKey> Writes => [Keys.Relief];
 

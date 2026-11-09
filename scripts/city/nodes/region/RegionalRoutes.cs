@@ -8,13 +8,27 @@ namespace PcgCitySandbox.City;
 
 public sealed class RegionalRoutesOptions
 {
-    [Param("入口数", 2, 5)] public int EntryCount { get; set; } = 4;
-    [Param("入口最小间距 m", 200, 1500, 50)] public float EntryGap { get; set; } = 600;
-    [Param("河谷入口加分", 0, 1, 0.05)] public float ValleyBonus { get; set; } = 0.3f;
-    [Param("过河代价倍数", 1, 10, 0.5)] public float CrossingCost { get; set; } = 3;
-    [Param("免费坡度 %", 2, 15, 0.5)] public float FreeGrade { get; set; } = 6;
-    [Param("超坡惩罚", 0, 5, 0.1)] public float GradePenalty { get; set; } = 1;
-    [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
+    [Param("入口数", 2, 5,
+        Hint = "图边入口的个数，道路数随之变化")]
+    public int EntryCount { get; set; } = 4;
+    [Param("入口最小间距 m", 200, 1500, 50,
+        Hint = "入口之间至少相隔多远。调大后入口分布到更多条边上")]
+    public float EntryGap { get; set; } = 600;
+    [Param("河谷入口加分", 0, 1, 0.05,
+        Hint = "靠近河谷的入口加多少分。调大后入口更集中在河流出入地图的地方")]
+    public float ValleyBonus { get; set; } = 0.3f;
+    [Param("过河代价倍数", 1, 10, 0.5,
+        Hint = "走渡口时每米相当于平地几米。调大后道路尽量少过河")]
+    public float CrossingCost { get; set; } = 3;
+    [Param("免费坡度 %", 2, 15, 0.5,
+        Hint = "道路沿行进方向的坡度在它以内不加价")]
+    public float FreeGrade { get; set; } = 6;
+    [Param("超坡惩罚", 0, 5, 0.1,
+        Hint = "超过免费坡度后，按超出量的平方乘这个系数加价。调大后道路更绕、更斜着爬坡")]
+    public float GradePenalty { get; set; } = 1;
+    [Param("种子", 0, 99999,
+        Hint = "只影响入口的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
+    public int Seed { get; set; } = 1;
 }
 
 /// <summary>
@@ -32,6 +46,8 @@ public sealed class RegionalRoutes : CityNode<RegionalRoutesOptions>
 
     public override string Group => RegionalFrame.Group;
     public override string Title => "过境道路";
+    public override string Description =>
+        "在图边选出入口，按通行代价修出连接它们的过境道路：先修相距最远的两个入口之间的干线，其余入口再接到路网上。";
     public override IReadOnlyList<IKey> Reads => [Keys.TravelCost, Keys.Height, Keys.Shore, Keys.Crossings];
     public override IReadOnlyList<IKey> Writes => [Keys.Routes];
 

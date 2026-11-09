@@ -12,11 +12,21 @@ public static class RegionalFrame
 
 public sealed class RiverCrossingsOptions
 {
-    [Param("候选间距 m", 8, 80, 2)] public float Spacing { get; set; } = 20;
-    [Param("最大河宽 m", 20, 150, 5)] public float MaxWidth { get; set; } = 70;
-    [Param("引道长度 m", 10, 80, 5)] public float Approach { get; set; } = 30;
-    [Param("渡口最小间距 m", 100, 1000, 20)] public float MinGap { get; set; } = 300;
-    [Param("渡口数", 1, 6)] public int Count { get; set; } = 3;
+    [Param("候选间距 m", 8, 80, 2,
+        Hint = "沿河道中线每隔多远取一个候选。调小找得更细，但更慢")]
+    public float Spacing { get; set; } = 20;
+    [Param("最大河宽 m", 20, 150, 5,
+        Hint = "河面比它宽的地方不考虑过河；越窄得分越高")]
+    public float MaxWidth { get; set; } = 70;
+    [Param("引道长度 m", 10, 80, 5,
+        Hint = "检查桥头外多长一段引道的坡度，引道越平得分越高")]
+    public float Approach { get; set; } = 30;
+    [Param("渡口最小间距 m", 100, 1000, 20,
+        Hint = "两处渡口之间至少相隔多远。调大后渡口分得更开")]
+    public float MinGap { get; set; } = 300;
+    [Param("渡口数", 1, 6,
+        Hint = "最多保留几处渡口（过境道路不一定都用上）")]
+    public int Count { get; set; } = 3;
 }
 
 /// <summary>
@@ -31,6 +41,8 @@ public sealed class RiverCrossings : CityNode<RiverCrossingsOptions>
 
     public override string Group => RegionalFrame.Group;
     public override string Title => "渡口";
+    public override string Description =>
+        "沿河找出最适合过河的几处：河窄、两岸略高出水面、两岸引道平缓的得分高，彼此隔开。";
     public override IReadOnlyList<IKey> Reads => [Keys.Shore, Keys.AboveWater, Keys.Slope, Keys.TravelCost];
     public override IReadOnlyList<IKey> Writes => [Keys.Crossings];
 

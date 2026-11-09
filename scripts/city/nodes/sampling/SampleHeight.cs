@@ -6,7 +6,9 @@ namespace PcgCitySandbox.City;
 
 public sealed class SampleHeightOptions
 {
-    [Param("每格子样本（边）", 1, 4, 1)] public int SubSamples { get; set; } = 3;
+    [Param("每格子样本（边）", 1, 4, 1,
+        Hint = "每格每边取几个点（共 k×k 个）求平均。1 只取格心，容易被小起伏带偏；调大更平滑但更慢")]
+    public int SubSamples { get; set; } = 3;
 }
 
 /// <summary>
@@ -17,6 +19,8 @@ public sealed class SampleHeight : CityNode<SampleHeightOptions>
 {
     public override string Group => Sampling.Group;
     public override string Title => "高程";
+    public override string Description =>
+        "给每格取地面高程：在格内均匀取 k×k 个点求平均，滤掉米级的小起伏。";
     public override IReadOnlyList<IKey> Reads => [Keys.Grid];
     public override IReadOnlyList<IKey> Writes => [Keys.Height];
 

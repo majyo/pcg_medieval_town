@@ -6,8 +6,12 @@ namespace PcgCitySandbox.City;
 
 public sealed class StreetBlocksOptions
 {
-    [Param("城墙内侧退让 m", 0, 30, 1)] public float WallSetback { get; set; } = 8;
-    [Param("最小街区面积 m²", 30, 400, 5)] public float MinArea { get; set; } = 80;
+    [Param("城墙内侧退让 m", 0, 30, 1,
+        Hint = "城墙内侧留出多宽不建设（墙根道路和空地）")]
+    public float WallSetback { get; set; } = 8;
+    [Param("最小街区面积 m²", 30, 400, 5,
+        Hint = "比它小的碎块不算街区")]
+    public float MinArea { get; set; } = 80;
 }
 
 /// <summary>Developable land = wall interior minus a setback, the paved area and unbuildable cells; blocks are its parts.</summary>
@@ -15,6 +19,8 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
 {
     public override string Group => "街区与地块";
     public override string Title => "街区";
+    public override string Description =>
+        "城内退让城墙后，去掉路面和不可建设地，剩下的连通部分就是街区。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 

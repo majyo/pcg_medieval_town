@@ -302,6 +302,7 @@ public partial class Inspector : VBoxContainer
             if (param == null)
                 continue;
             object initial = property.GetValue(target)!;
+            string tip = UiStyle.Tip(param.Label, param.Hint);
             void Set(object value)
             {
                 if (Equals(property.GetValue(target), value))
@@ -312,18 +313,18 @@ public partial class Inspector : VBoxContainer
 
             var type = property.PropertyType;
             if (type == typeof(bool))
-                Toggle(param.Label, () => (bool)property.GetValue(target)!, on => Set(on), (bool)initial);
+                Toggle(param.Label, () => (bool)property.GetValue(target)!, on => Set(on), (bool)initial, tip);
             else if (type == typeof(Color))
-                ColorRow(param.Label, () => (Color)property.GetValue(target)!, c => Set(c), (Color)initial);
+                ColorRow(param.Label, () => (Color)property.GetValue(target)!, c => Set(c), (Color)initial, tip);
             else if (type == typeof(int) && param.Max - param.Min > 200)
                 Number(param.Label, (int)param.Min, (int)param.Max, () => (int)property.GetValue(target)!, v => Set(v), (int)initial,
-                    dice: property.Name.Contains("Seed"));
+                    dice: property.Name.Contains("Seed"), tooltip: tip);
             else if (type == typeof(int))
                 Slider(param.Label, param.Min, param.Max, Math.Max(1, param.Step), () => (int)property.GetValue(target)!,
-                    v => Set((int)Math.Round(v)), (int)initial);
+                    v => Set((int)Math.Round(v)), (int)initial, tip);
             else
                 Slider(param.Label, param.Min, param.Max, param.Step, () => Convert.ToDouble(property.GetValue(target)),
-                    v => Set(Convert.ChangeType(v, type, CultureInfo.InvariantCulture)), Convert.ToDouble(initial));
+                    v => Set(Convert.ChangeType(v, type, CultureInfo.InvariantCulture)), Convert.ToDouble(initial), tip);
         }
     }
 

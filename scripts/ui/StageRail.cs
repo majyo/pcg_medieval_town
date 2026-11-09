@@ -103,7 +103,8 @@ public partial class StageRail : PanelContainer
     {
         var button = new Button { Flat = true, FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(0, 22) };
         button.AddThemeStyleboxOverride("hover", UiStyle.Box(new Color(1, 1, 1, 0.05f), 4, 4, 1));
-        button.TooltipText = "查看此节点的参数";
+        var info = _graph.Nodes[node];
+        button.TooltipText = UiStyle.Tip(info.Title, info.Description) + "\n\n点击查看参数";
         button.Pressed += () =>
         {
             _selected.Value = stage;

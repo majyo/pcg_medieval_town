@@ -134,6 +134,35 @@ public static class UiStyle
         return button;
     }
 
+    /// <summary>
+    /// Hover text with a title line and a body broken into short lines (tooltips do not wrap on their own): after
+    /// punctuation once a line is long enough, otherwise at the width limit, never before punctuation.
+    /// </summary>
+    public static string Tip(string title, string body)
+    {
+        if (string.IsNullOrEmpty(body))
+            return title;
+        const float soft = 16, hard = 24;
+        const string breakAfter = "，。；：、）";
+        var text = new System.Text.StringBuilder(title).Append('\n');
+        float width = 0;
+        for (int i = 0; i < body.Length; i++)
+        {
+            char c = body[i];
+            text.Append(c);
+            width += c < 0x2E80 ? 0.55f : 1;
+            bool next = i + 1 < body.Length;
+            bool punctuationNext = next && breakAfter.Contains(body[i + 1]);
+            if (next && !punctuationNext && (width >= soft && breakAfter.Contains(c) || width >= hard && c >= 0x2E80))
+            {
+                text.Append('\n');
+                width = 0;
+            }
+        }
+
+        return text.ToString();
+    }
+
     /// <summary>A small borderless button for row and card actions.</summary>
     public static Button Mini(string text, string tooltip)
     {

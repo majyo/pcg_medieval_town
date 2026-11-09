@@ -7,10 +7,18 @@ namespace PcgCitySandbox.City;
 
 public sealed class HabitabilityOptions
 {
-    [Param("舒适坡度 °", 0, 10, 0.5)] public float GentleSlope { get; set; } = 2;
-    [Param("取水距离 m", 20, 400, 10)] public float WaterReach { get; set; } = 150;
-    [Param("安全高度 m", 1, 12, 0.5)] public float SafeHeight { get; set; } = 4.5f;
-    [Param("朝向权重", 0, 0.5, 0.05)] public float AspectWeight { get; set; } = 0.2f;
+    [Param("舒适坡度 °", 0, 10, 0.5,
+        Hint = "坡度在它以内不扣分，超出后（到它 + 8°）逐渐降到 0.4 倍。调大对坡地更宽容")]
+    public float GentleSlope { get; set; } = 2;
+    [Param("取水距离 m", 20, 400, 10,
+        Hint = "离水在这个距离以内不扣分，到它的 3 倍逐渐降到 0.4 倍。调小后高分区更贴近河岸")]
+    public float WaterReach { get; set; } = 150;
+    [Param("安全高度 m", 1, 12, 0.5,
+        Hint = "高出水面达到它才不扣分，低 2 m 以内逐渐降到 0.6 倍。调大后河边低台地得分更低")]
+    public float SafeHeight { get; set; } = 4.5f;
+    [Param("朝向权重", 0, 0.5, 0.05,
+        Hint = "朝北坡最多扣多少（朝南不扣，平地不扣）。0 表示不考虑朝向")]
+    public float AspectWeight { get; set; } = 0.2f;
 }
 
 /// <summary>
@@ -22,6 +30,8 @@ public sealed class Habitability : CityNode<HabitabilityOptions>
 {
     public override string Group => Evaluation.Group;
     public override string Title => "宜居度";
+    public override string Description =>
+        "给每块可建设的格打 0–1 分：坡缓、离水近、地势高不怕淹、略高于周围、不朝北、林少，几项相乘。";
     public override IReadOnlyList<IKey> Reads =>
         [Keys.Buildable, Keys.Slope, Keys.Aspect, Keys.Shore, Keys.AboveWater, Keys.Relief, Keys.Forest];
     public override IReadOnlyList<IKey> Writes => [Keys.Habitability];

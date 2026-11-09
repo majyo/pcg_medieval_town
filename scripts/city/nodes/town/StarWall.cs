@@ -7,8 +7,12 @@ namespace PcgCitySandbox.City;
 
 public sealed class StarWallOptions
 {
-    [Param("轮廓起伏", 0, 3, 0.1)] public float Wobble { get; set; } = 1;
-    [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
+    [Param("轮廓起伏", 0, 3, 0.1,
+        Hint = "城墙轮廓偏离正圆的程度。0 是圆，调大后凹凸更明显")]
+    public float Wobble { get; set; } = 1;
+    [Param("种子", 0, 99999,
+        Hint = "只影响城墙的凹凸形状的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
+    public int Seed { get; set; } = 1;
 }
 
 /// <summary>
@@ -21,6 +25,8 @@ public sealed class StarWall : CityNode<StarWallOptions>
 
     public override string Group => "城镇布局";
     public override string Title => "星形城墙";
+    public override string Description =>
+        "围绕城址画一圈带起伏的城墙：每条射线遇到不可建设地就收缩，再轻度平滑。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Core, Keys.Plaza];
     public override IReadOnlyList<IKey> Writes => [Keys.Wall];
 

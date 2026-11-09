@@ -4,7 +4,9 @@ namespace PcgCitySandbox.City;
 
 public sealed class OuterRoadsOptions
 {
-    [Param("启用")] public bool Enabled { get; set; } = true;
+    [Param("启用",
+        Hint = "关掉后不修城外道路，只保留城内道路")]
+    public bool Enabled { get; set; } = true;
 }
 
 /// <summary>Adds a road outside the walls from every gate to its map-edge entry, where the terrain allows one.</summary>
@@ -12,6 +14,8 @@ public sealed class OuterRoads : CityNode<OuterRoadsOptions>
 {
     public override string Group => "路网";
     public override string Title => "城外道路";
+    public override string Description =>
+        "修城外道路：从每座城门到它的图边入口，在城外找代价最小的路。";
     public override IReadOnlyList<IKey> Reads => [Keys.RoadZones, Keys.Gates];
     public override IReadOnlyList<IKey> Edits => [Keys.RoadLinks];
 

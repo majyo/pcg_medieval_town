@@ -5,7 +5,9 @@ namespace PcgCitySandbox.City;
 
 public sealed class RoadZoningOptions
 {
-    [Param("道路坡度上限 °", 3, 25, 0.5)] public float MaxSlope { get; set; } = 12;
+    [Param("道路坡度上限 °", 3, 25, 0.5,
+        Hint = "坡度超过它的格不能修路。调小后主街和城外道路更绕")]
+    public float MaxSlope { get; set; } = 12;
 }
 
 /// <summary>Marks which site cells roads may use: dry, not too steep, and on one side of the wall or a gate.</summary>
@@ -13,6 +15,8 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
 {
     public override string Group => "路网";
     public override string Title => "通行区";
+    public override string Description =>
+        "标出哪些格可以修路：不是水、坡不太陡，分城内和城外；只能在城门处穿过城墙。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Gates];
     public override IReadOnlyList<IKey> Writes => [Keys.RoadZones];
 

@@ -12,6 +12,8 @@ public sealed class SurfaceWater : CityNode<NoOptions>
 {
     public override string Group => Sampling.Group;
     public override string Title => "地表水";
+    public override string Description =>
+        "量出每格离河道边多远、比最近河段的水位高多少。不模拟径流和汇水。";
     public override IReadOnlyList<IKey> Reads => [Keys.Height];
     public override IReadOnlyList<IKey> Writes => [Keys.Shore, Keys.AboveWater];
 

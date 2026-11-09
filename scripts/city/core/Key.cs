@@ -8,6 +8,10 @@ public interface IKey
 {
     string Name { get; }
     string Label { get; }
+
+    /// <summary>What the value is, in a sentence or two, for the interface's hover text.</summary>
+    string Description { get; }
+
     Type Type { get; }
 }
 
@@ -17,14 +21,16 @@ public interface IKey
 /// </summary>
 public sealed class Key<T> : IKey where T : class
 {
-    public Key(string name, string label)
+    public Key(string name, string label, string description)
     {
         Name = name;
         Label = label;
+        Description = description;
     }
 
     public string Name { get; }
     public string Label { get; }
+    public string Description { get; }
     public Type Type => typeof(T);
 
     public override string ToString() => Name;

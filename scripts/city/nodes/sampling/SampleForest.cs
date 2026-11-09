@@ -8,6 +8,8 @@ public sealed class SampleForest : CityNode<NoOptions>
 {
     public override string Group => Sampling.Group;
     public override string Title => "林地";
+    public override string Description =>
+        "取每格格心的林地覆盖（0 空地 – 1 密林），直接来自地形。";
     public override IReadOnlyList<IKey> Reads => [Keys.Grid];
     public override IReadOnlyList<IKey> Writes => [Keys.Forest];
 

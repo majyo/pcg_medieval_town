@@ -8,8 +8,12 @@ namespace PcgCitySandbox.City;
 
 public sealed class PlaceGatesOptions
 {
-    [Param("城门数", 1, 6)] public int Count { get; set; } = 3;
-    [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
+    [Param("城门数", 1, 6,
+        Hint = "城门的数量；朝向河流或陡坡的扇区可能开不出门")]
+    public int Count { get; set; } = 3;
+    [Param("种子", 0, 99999,
+        Hint = "只影响城门所在扇区的起始方向的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
+    public int Seed { get; set; } = 1;
 }
 
 /// <summary>
@@ -22,6 +26,8 @@ public sealed class PlaceGates : CityNode<PlaceGatesOptions>
 
     public override string Group => "城镇布局";
     public override string Title => "布置城门";
+    public override string Description =>
+        "把圆周均分成扇区，每个扇区在城墙上挑一处朝向开阔地的点开城门，并为它定一个图边入口。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Core];
     public override IReadOnlyList<IKey> Edits => [Keys.Wall];
     public override IReadOnlyList<IKey> Writes => [Keys.Gates];

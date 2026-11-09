@@ -8,6 +8,8 @@ public sealed class MainStreets : CityNode<NoOptions>
 {
     public override string Group => "路网";
     public override string Title => "主街";
+    public override string Description =>
+        "修主街：从每座城门到广场，在城内找代价最小的路。";
     public override IReadOnlyList<IKey> Reads => [Keys.RoadZones, Keys.Core, Keys.Gates];
     public override IReadOnlyList<IKey> Writes => [Keys.RoadLinks];
 

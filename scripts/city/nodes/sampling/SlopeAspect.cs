@@ -6,7 +6,9 @@ namespace PcgCitySandbox.City;
 
 public sealed class SlopeAspectOptions
 {
-    [Param("平地阈值 °", 0, 5, 0.1)] public float FlatSlope { get; set; } = 1;
+    [Param("平地阈值 °", 0, 5, 0.1,
+        Hint = "坡度低于它的格算作平地，不给坡向。调大后更多缓坡被视为平地，宜居度里的朝向因素也随之不起作用")]
+    public float FlatSlope { get; set; } = 1;
 }
 
 /// <summary>
@@ -20,6 +22,8 @@ public sealed class SlopeAspect : CityNode<SlopeAspectOptions>
 
     public override string Group => Sampling.Group;
     public override string Title => "坡度坡向";
+    public override string Description =>
+        "由高程算出每格的坡度和坡向（坡面朝哪个方向）。";
     public override IReadOnlyList<IKey> Reads => [Keys.Height];
     public override IReadOnlyList<IKey> Writes => [Keys.Slope, Keys.Aspect];
 

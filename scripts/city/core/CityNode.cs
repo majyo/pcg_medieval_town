@@ -17,6 +17,10 @@ public abstract class CityNode
     /// <summary>Panel group heading, e.g. "路网".</summary>
     public abstract string Group { get; }
     public abstract string Title { get; }
+
+    /// <summary>The one decision this node makes, in a sentence or two, shown on its card.</summary>
+    public abstract string Description { get; }
+
     public virtual IReadOnlyList<IKey> Reads => None;
     public virtual IReadOnlyList<IKey> Writes => None;
     public virtual IReadOnlyList<IKey> Edits => None;

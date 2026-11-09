@@ -10,10 +10,18 @@ public static class Evaluation
 
 public sealed class BuildableLandOptions
 {
-    [Param("易淹高度 m", 0, 6, 0.1)] public float FloodHeight { get; set; } = 2.5f;
-    [Param("河岸退让 m", 0, 80, 1)] public float RiverSetback { get; set; } = 14;
-    [Param("建设坡度上限 °", 2, 30, 0.5)] public float MaxSlope { get; set; } = 9;
-    [Param("森林覆盖上限", 0, 1, 0.05)] public float ForestLimit { get; set; } = 0.55f;
+    [Param("易淹高度 m", 0, 6, 0.1,
+        Hint = "地面比水位高出不到这么多就算易淹。调大后河边低地更多被排除")]
+    public float FloodHeight { get; set; } = 2.5f;
+    [Param("河岸退让 m", 0, 80, 1,
+        Hint = "离河道边不到这么远的格不建设（易淹优先判定，所以低岸上它常常不起作用）")]
+    public float RiverSetback { get; set; } = 14;
+    [Param("建设坡度上限 °", 2, 30, 0.5,
+        Hint = "坡度超过它的格不建设。调小后可建设地集中到平地")]
+    public float MaxSlope { get; set; } = 9;
+    [Param("森林覆盖上限", 0, 1, 0.05,
+        Hint = "林地覆盖超过它的格不建设。调小后连稀疏林地也排除")]
+    public float ForestLimit { get; set; } = 0.55f;
 }
 
 /// <summary>
@@ -24,6 +32,8 @@ public sealed class BuildableLand : CityNode<BuildableLandOptions>
 {
     public override string Group => Evaluation.Group;
     public override string Title => "可建设判定";
+    public override string Description =>
+        "判定每格能不能建设，不能时记下第一个原因：水域、易淹、河岸退让、坡度过大、森林。";
     public override IReadOnlyList<IKey> Reads => [Keys.Slope, Keys.Shore, Keys.AboveWater, Keys.Forest];
     public override IReadOnlyList<IKey> Writes => [Keys.Buildable];
 

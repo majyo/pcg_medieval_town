@@ -6,9 +6,15 @@ namespace PcgCitySandbox.City;
 
 public sealed class ExtractRoadsOptions
 {
-    [Param("主街宽 m", 4, 14, 0.5)] public float MainWidth { get; set; } = 7;
-    [Param("街巷宽 m", 2.5, 8, 0.5)] public float StreetWidth { get; set; } = 4;
-    [Param("城外道路宽 m", 3, 10, 0.5)] public float OuterWidth { get; set; } = 5;
+    [Param("主街宽 m", 4, 14, 0.5,
+        Hint = "主街的路面宽度，影响铺装范围和街区大小")]
+    public float MainWidth { get; set; } = 7;
+    [Param("街巷宽 m", 2.5, 8, 0.5,
+        Hint = "街巷的路面宽度，影响铺装范围和街区大小")]
+    public float StreetWidth { get; set; } = 4;
+    [Param("城外道路宽 m", 3, 10, 0.5,
+        Hint = "城外道路的路面宽度")]
+    public float OuterWidth { get; set; } = 5;
 
     public float Width(RoadKind kind) => kind switch
     {
@@ -27,6 +33,8 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
 {
     public override string Group => "路网";
     public override string Title => "提取路网";
+    public override string Description =>
+        "把格子之间的连线整理成路网：连续的格子变成折线，路口、端点和等级变化处成为节点；再按路宽铺出路面。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.RoadLinks, Keys.Plaza];
     public override IReadOnlyList<IKey> Writes => [Keys.Roads];
 

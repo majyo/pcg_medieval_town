@@ -7,11 +7,21 @@ namespace PcgCitySandbox.City;
 
 public sealed class FrontageParcelsOptions
 {
-    [Param("最小面宽 m", 4, 20, 0.5)] public float FrontageMin { get; set; } = 7;
-    [Param("最大面宽 m", 5, 30, 0.5)] public float FrontageMax { get; set; } = 12;
-    [Param("地块进深 m", 10, 60, 1)] public float Depth { get; set; } = 26;
-    [Param("最小面积 m²", 30, 400, 5)] public float MinArea { get; set; } = 80;
-    [Param("种子", 0, 99999)] public int Seed { get; set; } = 1;
+    [Param("最小面宽 m", 4, 20, 0.5,
+        Hint = "地块临街面宽的下限")]
+    public float FrontageMin { get; set; } = 7;
+    [Param("最大面宽 m", 5, 30, 0.5,
+        Hint = "地块临街面宽的上限；每块在上下限之间随机")]
+    public float FrontageMax { get; set; } = 12;
+    [Param("地块进深 m", 10, 60, 1,
+        Hint = "地块从街边向内的进深。调大后地块更长，街区深处的空地更少")]
+    public float Depth { get; set; } = 26;
+    [Param("最小面积 m²", 30, 400, 5,
+        Hint = "裁剪后比它小的地块丢弃")]
+    public float MinArea { get; set; } = 80;
+    [Param("种子", 0, 99999,
+        Hint = "只影响各地块的面宽的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
+    public int Seed { get; set; } = 1;
 }
 
 /// <summary>
@@ -24,6 +34,8 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
     public override string Group => "街区与地块";
     public override string Title => "临街地块";
+    public override string Description =>
+        "沿每条街两侧按随机面宽切出固定进深的临街地块：先主街后街巷，后切的让给先切的。";
     public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads];
     public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 

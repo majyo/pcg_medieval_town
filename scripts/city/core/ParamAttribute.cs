@@ -18,4 +18,7 @@ public sealed class ParamAttribute : Attribute
     public double Min { get; }
     public double Max { get; }
     public double Step { get; }
+
+    /// <summary>What the parameter controls and what turning it up or down does, for the interface's hover text.</summary>
+    public string Hint { get; set; } = "";
 }

@@ -158,7 +158,9 @@ public partial class StagePage : VBoxContainer
         body.AddThemeConstantOverride("separation", 3);
         title.Pressed += () => body.Visible = !body.Visible;
         box.AddChild(body);
-        body.AddChild(UiStyle.Text(Ports(node), 11, UiStyle.Faint));
+        body.AddChild(UiStyle.Text(node.Description, 12, UiStyle.Muted));
+        body.AddChild(Ports("读", node.Reads.Concat(node.Edits).ToList(), "地形"));
+        body.AddChild(Ports("写", node.Writes.Concat(node.Edits).ToList(), "—"));
         var summary = UiStyle.Text("", 12, UiStyle.Ink);
         var notices = UiStyle.Text("", 12, UiStyle.Warning);
         body.AddChild(summary);
@@ -189,12 +191,31 @@ public partial class StagePage : VBoxContainer
         return panel;
     }
 
-    private static string Ports(CityNode node)
+    /// <summary>One line of keys, each with its description on hover.</summary>
+    private static Control Ports(string caption, IReadOnlyList<IKey> keys, string none)
     {
-        static string Names(IEnumerable<IKey> keys) => string.Join("、", keys.Select(k => k.Label));
-        var input = node.Reads.Concat(node.Edits).ToList();
-        var output = node.Writes.Concat(node.Edits).ToList();
-        return $"{(input.Count == 0 ? "地形" : Names(input))} → {Names(output)}";
+        var row = new HFlowContainer();
+        row.AddThemeConstantOverride("h_separation", 0);
+        Label Add(string text, Color color)
+        {
+            var label = UiStyle.Text(text, 11, color, wrap: false);
+            label.SizeFlagsHorizontal = SizeFlags.Fill;
+            row.AddChild(label);
+            return label;
+        }
+
+        Add(caption + "  ", UiStyle.Faint);
+        if (keys.Count == 0)
+            Add(none, UiStyle.Faint);
+        for (int i = 0; i < keys.Count; i++)
+        {
+            var key = Add(keys[i].Label + (i < keys.Count - 1 ? "、" : ""), UiStyle.Muted);
+            key.MouseFilter = MouseFilterEnum.Pass;
+            key.MouseDefaultCursorShape = CursorShape.Help;
+            key.TooltipText = UiStyle.Tip($"{keys[i].Label}（{keys[i].Name}）", keys[i].Description);
+        }
+
+        return row;
     }
 
     private void Changed(int index)

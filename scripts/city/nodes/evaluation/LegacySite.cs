@@ -11,6 +11,8 @@ public sealed class LegacySite : CityNode<NoOptions>
 {
     public override string Group => Evaluation.Group;
     public override string Title => "场地汇总（过渡）";
+    public override string Description =>
+        "过渡用：把评价结果打包成旧的“场地”数据，供城镇布局、路网、街区节点继续读取。下游改读评价键后删除。";
     public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.Height, Keys.Slope, Keys.Habitability];
     public override IReadOnlyList<IKey> Writes => [Keys.Site];
 
