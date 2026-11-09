@@ -16,20 +16,29 @@ public sealed record Plaza(Region Area, Vector2 Center) : ISummarized
     public string Summary => $"市场 {Area.Area:0} m²";
 }
 
-/// <summary>Closed wall ring (site cell centers at gates) and the area it encloses.</summary>
+/// <summary>
+/// Closed wall ring (site cell centers at gates) and the area it encloses. <see cref="BuiltShare"/>, when known, is
+/// the share of the town built before the wall that it encloses.
+/// </summary>
 public sealed class WallRing : ISummarized
 {
-    public WallRing(Vector2[] ring)
+    public WallRing(Vector2[] ring, float? builtShare = null)
     {
         Ring = ring;
         Interior = Region.Polygon(ring);
+        BuiltShare = builtShare;
     }
 
     public Vector2[] Ring { get; }
     public Region Interior { get; }
+    public float? BuiltShare { get; }
     public float Length => Ring.Select((p, i) => p.DistanceTo(Ring[(i + 1) % Ring.Length])).Sum();
 
-    public string Summary => $"城内 {Interior.Area / 10000:0.0} ha，城墙 {Length:0} m";
+    /// <summary>The same wall along a new ring (e.g. with gate points inserted).</summary>
+    public WallRing With(Vector2[] ring) => new(ring, BuiltShare);
+
+    public string Summary => $"城内 {Interior.Area / 10000:0.0} ha" +
+        (BuiltShare is { } share ? $"（围住建成区的 {share:P0}）" : "") + $"，城墙 {Length:0} m";
 }
 
 /// <summary>A wall opening. Position is a wall ring point; Entry is where its outer road should reach the map edge.</summary>
@@ -37,5 +46,9 @@ public sealed record Gate(string Id, Vector2 Position, Vector2 Outward, Vector2 
 
 public sealed record GateSet(IReadOnlyList<Gate> Gates) : ISummarized
 {
-    public string Summary => $"城门 {Gates.Count} 座";
+    /// <summary>Distance between the two closest gates (infinite with fewer than two).</summary>
+    public float MinSpacing => Gates.SelectMany((g, i) => Gates.Skip(i + 1).Select(h => g.Position.DistanceTo(h.Position)))
+        .DefaultIfEmpty(float.PositiveInfinity).Min();
+
+    public string Summary => $"城门 {Gates.Count} 座" + (Gates.Count > 1 ? $"，最近两座相距 {MinSpacing:0} m" : "");
 }

@@ -38,6 +38,7 @@ public static class Contracts
         new(Keys.Plaza, PlazaRules),
         new(Keys.Landmarks, LandmarkRules),
         new(Keys.Core, CoreRules),
+        new(Keys.Wall, WallRules),
         new(Keys.Gates, GateRules),
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
@@ -390,13 +391,18 @@ public static class Contracts
         {
             if (counts[n] != growth.Phases[n - 1].Cells)
                 yield return $"{growth.Label(n)} 的格数 {counts[n]} 与记录 {growth.Phases[n - 1].Cells} 不符";
-            if (counts[n] == 0)
-                yield return $"{growth.Label(n)} 没有新建成的格";
         }
 
         int unbuildable = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && !buildable.Buildable(k));
         if (unbuildable > 0)
             yield return $"有 {unbuildable} 个建成格不可建设";
+        int infill = growth.Phases.ToList().FindIndex(p => p.Name == WalledInfill.PhaseName) + 1;
+        if (infill > 0 && r.Get(Keys.Wall) is { } wall)
+        {
+            int outside = growth.CellsOf(infill).Count(k => !wall.Interior.Contains(grid.Center(k)));
+            if (outside > 0)
+                yield return $"{growth.Label(infill)} 有 {outside} 格在城外";
+        }
 
         bool TouchesRoad(int k)
         {
@@ -519,14 +525,80 @@ public static class Contracts
             yield return "城址不在可建设格";
     }
 
+    /// <summary>
+    /// The wall is a simple polygon that stays out of the water, holds the landmark plots (the market: see its rules), and
+    /// encloses at least half of the town built before it.
+    /// </summary>
+    private static IEnumerable<string> WallRules(IKeyReader r)
+    {
+        var wall = r.Get(Keys.Wall)!;
+        var ring = wall.Ring;
+        var shore = r.Get(Keys.Shore)!;
+        if (ring.Length < 3)
+            yield return "城墙不足三个顶点";
+        for (int i = 0; i < ring.Length; i++)
+        {
+            for (int j = i + 2; j < ring.Length; j++)
+            {
+                if (i == 0 && j == ring.Length - 1)
+                    continue;
+                if (Crosses(ring[i], ring[(i + 1) % ring.Length], ring[j], ring[(j + 1) % ring.Length]))
+                {
+                    yield return $"城墙自相交（第 {i} 段与第 {j} 段）";
+                    i = ring.Length;
+                    break;
+                }
+            }
+        }
+
+        if (Geometry.Samples(ring.Append(ring[0]).ToArray(), 2).Any(p => shore.Nearest(p) < 0))
+            yield return "城墙进入水域";
+        foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks)
+        {
+            if (landmark.Plot.Subtract(wall.Interior).Area >= 1)
+                yield return $"{landmark.KindLabel}用地超出城墙";
+        }
+
+        if (wall.BuiltShare is < 0.5f)
+            yield return $"城墙只围住筑墙前建成区的 {wall.BuiltShare:P0}";
+    }
+
+    /// <summary>True if segments ab and cd cross at a point inside both.</summary>
+    private static bool Crosses(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+    {
+        float d1 = (b - a).Cross(c - a), d2 = (b - a).Cross(d - a), d3 = (d - c).Cross(a - c), d4 = (d - c).Cross(b - c);
+        return (d1 > 0) != (d2 > 0) && (d3 > 0) != (d4 > 0) && d1 != 0 && d2 != 0 && d3 != 0 && d4 != 0;
+    }
+
+    /// <summary>
+    /// At least one gate, all on the wall and on route cells, each leading to a map-edge entry; and a gate within a
+    /// cell and a half of every place a route crosses the wall.
+    /// </summary>
     private static IEnumerable<string> GateRules(IKeyReader r)
     {
         var gates = r.Get(Keys.Gates)!.Gates;
-        var wall = r.Get(Keys.Wall)!.Ring;
+        var wall = r.Get(Keys.Wall)!;
+        var network = r.Get(Keys.Routes)!;
+        var grid = network.Grid;
         if (gates.Count == 0)
             yield return "没有城门";
-        if (!gates.All(g => wall.Contains(g.Position)))
+        if (!gates.All(g => wall.Ring.Contains(g.Position)))
             yield return "城门不在城墙上";
+        if (!gates.All(g => network.Cells.Contains(grid.CellAt(g.Position))))
+            yield return "城门不在过境道路上";
+        if (!gates.All(g => network.Entries.Any(e => e.Position == g.Entry)))
+            yield return "城门的去向不是图边入口";
+        foreach (var route in network.Routes)
+        {
+            for (int i = 1; i < route.Cells.Length; i++)
+            {
+                var a = grid.Center(route.Cells[i - 1]);
+                var b = grid.Center(route.Cells[i]);
+                if (wall.Interior.Contains(a) != wall.Interior.Contains(b) &&
+                    !gates.Any(g => g.Position.DistanceTo((a + b) / 2) <= grid.CellSize * 1.5f))
+                    yield return $"{route.Id} 在 {(a + b) / 2} 穿过城墙处没有城门";
+            }
+        }
     }
 
     private static IEnumerable<string> RoadRules(IKeyReader r)

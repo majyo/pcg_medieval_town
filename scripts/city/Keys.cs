@@ -39,17 +39,17 @@ public static class Keys
     public static readonly Key<TownOrigin> Origin = new("town.origin", "起源点",
         "城镇最早出现的地点（桥头、路口或路边）");
     public static readonly Key<GrowthHistory> Growth = new("town.growth", "生长分期",
-        "每格建成于第几期：一期村落、二期市镇……；后一期在前一期上累加");
+        "每格建成于第几期：一期村落、二期市镇、三期城内填充……；后一期在前一期上累加");
     public static readonly Key<Plaza> Plaza = new("town.plaza", "市场",
         "城镇的市场广场：路口处的三角形，或道路加宽成的纺锤形");
     public static readonly Key<LandmarkSet> Landmarks = new("town.landmarks", "地标",
         "公共建筑的用地，目前是教堂（东西向，祭坛朝东）");
     public static readonly Key<TownCore> Core = new("town.core", "城址",
-        "过渡用：市场中心加固定的规划半径，星形城墙按它画");
+        "过渡用：市场中心加固定的规划半径，主街以它为终点");
     public static readonly Key<WallRing> Wall = new("town.wall", "城墙",
         "城墙的环线和它围住的城内范围");
     public static readonly Key<GateSet> Gates = new("town.gates", "城门",
-        "城墙上的城门，每座对应一个图边入口");
+        "过境道路穿过城墙处的城门，每座通向一个图边入口");
     public static readonly Key<RoadZones> RoadZones = new("road.zones", "通行区",
         "每格能否修路，在城内还是城外；只能在城门处穿墙");
     public static readonly Key<RoadLinks> RoadLinks = new("road.links", "道路连线",

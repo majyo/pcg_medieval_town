@@ -10,11 +10,19 @@ public static class TownGrowth
 }
 
 /// <summary>Options shared by the growth phases: how far a phase reaches and how it spreads along the roads.</summary>
-public class GrowthOptions
+public class GrowthOptions : SpreadOptions
 {
     [Param("累计面积 ha", 0.5, 30, 0.1,
         Hint = "这一期结束时城镇建成区的总面积（含之前各期）")]
     public float Area { get; set; } = 2;
+
+    /// <summary>How many cells of <paramref name="grid"/> make up <see cref="Area"/>.</summary>
+    public int Cells(SiteGrid grid) => (int)MathF.Round(Area * 10000 / (grid.CellSize * grid.CellSize));
+}
+
+/// <summary>How a growth phase spreads along the roads (<see cref="GrowthRules"/>), as node parameters.</summary>
+public class SpreadOptions
+{
     [Param("临路进深 m", 8, 100, 2,
         Hint = "离路这么远以内的地按普通代价收入；更远的每米代价陡增，所以小面积时是沿路的带状")]
     public float Depth { get; set; } = 30;
@@ -26,9 +34,6 @@ public class GrowthOptions
     public float HabitabilityWeight { get; set; } = 80;
 
     public GrowthRules Rules => new(Depth, DepthCost, HabitabilityWeight);
-
-    /// <summary>How many cells of <paramref name="grid"/> make up <see cref="Area"/>.</summary>
-    public int Cells(SiteGrid grid) => (int)MathF.Round(Area * 10000 / (grid.CellSize * grid.CellSize));
 }
 
 public sealed class VillageOptions : GrowthOptions
