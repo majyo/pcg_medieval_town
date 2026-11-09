@@ -4,7 +4,9 @@
 
 ```
 scripts/
-  Main.cs, Capture.cs  组合入口：创建各组件并接线；--test / --capture。自身不含生成、渲染、相机或控件逻辑
+  Main.cs, MainInterface.cs, Capture.cs
+             组合入口：创建各组件并接线（MainInterface 搭界面并把控件绑到地图、节点图、城市视图和大气）；
+             --test / --capture。自身不含生成、渲染、相机或控件逻辑
   terrain/   地形生成    ITerrain（对外的只读查询）、TemperateMapData（生成实现）、GradientNoise、MapSettings、TerrainChecks
   city/      城市生成    core/（CityGraph、CityNode、Key、Region、[Param]）、data/（键的数据类型）、nodes/（各节点）、
                          tools/（共用算法）、Keys、TownGraph、Contracts、Checks
@@ -14,7 +16,9 @@ scripts/
     environment/         Atmosphere（天空、太阳、雾、AO、色调映射）、WaterSurface（河面）、Forest + TreeMeshes（程序树木）、
                          GroundCover（GPU 草与野花）、Rocks（岩石）、Exclusion（植被避让区）、ProceduralMesh
 shaders/     着色器      ground（地面，Terrain3D 的 shader override）、water、tree、grass、rock；common/painterly.gdshaderinc（共用的光照、噪声、风）
-  ui/        界面        MapPanel（左侧）、StagePanel（右侧参数）、MapCompass、UiStyle
+  ui/        界面        SandboxLayout（顶栏、左侧阶段列表、右侧分页面板、状态栏、左下角指北针与图例）、
+                         StageRail、StagePage（节点图编辑器）、Inspector（带默认值和 [Param] 反射的参数行）、
+                         Toolbar、Legend、MapCompass、Setting（多个控件共用的值）、UiStyle（主题）
 ```
 
 依赖方向（箭头表示“可以引用”）：
@@ -30,7 +34,7 @@ camera      city ← ui
 - **城市生成只通过 `ITerrain` 读地形**：高程、采样、最近河段、地图范围。换一种地形实现不需要改城市代码。
 - **地形和城市生成不碰场景节点**，可以在无界面检查里直接运行。
 - **相机只知道自己的活动范围**，不知道地形、城镇或界面；取景由调用方传入焦点，贴地由调用方传入地面高度回调。
-- **界面只发事件、执行别人给的回调**：`MapPanel` 不知道地形渲染或城市预览的存在，`MapCompass` 只依赖 Godot 的 `Camera3D`。`StagePanel` 是节点图的编辑器，所以依赖 `city`。
+- **界面只发事件、执行别人给的回调**：`ui/` 里的控件不知道地形渲染、城市预览或大气的存在，`MapCompass` 只依赖 Godot 的 `Camera3D`。`StageRail`、`StagePage` 是节点图的查看器和编辑器，所以依赖 `city`。“阶段”是界面的组织方式：地形加上节点图的各分组（`Stage.FromGraph`），每个阶段页的可视化内容和“显示到此阶段”的图层组合由 `MainInterface` 提供。同一个显示选项（如某个图层）可以同时出现在阶段页和视图页，二者共用一个 `Setting`，改哪里都同步。
 - **跨组件的联动只写在 `Main` 里**，例如把城内和道路交给环境资产作为避让区（`Exclusion`）、鼠标探针、按种子重建地图、地面最细 LOD 与地被跟随相机、阴影范围随相机距离变化。
 - **地形只有一个高度来源**：`TemperateMapData` 的高度网格（默认 1 m，2001×2001，恰好覆盖 ±1000 m）。`HeightAt` 在它上面双线性插值；地面渲染原样导入它；城市叠加层和树都用 `HeightAt` 贴地。另有约 5 m 的分析网格（坡度、林地、适宜性、离河距离），其高度取自 `HeightAt`，坡度按 5 m 尺度计算，不受米级起伏影响。
 - **高度的组成**：区域地貌（大尺度噪声 + 起伏）→ 河谷与河槽 → 米级细节（100 m 到 2.5 m 五个八度，中间两个做域扭曲；在深水河槽内淡出）。噪声是纯 C# 实现（`GradientNoise`），可并行、可复现；高度网格并行生成。
@@ -38,7 +42,8 @@ camera      city ← ui
 - **地面由 Terrain3D 绘制**：几何裁剪图（clipmap）网格，顶点着色器按高度图抬高顶点。`GroundSurface` 把高度网格原样导入（每个网格点一个 Terrain3D 顶点）；地图外、Terrain3D 区块多出的部分标成洞。
 - **地面着色**（`shaders/ground.gdshader`，顶点阶段和逐像素法线取自 Terrain3D 的最小着色器）：柔和的手绘风格。默认视图下颜色图存的不是颜色而是遮罩：R 林地覆盖、G 高出水面的高度、B 相对高程，由 `TerrainRenderer` 在每个高度网格点上计算。着色器据此算出草甸（两种色调，高处偏干）、林下、陡坡裸土、河滩沙、湿泥的权重，类型之间是几米宽的柔和过渡，边界再由低频噪声和两侧的细节纹理推移。近处有程序生成的地表细节：草地是两种尺寸的草丛加草叶，土和沙是卵石加细颗粒，林下是落叶和苔藓；细节同时改变颜色和法线，并按每个像素覆盖的地面大小淡出，远处不闪烁。光照以包裹漫反射为主，混入少量单阶卡通光，背光处补冷色。分析视图把颜色直接写入颜色图，着色器按 `view_mode = 1` 原样显示：采样场（高程、坡度、坡向……）按 `FieldStyles` 的色带在每个高度网格点上取色，地形自带的适宜性按分析网格取色。调色板、过渡宽度、细节强度和光照都是着色器的 uniform。
 - **环境资产**（`rendering/environment/`，全部程序生成，共用 `shaders/common/painterly.gdshaderinc` 里的柔和光照和全局风参数 `wind_direction`、`wind_strength`，后者登记在 `project.godot` 的 `[shader_globals]`）：
-  - 大气：程序天空兼作环境光，指数雾带空气透视，SSAO、AgX 色调映射、轻微泛光；下午的太阳，阴影软边，阴影范围随相机距离收放。
+  - 大气：程序天空兼作环境光，指数雾带空气透视，SSAO、AgX 色调映射、轻微泛光；太阳按时刻定位（6 时正东、12 时正南、18 时正西），低角度时偏暖，阴影软边，阴影范围随相机距离收放。全部参数在 `AtmosphereSettings`（太阳、天空、雾、后期、画风与风五组，带 `[Param]`，界面据此生成控件），另有几套命名预设；`Atmosphere.Apply` 一次推送到灯光、天空、环境和着色器全局参数。
+  - 画风：包裹漫反射、卡通分阶、暗部补光与色调是全局着色器参数 `style_*`（登记在 `project.godot`），地面和所有环境资产共用。
   - 河面：沿中心线的一条连续带状网格（宽度为河宽的 `WaterSurfaceWidthFactor` 倍，压在岸坡下）；着色器按深度缓冲算出的水体厚度决定颜色和透明度，浅水泡沫，顺流波纹，掠射角偏天空色。
   - 树木：阔叶、桦类、针叶三类，每类 4 个变体，树冠由法线"球化"的团块组成；按地形数据的 `TreePlacement` 摆放；随风摆动。
   - 地被：草丛和野花在 GPU 上摆放：固定格子的实例跟随相机整格移动，顶点着色器按格子抖动位置，读高度、地面遮罩和避让贴图决定是否生长、是否为芦苇；相机离焦点 320 m 以外隐藏。
@@ -60,7 +65,7 @@ camera      city ← ui
 - 每次运行先复制一份选项，界面可以随时修改正在使用的选项对象。节点在后台线程运行。
 - 节点的摘要由它写入的值（实现 `ISummarized`）拼成，提示由 `context.Notice` 给出。
 
-新增参数：在选项类里加一个带 `[Param]` 的属性，面板控件、过期处理和复制都会自动生效。
+新增参数：在选项类里加一个带 `[Param]` 的属性，面板控件（含恢复默认）、过期处理和复制都会自动生效。`[Param]` 也用于渲染层的设置对象（如 `AtmosphereSettings`），支持 bool、整数、浮点和颜色。
 替换算法：写一个读写同样键的新节点，在 `TownGraph.Create` 里换掉那一行。
 新增数据：在 `Keys` 里加键、在 `data/` 里加类型，在 `Contracts` 里登记它的不变量。
 

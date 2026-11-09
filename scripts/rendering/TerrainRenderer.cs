@@ -110,9 +110,13 @@ public partial class TerrainRenderer : Node3D
         return new Color(sample.Forest, aboveWater, Mathf.InverseLerp(d.MinHeight, d.MaxHeight, sample.Height));
     }
 
+    /// <summary>Suitability view colors: unsuitable to suitable land, and water.</summary>
+    public static Color SuitabilityRamp(float t) => new Color("ad7860").Lerp(new Color("90bc84"), t);
+
+    public static readonly Color SuitabilityWater = new("315f74");
+
     /// <summary>Suitability color at analysis grid vertex <paramref name="i"/>.</summary>
-    private Color SuitabilityColor(int i) =>
-        _data.Water[i] ? new Color("315f74") : new Color("ad7860").Lerp(new Color("90bc84"), _data.Suitability[i]);
+    private Color SuitabilityColor(int i) => _data.Water[i] ? SuitabilityWater : SuitabilityRamp(_data.Suitability[i]);
 
     private void BuildSkirt()
     {

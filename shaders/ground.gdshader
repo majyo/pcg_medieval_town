@@ -84,15 +84,18 @@ uniform float detail_far = 140.0;
 group_uniforms;
 
 group_uniforms lighting;
-// Wrapped diffuse: light reaches a little past the terminator for a softer falloff.
-uniform float light_wrap : hint_range(0.0, 1.0) = 0.35;
-// How much of a single soft light band is mixed into the smooth falloff.
-uniform float toon_amount : hint_range(0.0, 1.0) = 0.3;
 uniform float band_center : hint_range(-1.0, 1.0) = 0.15;
 uniform float band_softness : hint_range(0.01, 1.0) = 0.25;
-uniform vec3 shadow_tint : source_color = vec3(0.55, 0.60, 0.85);
-uniform float shadow_fill : hint_range(0.0, 1.0) = 0.22;
 group_uniforms;
+
+// Shared with the environment shaders (common/painterly.gdshaderinc), set by Atmosphere:
+// style_light_wrap: wrapped diffuse, light reaches a little past the terminator for a softer falloff;
+// style_toon: how much of a single soft light band is mixed into the smooth falloff;
+// style_shadow_tint (linear) and style_shadow_fill: a cool fill instead of black on unlit sides.
+global uniform float style_toon;
+global uniform float style_light_wrap;
+global uniform float style_shadow_fill;
+global uniform vec3 style_shadow_tint;
 
 // Varyings & Types
 // Some are required for editor functions
@@ -467,8 +470,8 @@ void fragment() {
 // Soft lighting: wrapped diffuse mixed with a single soft band. Unlit parts get a cool fill instead of black.
 void light() {
 	float ndl = dot(NORMAL, LIGHT);
-	float wrapped = clamp((ndl + light_wrap) / (1.0 + light_wrap), 0.0, 1.0);
+	float wrapped = clamp((ndl + style_light_wrap) / (1.0 + style_light_wrap), 0.0, 1.0);
 	float banded = smoothstep(band_center - band_softness, band_center + band_softness, ndl);
-	float lit = mix(wrapped, banded, toon_amount) * smoothstep(0.2, 0.8, ATTENUATION);
-	DIFFUSE_LIGHT += LIGHT_COLOR / PI * (lit + shadow_tint * shadow_fill * (1.0 - lit));
+	float lit = mix(wrapped, banded, style_toon) * smoothstep(0.2, 0.8, ATTENUATION);
+	DIFFUSE_LIGHT += LIGHT_COLOR / PI * (lit + style_shadow_tint * style_shadow_fill * (1.0 - lit));
 }

@@ -6,7 +6,7 @@ using PcgCitySandbox.City;
 
 namespace PcgCitySandbox.Rendering;
 
-public enum CityLayer { Contours, Site, Layout, Roads, Parcels, Buildings }
+public enum CityLayer { Contours, Site, Layout, Roads, Blocks, Parcels, Buildings }
 
 /// <summary>
 /// The single preview of the town graph. Each layer draws one or more keys and is rebuilt only when one of those
@@ -20,8 +20,23 @@ public partial class CityView : Node3D
 
     private readonly Dictionary<CityLayer, Node3D> _layers = new();
     private readonly Dictionary<CityLayer, object?[]> _sources = new();
-    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site };
+    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site, CityLayer.Blocks };
     private CityGraph? _graph;
+    private float _contourInterval = 2;
+
+    /// <summary>Height between contour lines in meters; every fifth line is drawn wider.</summary>
+    public float ContourInterval
+    {
+        get => _contourInterval;
+        set
+        {
+            if (Mathf.IsEqualApprox(value, _contourInterval))
+                return;
+            _contourInterval = value;
+            _sources[CityLayer.Contours] = Array.Empty<object?>();
+            Refresh();
+        }
+    }
 
     public void Bind(CityGraph graph)
     {
@@ -39,6 +54,23 @@ public partial class CityView : Node3D
 
         Refresh();
     }
+
+    /// <summary>Overlay color of a cell that cannot be built on, for the reason given.</summary>
+    public static Color SiteColor(SiteBlock block) => block switch
+    {
+        SiteBlock.Water => new Color("2f6f9a"),
+        SiteBlock.Bank => new Color("5fa8c8"),
+        SiteBlock.Slope => new Color("c8553d"),
+        _ => new Color("2f6b3a"),
+    };
+
+    /// <summary>Center-line color of a road of the given kind.</summary>
+    public static Color RoadColor(RoadKind kind) => kind switch
+    {
+        RoadKind.Main => new Color("7a4e2a"),
+        RoadKind.Outer => new Color("6d6450"),
+        _ => new Color("8f7454"),
+    };
 
     public bool IsVisible(CityLayer layer) => !_hidden.Contains(layer);
 
@@ -62,12 +94,14 @@ public partial class CityView : Node3D
         var wall = _graph.Get(Keys.Wall);
         var gates = _graph.Get(Keys.Gates);
         var roads = _graph.Get(Keys.Roads);
+        var blocks = _graph.Get(Keys.Blocks);
         var parcels = _graph.Get(Keys.Parcels);
         var buildings = _graph.Get(Keys.Buildings);
         Update(CityLayer.Contours, root => BuildContours(root, height!), height);
         Update(CityLayer.Site, root => BuildSite(root, site!), site);
         Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
         Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
+        Update(CityLayer.Blocks, root => BuildBlocks(root, blocks!), blocks);
         Update(CityLayer.Parcels, root => BuildParcels(root, parcels!), parcels);
         Update(CityLayer.Buildings, root => BuildBuildings(root, buildings!), buildings);
     }
@@ -103,12 +137,13 @@ public partial class CityView : Node3D
     }
 
     /// <summary>
-    /// Contours of the sampled heights every 2 m, every fifth (10 m) wider: flat ribbons lifted just above the
+    /// Contours of the sampled heights every <see cref="ContourInterval"/>, every fifth wider: flat ribbons lifted just above the
     /// ground at both ends of each segment. Segments are shorter than a cell diagonal, so they follow the ground.
     /// </summary>
     private void BuildContours(Node3D root, ScalarField height)
     {
-        const float interval = 2, lift = 0.4f;
+        float interval = _contourInterval;
+        const float lift = 0.4f;
         var segments = Contours.Extract(height, interval);
         var vertices = new Vector3[segments.Count * 4];
         var colors = new Color[segments.Count * 4];
@@ -149,19 +184,12 @@ public partial class CityView : Node3D
         float half = site.CellSize / 2;
         for (int k = 0; k < site.Count; k++)
         {
-            var color = site.Block[k] switch
-            {
-                SiteBlock.Water => new Color("2f6f9a"),
-                SiteBlock.Bank => new Color("5fa8c8"),
-                SiteBlock.Slope => new Color("c8553d"),
-                SiteBlock.Forest => new Color("2f6b3a"),
-                _ => (Color?)null,
-            };
-            if (color == null)
+            if (site.Block[k] == SiteBlock.None)
                 continue;
+            var color = SiteColor(site.Block[k]);
             var c = site.Center(k);
             Vector3 P(float dx, float dz) => new(c.X + dx, Height(new Vector2(c.X + dx, c.Y + dz)) + 0.6f, c.Y + dz);
-            kit.Quad(P(-half, -half), P(half, -half), P(half, half), P(-half, half), color.Value, Vector3.Up);
+            kit.Quad(P(-half, -half), P(half, -half), P(half, half), P(-half, half), color, Vector3.Up);
         }
 
         Add(root, kit, MeshKit.Material(unshaded: true, alpha: 0.45f), shadows: false);
@@ -228,16 +256,32 @@ public partial class CityView : Node3D
         var lines = new MeshKit(Mesh.PrimitiveType.Lines);
         foreach (var edge in roads.Edges)
         {
-            var color = edge.Kind switch
-            {
-                RoadKind.Main => new Color("7a4e2a"),
-                RoadKind.Outer => new Color("6d6450"),
-                _ => new Color("8f7454"),
-            };
+            var color = RoadColor(edge.Kind);
             for (int i = 1; i < edge.Points.Length; i++)
                 DrapedLine(lines, edge.Points[i - 1], edge.Points[i], 0.5f, color);
         }
 
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+    }
+
+    /// <summary>Each street block a different pale tint, outlined; the developable land they come from shows through.</summary>
+    private void BuildBlocks(Node3D root, BlockSet blocks)
+    {
+        var fill = new MeshKit();
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
+        var tints = new[] { new Color("d7b98a"), new Color("b8c98f"), new Color("9fc2b8"), new Color("c9a6a0"), new Color("c4c48c") };
+        for (int b = 0; b < blocks.Blocks.Count; b++)
+        {
+            var block = blocks.Blocks[b];
+            fill.Drape(block.Triangulate(), Height, 0.12f, tints[b % tints.Length]);
+            foreach (var ring in block.Rings)
+            {
+                for (int i = 0; i < ring.Length; i++)
+                    DrapedLine(lines, ring[i], ring[(i + 1) % ring.Length], 0.3f, new Color("4a3f2c"));
+            }
+        }
+
+        Add(root, fill, MeshKit.Material(unshaded: true, alpha: 0.55f), shadows: false);
         Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
     }
 

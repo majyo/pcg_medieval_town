@@ -4,6 +4,11 @@
 
 global uniform vec2 wind_direction;
 global uniform float wind_strength;
+// Painterly light, set by Atmosphere (rendering/environment/Atmosphere.cs); the tint is linear.
+global uniform float style_toon;
+global uniform float style_light_wrap;
+global uniform float style_shadow_fill;
+global uniform vec3 style_shadow_tint;
 
 float pl_hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -32,15 +37,11 @@ vec2 pl_wind(vec2 world_xz, float time, float flexibility) {
 
 // Diffuse light for light(): add the result to DIFFUSE_LIGHT.
 vec3 pl_diffuse(vec3 normal, vec3 light_dir, vec3 light_color, float attenuation) {
-	const float wrap = 0.35;
-	const float toon = 0.3;
-	const vec3 shadow_tint = vec3(0.264, 0.319, 0.694); // linear of sRGB (0.55, 0.60, 0.85)
-	const float shadow_fill = 0.22;
 	float ndl = dot(normal, light_dir);
-	float wrapped = clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0);
+	float wrapped = clamp((ndl + style_light_wrap) / (1.0 + style_light_wrap), 0.0, 1.0);
 	float banded = smoothstep(-0.1, 0.4, ndl);
-	float lit = mix(wrapped, banded, toon) * smoothstep(0.2, 0.8, attenuation);
-	return light_color / PI * (lit + shadow_tint * shadow_fill * (1.0 - lit));
+	float lit = mix(wrapped, banded, style_toon) * smoothstep(0.2, 0.8, attenuation);
+	return light_color / PI * (lit + style_shadow_tint * style_shadow_fill * (1.0 - lit));
 }
 
 // Colors authored in sRGB (vertex colors, uniforms without source_color) to linear.
