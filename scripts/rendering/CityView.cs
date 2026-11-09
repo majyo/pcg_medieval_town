@@ -6,7 +6,7 @@ using PcgCitySandbox.City;
 
 namespace PcgCitySandbox.Rendering;
 
-public enum CityLayer { Contours, Site, Layout, Roads, Blocks, Parcels, Buildings }
+public enum CityLayer { Contours, Site, Region, Layout, Roads, Blocks, Parcels, Buildings }
 
 /// <summary>
 /// The single preview of the town graph. Each layer draws one or more keys and is rebuilt only when one of those
@@ -20,7 +20,7 @@ public partial class CityView : Node3D
 
     private readonly Dictionary<CityLayer, Node3D> _layers = new();
     private readonly Dictionary<CityLayer, object?[]> _sources = new();
-    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site, CityLayer.Blocks };
+    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site, CityLayer.Region, CityLayer.Blocks };
     private CityGraph? _graph;
     private float _contourInterval = 2;
 
@@ -58,6 +58,10 @@ public partial class CityView : Node3D
     /// <summary>Overlay color of a cell that cannot be built on, for the reason given.</summary>
     public static Color SiteColor(SiteBlock block) => FieldStyles.Buildability[(int)block];
 
+    /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
+    public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
+        OriginColor = new("e0a72e");
+
     /// <summary>Center-line color of a road of the given kind.</summary>
     public static Color RoadColor(RoadKind kind) => kind switch
     {
@@ -84,6 +88,9 @@ public partial class CityView : Node3D
 
         var height = _graph.Get(Keys.Height);
         var buildable = _graph.Get(Keys.Buildable);
+        var crossings = _graph.Get(Keys.Crossings);
+        var routes = _graph.Get(Keys.Routes);
+        var origin = _graph.Get(Keys.Origin);
         var plaza = _graph.Get(Keys.Plaza);
         var wall = _graph.Get(Keys.Wall);
         var gates = _graph.Get(Keys.Gates);
@@ -93,6 +100,7 @@ public partial class CityView : Node3D
         var buildings = _graph.Get(Keys.Buildings);
         Update(CityLayer.Contours, root => BuildContours(root, height!), height);
         Update(CityLayer.Site, root => BuildSite(root, buildable!), buildable);
+        Update(CityLayer.Region, root => BuildRegion(root, crossings!, routes!, origin!), crossings, routes, origin);
         Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
         Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
         Update(CityLayer.Blocks, root => BuildBlocks(root, blocks!), blocks);
@@ -183,6 +191,44 @@ public partial class CityView : Node3D
         }
 
         Add(root, kit, MeshKit.Material(unshaded: true, alpha: 0.45f), shadows: false);
+    }
+
+    /// <summary>
+    /// The regional frame, drawn to read from the whole map: wide route ribbons on the ground, a plank deck at each
+    /// crossing a route uses (a thin outline at the others), a post at each entry and a tall mast at the origin.
+    /// </summary>
+    private void BuildRegion(Node3D root, CrossingSet crossingSet, RouteNetwork network, TownOrigin origin)
+    {
+        const float width = 7, deckWidth = 6;
+        var used = network.UsedCrossings.ToHashSet();
+        var decks = Region.Lines(crossingSet.Crossings.Select(x => ((IReadOnlyList<Vector2>)new[] { x.BankA, x.BankB }, deckWidth + 2)));
+        var ribbons = new MeshKit();
+        ribbons.Drape(Region.Lines(network.Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, width))).Subtract(decks).Triangulate(),
+            Height, 0.6f, RouteColor, maxEdge: 4);
+        Add(root, ribbons, MeshKit.Material(unshaded: true), shadows: false);
+
+        var solids = new MeshKit();
+        foreach (var crossing in crossingSet.Crossings)
+        {
+            var along = (crossing.BankB - crossing.BankA).Normalized();
+            var side = along.Orthogonal() * (used.Contains(crossing.Id) ? deckWidth : 1.5f) / 2;
+            float deck = Math.Max(Height(crossing.BankA), Height(crossing.BankB)) + 0.4f;
+            var corners = new[] { crossing.BankA + side, crossing.BankB + side, crossing.BankB - side, crossing.BankA - side };
+            solids.Prism(corners, deck - 0.8f, deck, CrossingColor, CrossingColor.Lightened(0.2f));
+        }
+
+        foreach (var entry in network.Entries)
+            Mast(solids, entry.Position, 4, 14, EntryColor);
+        Mast(solids, origin.Position, 6, 32, OriginColor);
+        Add(root, solids, MeshKit.Material());
+    }
+
+    private void Mast(MeshKit kit, Vector2 at, float size, float height, Color color)
+    {
+        float h = size / 2;
+        var corners = new[] { at + new Vector2(-h, -h), at + new Vector2(h, -h), at + new Vector2(h, h), at + new Vector2(-h, h) };
+        float ground = corners.Min(Height);
+        kit.Prism(corners, ground - 1, ground + height, color, color.Lightened(0.25f));
     }
 
     private void BuildLayout(Node3D root, Plaza square, WallRing ring, GateSet gateSet)

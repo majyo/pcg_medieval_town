@@ -27,15 +27,16 @@ public partial class Main
     private readonly Debounce _debounce = new() { Name = "Debounce" };
 
     /// <summary>
-    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": which group of ground styles colors
-    /// the ground (the one showing if it is in that group, else the group's first; none for the landscape), and the
-    /// city layers to show; all others are hidden.
+    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": which ground styles color the ground
+    /// (a group, or one field by key name: the one showing if it matches, else the first match; none for the
+    /// landscape), and the city layers to show; all others are hidden.
     /// </summary>
     private static readonly Dictionary<string, (string? Fields, CityLayer[] Layers)> Views = new()
     {
         [TerrainStage] = (null, Array.Empty<CityLayer>()),
         [Sampling.Group] = ("采样", new[] { CityLayer.Contours }),
         [Evaluation.Group] = ("评价", Array.Empty<CityLayer>()),
+        [RegionalFrame.Group] = (Keys.Habitability.Name, new[] { CityLayer.Region }),
         ["城镇布局"] = (null, new[] { CityLayer.Layout }),
         ["路网"] = (null, new[] { CityLayer.Layout, CityLayer.Roads }),
         ["街区与地块"] = (null, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
@@ -44,7 +45,8 @@ public partial class Main
 
     private static readonly (CityLayer Layer, string Name)[] LayerNames =
     {
-        (CityLayer.Contours, "等高线"), (CityLayer.Site, "场地限制"), (CityLayer.Layout, "广场与城墙"), (CityLayer.Roads, "道路"),
+        (CityLayer.Contours, "等高线"), (CityLayer.Site, "场地限制"), (CityLayer.Region, "区域格局"), (CityLayer.Layout, "广场与城墙"),
+        (CityLayer.Roads, "道路"),
         (CityLayer.Blocks, "街区"), (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
     };
 
@@ -147,9 +149,10 @@ public partial class Main
     {
         if (!Views.TryGetValue(stage, out var view))
             return;
+        bool Matches(GroundStyle? s) => s != null && (s.Group == view.Fields || s.Key.Name == view.Fields);
         _ground.Value = view.Fields == null ? LandscapeGround
-            : ShownStyle?.Group == view.Fields ? _ground.Value
-            : FieldGround(FieldStyles.All.ToList().FindIndex(s => s.Group == view.Fields));
+            : Matches(ShownStyle) ? _ground.Value
+            : FieldGround(FieldStyles.All.ToList().FindIndex(Matches));
         foreach (var (layer, setting) in _layers)
             setting.Value = view.Layers.Contains(layer);
     }
@@ -177,8 +180,14 @@ public partial class Main
                 Layer(CityLayer.Site);
                 Layer(CityLayer.Contours);
                 break;
+            case RegionalFrame.Group:
+                Layer(CityLayer.Region);
+                FieldChoice(ins, "评价", "把可建设判定或一项评分画在地面上");
+                Layer(CityLayer.Contours);
+                break;
             case "城镇布局":
                 Layer(CityLayer.Layout);
+                Layer(CityLayer.Region);
                 Layer(CityLayer.Site);
                 break;
             case "路网":

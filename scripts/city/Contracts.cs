@@ -31,6 +31,9 @@ public static class Contracts
             .Concat(HabitabilityRules(r))),
         new(Keys.TravelCost, r => FieldRules(r, Keys.TravelCost).Concat(TravelCostRules(r))),
         new(Keys.Site, SiteRules),
+        new(Keys.Crossings, CrossingRules),
+        new(Keys.Routes, RouteRules),
+        new(Keys.Origin, OriginRules),
         new(Keys.Core, CoreRules),
         new(Keys.Plaza, PlazaRules),
         new(Keys.Gates, GateRules),
@@ -262,6 +265,110 @@ public static class Contracts
         if (wet > 0)
             yield return $"{wet} 个水面格可以通行";
     }
+
+    /// <summary>
+    /// At least one crossing. Each runs from one bridgehead cell to the other through side-neighboring cells, its
+    /// center is in the water, and both bridgeheads are dry, passable land.
+    /// </summary>
+    private static IEnumerable<string> CrossingRules(IKeyReader r)
+    {
+        var crossings = r.Get(Keys.Crossings)!.Crossings;
+        var grid = r.Get(Keys.Grid)!;
+        var shore = r.Get(Keys.Shore)!;
+        var cost = r.Get(Keys.TravelCost)!;
+        if (crossings.Count == 0)
+            yield return "没有渡口";
+        foreach (var x in crossings)
+        {
+            var cells = x.Cells;
+            if (cells.Length < 2 || cells[0] != grid.CellAt(x.BankA) || cells[^1] != grid.CellAt(x.BankB))
+                yield return $"{x.Id} 的格子不是从一个桥头到另一个桥头";
+            else if (cells.Zip(cells.Skip(1)).Any(p => Chebyshev(grid, p.First, p.Second) != 1 || Diagonal(grid, p.First, p.Second)))
+                yield return $"{x.Id} 的格子不是逐格相邻（只走上下左右）";
+            if (shore.Nearest(x.Center) >= 0)
+                yield return $"{x.Id} 的中点不在水面上";
+            foreach (var head in new[] { x.BankA, x.BankB })
+            {
+                int k = grid.CellAt(head);
+                if (k < 0 || shore.Values[k] < 0 || cost.IsNoData(cost.Values[k]))
+                    yield return $"{x.Id} 的桥头 {head} 不是可通行的陆地";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Entries lie on the map edge; each route runs from an entry to another entry or onto an earlier route, through
+    /// 8-neighboring cells that are passable or the water cells of a crossing it names; together the routes connect
+    /// every entry.
+    /// </summary>
+    private static IEnumerable<string> RouteRules(IKeyReader r)
+    {
+        var network = r.Get(Keys.Routes)!;
+        var grid = network.Grid;
+        var cost = r.Get(Keys.TravelCost)!;
+        var crossings = r.Get(Keys.Crossings)!.Crossings.ToDictionary(x => x.Id);
+        float half = r.Terrain.Half;
+        foreach (var entry in network.Entries)
+        {
+            var p = entry.Position;
+            if (half - Math.Max(Math.Abs(p.X), Math.Abs(p.Y)) > 10)
+                yield return $"{entry.Id} 离图边超过 10 m";
+        }
+
+        var cells = network.Entries.ToDictionary(e => e.Id, e => e.Cell);
+        var earlier = new Dictionary<string, Route>();
+        foreach (var route in network.Routes)
+        {
+            var path = route.Cells;
+            bool ends = path.Length >= 2 && cells.TryGetValue(route.From, out int from) && path[0] == from &&
+                (cells.TryGetValue(route.To, out int to) ? path[^1] == to
+                    : earlier.TryGetValue(route.To, out var joined) && joined.Cells.Contains(path[^1]));
+            if (!ends)
+                yield return $"{route.Id} 不是从入口 {route.From} 到入口或更早的道路 {route.To}";
+            earlier[route.Id] = route;
+            if (path.Zip(path.Skip(1)).Any(p => Chebyshev(grid, p.First, p.Second) != 1))
+                yield return $"{route.Id} 的格子不相邻";
+            var water = route.Crossings.Where(crossings.ContainsKey).SelectMany(id => crossings[id].Cells).ToHashSet();
+            int blocked = path.Count(k => cost.IsNoData(cost.Values[k]) && !water.Contains(k));
+            if (blocked > 0)
+                yield return $"{route.Id} 有 {blocked} 格既不可通行也不属于它经过的渡口";
+        }
+
+        // Every entry and route is reachable from the first entry through the From/To links.
+        var seen = new HashSet<string>();
+        var queue = new Queue<string>(network.Entries.Take(1).Select(e => e.Id));
+        while (queue.TryDequeue(out var id))
+        {
+            if (!seen.Add(id))
+                continue;
+            foreach (var route in network.Routes.Where(x => x.From == id || x.To == id || x.Id == id))
+            {
+                queue.Enqueue(route.Id);
+                queue.Enqueue(route.From);
+                queue.Enqueue(route.To);
+            }
+        }
+
+        int linked = network.Entries.Count(e => seen.Contains(e.Id));
+        if (linked != network.Entries.Count)
+            yield return $"道路只连通了 {linked}/{network.Entries.Count} 个入口";
+    }
+
+    /// <summary>The origin is a buildable cell on a route.</summary>
+    private static IEnumerable<string> OriginRules(IKeyReader r)
+    {
+        var origin = r.Get(Keys.Origin)!;
+        var network = r.Get(Keys.Routes)!;
+        if (!r.Get(Keys.Buildable)!.Buildable(origin.Cell))
+            yield return "起源点不在可建设格上";
+        if (!network.Cells.Contains(origin.Cell) || network.Grid.CellAt(origin.Position) != origin.Cell)
+            yield return "起源点不在过境道路上";
+    }
+
+    private static int Chebyshev(SiteGrid grid, int a, int b) =>
+        Math.Max(Math.Abs(a % grid.Nx - b % grid.Nx), Math.Abs(a / grid.Nx - b / grid.Nx));
+
+    private static bool Diagonal(SiteGrid grid, int a, int b) => a % grid.Nx != b % grid.Nx && a / grid.Nx != b / grid.Nx;
 
     private static IEnumerable<string> SiteRules(IKeyReader r)
     {

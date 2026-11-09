@@ -1,7 +1,9 @@
 param(
     [ValidateSet('build', 'run', 'test', 'capture')]
     [string]$Action = 'run',
-    [string]$GodotPath = 'E:\workspace\godot\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe'
+    [string]$GodotPath = 'E:\workspace\godot\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe',
+    # run / capture only: map seed instead of the one in configs/temperate_plain.tres (capture then saves to artifacts/capture_<seed>).
+    [int]$Seed = -1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,13 +56,17 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot '.godot/extension_list.cfg'))) {
         & $GodotPath --headless --path $projectRoot --import | Out-Null
     }
+    $seedArgs = @(if ($Seed -ge 0) { "--seed=$Seed" })
     switch ($Action) {
-        'run' { & $GodotPath --path $projectRoot }
+        'run' { & $GodotPath --path $projectRoot -- $seedArgs }
         'test' {
             & $GodotPath --headless --path $projectRoot -- --test
             if ($LASTEXITCODE -ne 0) { throw 'Checks failed.' }
         }
-        'capture' { & $GodotPath --path $projectRoot -- --capture=artifacts/capture }
+        'capture' {
+            $directory = if ($Seed -ge 0) { "artifacts/capture_$Seed" } else { 'artifacts/capture' }
+            & $GodotPath --path $projectRoot -- "--capture=$directory" $seedArgs
+        }
     }
 }
 finally {

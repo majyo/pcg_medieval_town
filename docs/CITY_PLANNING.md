@@ -1,6 +1,6 @@
 # 城市规划阶段 · 方案
 
-> 状态：第 1 步（场地评价）已完成，其余未实施。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）和场地采样第一阶段（[SITE_SAMPLING.md](SITE_SAMPLING.md)）。本方案同时覆盖场地采样 §7 留下的“第二阶段”。
+> 状态：第 1 步（场地评价）、第 2 步（区域格局）已完成，其余未实施。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）和场地采样第一阶段（[SITE_SAMPLING.md](SITE_SAMPLING.md)）。本方案同时覆盖场地采样 §7 留下的“第二阶段”。
 
 ## 1. 目标与范围
 
@@ -63,9 +63,11 @@
 
 | 节点 | 读 → 写 | 内容 | 主要参数 |
 | --- | --- | --- | --- |
-| `RiverCrossings` 渡口 | shore、above_water、slope → `region.crossings` | 沿河道中线（离水场的局部最小值）每 20 m 取一个横断面，评价：河窄（横断面上离水 < 0 的宽度小）、两岸高出水面适中（1–6 m，不是陡岸也不是滩涂）、两岸 30 m 内坡度平缓。取得分最高、彼此相距足够远的几处 | 候选间距 m、最大河宽 m、个数 |
-| `RegionalRoutes` 过境道路 | travel_cost、crossings → `region.routes` | ① 在图边选入口：每条边按通行代价和间距打分，河两岸至少各一个，沿河谷的南北两端优先。② 所有入口两两求最小代价路径，水面只能经过渡口（渡口格有额外代价）。③ 按代价做最小生成树，依次修路，已修道路打折（同 `RoadSearch` 的做法），路自然并线，交汇点自然出现 | 入口数（2–5，默认 4）、渡口代价、并线折扣、种子 |
-| `ChooseOrigin` 起源点 | routes、crossings、habitability → `town.origin` | 候选：道路交汇点、渡口桥头、道路上的点。得分 = 周围半径 R 内的宜居度总和 + 交汇/桥头加分 − 离图心距离的小惩罚。记录起源类型（桥头、路口、路边），供摘要和后续节点参考。替换 `ChooseCore` | 评价半径 m、交汇加分、桥头加分、种子 |
+| `RiverCrossings` 渡口 | shore、above_water、slope、travel_cost → `region.crossings` | 沿河道中线（离水场在行或列方向上的局部最小值）每 20 m 取一个候选，在 16 个方向里找最短的过河线。评价：河窄、两岸高出水面适中（1–6 m，不是陡岸也不是滩涂）、两岸 30 m 引道平缓。取得分最高、彼此相距足够远的几处。桥头是两岸第一个可通行的格，渡口记下从桥头到桥头逐格（只走上下左右）的格子 | 候选间距 m、最大河宽 m、引道长度 m、最小间距 m、个数 |
+| `RegionalRoutes` 过境道路 | travel_cost、height、shore、crossings → `region.routes` | ① 在图边选入口：朝内 80 m 好走，相距足够远，河两岸至少各一个，南北边靠近河谷的加分，同一条边上第二个入口减分。② 干线：相距最远且能连通的两个入口之间的最小代价路径。③ 支线：其余入口每轮各求一条到已有路网任意格的最小代价路径，代价最低的先修，接点就是路口。寻路见 §3.4 | 入口数（2–5，默认 4）、入口最小间距 m、河谷入口加分、过河代价倍数、免费坡度 %、超坡惩罚、种子 |
+| `ChooseOrigin` 起源点 | routes、crossings、habitability、buildable → `town.origin`（过渡期另写 `town.core`） | 候选：道路上离图边足够远的可建设格。得分 = 周围方窗内的平均宜居度 + 桥头加分（一定距离内有道路使用的渡口）+ 路口加分 − 离图心距离的小惩罚。记录起源类型（桥头、路口、路边）和经过它的道路。替换 `ChooseCore` | 评价半径 m、路口/桥头加分与范围、离图心惩罚、离图边最小距离 m、种子 |
+
+**和最初设想的差别**：最初打算对入口两两求路后做最小生成树，再让后修的路在已有道路上打折、自然并线。实际做出来，最小生成树只在入口之间连线，路会贴着图边从一个入口绕到下一个入口，三个种子里有两个一个路口都没有。改成“干线 + 就近接入”后，每个种子都有两个 T 形路口，也不再需要并线折扣这个参数。
 
 ### 3.3 城镇生长
 
@@ -73,7 +75,7 @@
 
 | 期 | 节点 | 读 → 写 | 内容 | 主要参数 |
 | --- | --- | --- | --- | --- |
-| 一期 村落 | `Village` 村落 | origin、routes、habitability、buildable → `town.growth` | 从起源点沿道路长出约 2 ha 的带状村落（§3.4 的生长工具） | 目标面积 ha、临路进深 m |
+| 一期 村落 | `Village` 村落 | origin、routes、habitability、buildable → `town.growth` | 从起源点沿道路长出约 2 ha 的带状村落（§3.5 的生长工具） | 目标面积 ha、临路进深 m |
 | 二期 市镇 | `MarketPlace` 市场 | origin、routes、growth、buildable → `town.plaza` | 在村落范围内、最靠近道路交汇处的平地上开出市场：道路加宽成的纺锤形或三角形。现有 `Plaza` 类型不变；以后可换方形、街市等变体 | 面积 m²、形状 |
 | | `ChurchSite` 教堂 | plaza、growth、relief、buildable → `town.landmarks` | 市场附近地势最高的可建设处，离主路一小段，矩形用地东西朝向（祭坛朝东） | 搜索半径 m、用地尺寸 |
 | | `MarketGrowth` 市镇扩展 | plaza、routes、landmarks、habitability；编辑 `town.growth` | 以市场为中心沿道路扩展到约 6 ha | 目标面积 ha |
@@ -85,7 +87,13 @@
 
 `town.core` 退役：原来读它的地方（`Main` 取景、`Checks`）改读 `town.origin` 或 `town.plaza`。
 
-### 3.4 共用工具：沿路生长（`tools/Growth.cs`）
+### 3.4 共用工具：全图寻路（`tools/RouteSearch.cs`）
+
+- `RouteCosts`：每格按通行代价计价（渡口的水面格按过河代价倍数），每一步另按坡度加价：沿行进方向的坡度超过免费坡度（默认 6%）的部分，按超出比例的平方加价。这一项与方向有关，所以道路会斜着爬过谷坡，而不是正对坡面直上。
+- `RouteSearch.Find` / `FindToAny`：8 邻域 A\* 或 Dijkstra（斜走不能切过不可通行格的角），用数组而不是字典（一次搜索可能覆盖全图 25 万格）。
+- `RouteSearch.Straighten`：拉直。网格上的最短路只有横、竖、45° 三种方向，平地上代价几乎一样时会走成横平竖直的折线。拉直时，从每个保留点出发跳到最远的后续格：条件是直线上的格都可通行，且直线按真实长度计价不贵于它替换的网格路径。网格路径比直线长最多 8%，所以平地上会变成任意角度的直线；绕开陡坡、去渡口的弯保留。道路折线取自拉直后的拐点。
+
+### 3.5 共用工具：沿路生长（`tools/Growth.cs`）
 
 各期节点只决定“从哪里长、长多大”，生长本身是同一个工具：
 
@@ -95,7 +103,7 @@
 
 离路距离超过临路进深的格得分急剧上升，所以早期是沿路的带状，面积大了才往纵深填。节点可以传入额外的限制（城内/城外）。
 
-### 3.5 路网分组的衔接
+### 3.6 路网分组的衔接
 
 | 节点 | 变化 |
 | --- | --- |
@@ -111,7 +119,7 @@
 
 - `CategoryField`（加进 `city/data/Fields.cs`）：共用 `SiteGrid`，一格一个 `byte`，带各类别的名称。`eval.buildable`（原因：可建设、水域、易淹、河岸退让、坡度过大、森林）和 `town.land_use` 都用它。着色、图例、探针按类别取色。
 - `CrossingSet`：渡口列表，每个渡口有位置、过河方向、两岸桥头点、河宽、得分。
-- `RouteNetwork`：图边入口（位置、所在的边、在河哪一岸）和道路列表；每条道路是一串 `site.grid` 格号加简化后的折线，记录经过的渡口。
+- `RouteNetwork`：图边入口（位置、所在的边、在河哪一岸）和道路列表；每条道路是一串 `site.grid` 格号加拉直后的折线，从一个入口出发、终点是另一个入口（干线）或更早的一条道路（支线），并记录经过的渡口；路口是三条以上道路连线相交的格。
 - `TownOrigin`：位置、起源类型（桥头 / 路口 / 路边）、相关道路。
 - `GrowthHistory`：`byte[] Phase`（每格建成于第几期，0 为未建成）加每期的名称和面积。期是嵌套的，所以“显示到第 N 期”就是 `Phase ≤ N`；需要多边形时按需从格转成 `Region`。
 - `LandmarkSet`：地标列表（类型、`Region` 用地、所属期）。目前只有教堂，市场仍是 `town.plaza`。
@@ -194,7 +202,10 @@
 1. ✅ **场地评价**：`CategoryField`、`BuildableLand`、`Habitability`、`TravelCost`、`LegacySite`；分类色带、探针；下游切到 4 m 网格并核对参数与耗时。删除 `SiteAnalysis`，地形自带的“适宜性”着色由宜居度取代。
    - 结果（三个种子）：可建设约 70%，其余依次是森林 15–18%、坡度过大 5–7%、水域 3%、易淹 3%；“河岸退让”几乎为 0，因为河岸低处先被判为易淹。宜居度中位数 0.3，高值集中在河谷台地上。
    - 下游在 4 m 网格上无需改参数，只有 `PlaceGates` 的“门外开阔度”从按格计数改为按米计算。通行区、主街、城外道路的 A\* 格数变为 4 倍，城外道路最慢约 0.2 s，`RoadSearch` 暂不需要优化。
-2. **区域格局**：`RiverCrossings`、`RegionalRoutes`、`ChooseOrigin`；`Region` 图层与全图截图。过渡期 `ChooseOrigin` 同时写一个 `town.core`（起源点 + 默认半径），让 `StarWall` 及下游继续工作。
+2. ✅ **区域格局**：`RiverCrossings`、`RegionalRoutes`、`ChooseOrigin`；`Region` 图层与全图截图。过渡期 `ChooseOrigin` 同时写一个 `town.core`（起源点 + 默认半径），让 `StarWall` 及下游继续工作。删除 `ChooseCore`。
+   - 结果（73129 / 7 / 22017）：渡口各 3 处，河宽 40–47 m；4 个入口、3 条道路、2 个 T 形路口，总长 4.1–4.4 km，过河 1 / 1 / 2 处；起源点为桥头 / 桥头 / 路口。过境道路耗时 0.14–0.4 s。
+   - 另加：`tools/SummedArea`（窗口均值，`LandformPosition` 也改用它）；`--seed=N` 命令行参数和 `project.ps1 -Seed N`，用来截取另外两个种子。
+   - 过渡期的已知问题：城墙、城门、城外道路仍按旧算法画，和过境道路是两套，城墙在谷坡一侧被截短。第 4 步解决。
 3. **一、二期**：`Growth` 工具、`Village`、`MarketPlace`、`ChurchSite`、`MarketGrowth`；`Growth`、`Landmarks` 图层和分期滑条。删除 `SquarePlaza`。
 4. **三期与骨架道路**：`EnclosingWall`、`RouteGates`、`WalledInfill`、`SkeletonLinks`；`roads` 契约放开渡口。删除 `ChooseCore` 遗留的 `town.core`、`StarWall`、`PlaceGates`、`MainStreets`、`OuterRoads`。至此“没有桥”的局限解除。
 5. **四期与分区**：`Suburbs`、`LandUse`；分区着色与截图。

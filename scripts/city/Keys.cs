@@ -20,6 +20,9 @@ public static class Keys
     public static readonly Key<ScalarField> Habitability = new("eval.habitability", "宜居度");
     public static readonly Key<ScalarField> TravelCost = new("eval.travel_cost", "通行代价");
     public static readonly Key<Site> Site = new("site", "场地");
+    public static readonly Key<CrossingSet> Crossings = new("region.crossings", "渡口");
+    public static readonly Key<RouteNetwork> Routes = new("region.routes", "过境道路");
+    public static readonly Key<TownOrigin> Origin = new("town.origin", "起源点");
     public static readonly Key<TownCore> Core = new("town.core", "城址");
     public static readonly Key<Plaza> Plaza = new("town.plaza", "广场");
     public static readonly Key<WallRing> Wall = new("town.wall", "城墙");

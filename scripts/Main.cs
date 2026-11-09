@@ -13,7 +13,8 @@ namespace PcgCitySandbox;
 /// <summary>
 /// Composition root. Creates the components and wires them together; holds no generation, rendering,
 /// camera or widget logic of its own. The interface is assembled in MainInterface.cs. Command line: `--test`
-/// runs the headless checks; `--capture=DIR` generates the town and saves screenshots.
+/// runs the headless checks; `--capture=DIR` generates the town and saves screenshots; `--seed=N` replaces the map
+/// seed from the settings for this run.
 /// </summary>
 public partial class Main : Node3D
 {
@@ -55,6 +56,9 @@ public partial class Main : Node3D
                 return;
             }
 
+            var seed = args.FirstOrDefault(a => a.StartsWith("--seed="));
+            if (seed != null)
+                _settings.Seed = int.Parse(seed["--seed=".Length..]);
             _map = TemperateMapData.Create(_settings, _settings.Seed);
             _graph = TownGraph.Create(_map);
             _graph.Changed += OnGraphChanged;
@@ -190,6 +194,15 @@ public partial class Main : Node3D
                 .Select(b => (CityView.SiteColor(b), b.Label())).ToArray()));
         }
 
+        if (_layers[CityLayer.Region].Value && _graph.Get(Keys.Routes) != null)
+        {
+            entries.Add(new LegendEntry("区域格局", null, Categories: new[]
+            {
+                (CityView.RouteColor, "过境道路"), (CityView.CrossingColor, "渡口（细线为未使用的）"),
+                (CityView.EntryColor, "图边入口"), (CityView.OriginColor, "起源点"),
+            }));
+        }
+
         if (_layers[CityLayer.Roads].Value && _graph.Get(Keys.Roads) != null)
         {
             entries.Add(new LegendEntry("道路", null, Categories: new[] { (RoadKind.Main, "主街"), (RoadKind.Street, "街巷"), (RoadKind.Outer, "城外道路") }
@@ -203,7 +216,8 @@ public partial class Main : Node3D
 
     /// <summary>
     /// Capture views: each sampled field and evaluation over the whole map, then slope around the town, height above
-    /// water around the town with contours, and buildability and habitability around the town.
+    /// water around the town with contours, buildability and habitability around the town, and last the regional
+    /// frame over the map and around the town's origin.
     /// </summary>
     private List<(string Name, Action Setup)> FieldViews(Vector3 core)
     {
@@ -229,6 +243,15 @@ public partial class Main : Node3D
             })));
         }
 
+        // The regional frame over the whole map, then around the origin.
+        void Region(Action frame)
+        {
+            ShowStageView(RegionalFrame.Group);
+            frame();
+        }
+
+        views.Add(("region", () => Region(_camera.TopView)));
+        views.Add(("region_town", () => Region(() => _camera.Frame(core, 0.75f, -0.5f, 1300))));
         return views;
     }
 

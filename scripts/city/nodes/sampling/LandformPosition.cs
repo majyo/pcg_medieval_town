@@ -25,33 +25,17 @@ public sealed class LandformPosition : CityNode<LandformPositionOptions>
     {
         var height = c.Get(Keys.Height);
         var grid = height.Grid;
-        int nx = grid.Nx, nz = grid.Nz;
-        // sum[(z) * (nx + 1) + x] = total height of cells [0, x) × [0, z).
-        var sum = new double[(nx + 1) * (nz + 1)];
-        for (int z = 0; z < nz; z++)
-        {
-            double row = 0;
-            for (int x = 0; x < nx; x++)
-            {
-                row += height.Values[grid.Index(x, z)];
-                sum[(z + 1) * (nx + 1) + x + 1] = sum[z * (nx + 1) + x + 1] + row;
-            }
-        }
-
+        var sums = new SummedArea(grid, height.Values);
         c.Cancellation.ThrowIfCancellationRequested();
         int r = Math.Max(1, (int)MathF.Round(o.Radius / grid.CellSize));
         var relief = new float[grid.Count];
         var options = new ParallelOptions { CancellationToken = c.Cancellation };
-        Parallel.For(0, nz, options, z =>
+        Parallel.For(0, grid.Nz, options, z =>
         {
-            int z0 = Math.Max(0, z - r), z1 = Math.Min(nz, z + r + 1);
-            for (int x = 0; x < nx; x++)
+            for (int x = 0; x < grid.Nx; x++)
             {
-                int x0 = Math.Max(0, x - r), x1 = Math.Min(nx, x + r + 1);
-                double total = sum[z1 * (nx + 1) + x1] - sum[z0 * (nx + 1) + x1] - sum[z1 * (nx + 1) + x0] + sum[z0 * (nx + 1) + x0];
-                double mean = total / ((x1 - x0) * (z1 - z0));
                 int k = grid.Index(x, z);
-                relief[k] = (float)(height.Values[k] - mean);
+                relief[k] = (float)(height.Values[k] - sums.Mean(x, z, r));
             }
         });
         c.Set(Keys.Relief, new ScalarField(grid, relief, "地形位置", "m"));
