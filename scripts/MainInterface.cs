@@ -10,43 +10,26 @@ namespace PcgCitySandbox;
 
 /// <summary>
 /// The interface half of the composition root: lays out the generic widgets from <c>ui/</c> and binds them to the
-/// map, the town graph, the city view and the atmosphere. Stages are the workflow (terrain, then the graph's node
-/// groups); each stage page shows the visualization that suits it, and with "联动视图" on, selecting a stage
-/// switches the scene to that view.
+/// map, the town graph, the city view and the atmosphere. The node graph along the bottom drives what the scene
+/// shows: click a node and only its outputs are drawn; click a stage header for all outputs of that stage; click
+/// empty space for the whole town as the "视图" page sets it.
 /// </summary>
 public partial class Main
 {
     private const string TerrainStage = "地形";
 
     private SandboxLayout? _ui;
+    private StagePage _page = null!;
     private List<Stage> _stages = null!;
     private Label _mapInfo = null!;
     private readonly Setting<int> _seed = new(0);
     private readonly Setting<int> _stage = new(0);
-    private readonly Setting<bool> _auto = new(true), _linkView = new(true);
+    private readonly Setting<bool> _auto = new(true);
     private readonly Debounce _debounce = new() { Name = "Debounce" };
-
-    /// <summary>
-    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": which ground styles color the ground
-    /// (a group, or one field by key name: the one showing if it matches, else the first match; none for the
-    /// landscape), and the city layers to show; all others are hidden.
-    /// </summary>
-    private static readonly Dictionary<string, (string? Fields, CityLayer[] Layers)> Views = new()
-    {
-        [TerrainStage] = (null, Array.Empty<CityLayer>()),
-        [Sampling.Group] = ("采样", new[] { CityLayer.Contours }),
-        [Evaluation.Group] = ("评价", Array.Empty<CityLayer>()),
-        [RegionalFrame.Group] = (Keys.Habitability.Name, new[] { CityLayer.Region }),
-        ["城镇布局"] = (null, new[] { CityLayer.Layout }),
-        ["路网"] = (null, new[] { CityLayer.Layout, CityLayer.Roads }),
-        ["街区与地块"] = (null, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
-        ["建筑"] = (null, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Buildings }),
-    };
 
     private static readonly (CityLayer Layer, string Name)[] LayerNames =
     {
-        (CityLayer.Contours, "等高线"), (CityLayer.Site, "场地限制"), (CityLayer.Region, "区域格局"), (CityLayer.Layout, "广场与城墙"),
-        (CityLayer.Roads, "道路"),
+        (CityLayer.Contours, "等高线"), (CityLayer.Region, "区域格局"), (CityLayer.Layout, "广场、城墙与城门"), (CityLayer.Roads, "道路"),
         (CityLayer.Blocks, "街区"), (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
     };
 
@@ -65,41 +48,58 @@ public partial class Main
 
         _stages = new List<Stage> { new(TerrainStage, Array.Empty<int>()) };
         _stages.AddRange(Stage.FromGraph(_graph));
-        foreach (var stage in _stages)
-            stage.Visualization = ins => StageVisualization(ins, stage.Title);
         _stages[0].Parameters = TerrainParameters;
         _stages[0].Caption = () => $"种子 {_map.Settings.Seed}";
 
         BuildToolbar(_ui.Toolbar);
-        _ui.Rail.Bind(_graph, _stages, _stage);
+        _ui.Graph.Bind(_graph, _stages, _focus);
 
-        var page = new StagePage();
-        page.Bind(_graph, _stages, _stage, header => header.Toggle("联动视图", _linkView, "选中阶段时自动切换到适合它的显示方式"));
-        page.Edited += ScheduleRun;
-        page.RunRequested += () => _ = _graph.Run();
-        _ui.Rail.NodeClicked += page.Reveal;
-        _ui.AddTab("阶段", page);
+        _page = new StagePage();
+        _page.Bind(_graph, _stages, _stage);
+        _page.Edited += ScheduleRun;
+        _page.RunRequested += () => _ = _graph.Run();
+        _page.FocusRequested += node => _focus.Value = new GraphFocus(StageOf(node), node);
+        _page.KeyClicked += ShowKey;
+        _ui.AddTab("阶段", _page);
         _ui.AddTab("视图", Scrolling(ViewPage()));
         _ui.AddTab("环境", Scrolling(EnvironmentPage()));
 
         _ui.Compass.Camera = _camera;
         _ui.Compass.MetersPerPixel = _camera.MetersPerPixel;
         _ui.Compass.SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
-        _ui.Status.Hint = "滚轮缩放 · WASD/中键平移 · 右键/QE 旋转 · H 隐藏界面";
+        _ui.Status.Hint = "点节点图里的节点只看它的输出，点空白处看完整城镇 · 滚轮缩放 · WASD/中键平移 · 右键/QE 旋转 · H 隐藏界面";
 
-        _stage.Changed += index =>
+        _focus.Changed += focus =>
         {
-            if (_linkView.Value)
-                ShowStageView(_stages[index].Title);
+            if (!focus.IsNone)
+                _stage.Value = focus.Stage;
+            if (focus.Node >= 0)
+                _page.Reveal(focus.Node);
+            _page.SetFocused(focus.Node);
         };
         _stage.Value = _stages.Count - 1;
-        ShowStageView(_stages[^1].Title);
         BuildShortcuts();
+    }
+
+    private int StageOf(int node) => _stages.FindIndex(s => s.Nodes.Contains(node));
+
+    /// <summary>
+    /// Shows a key clicked on a node card: an output as that node wrote it, an input as the node it came from wrote it
+    /// (focusing that node), painted on the ground when it can be.
+    /// </summary>
+    private void ShowKey(int node, IKey key, bool input)
+    {
+        int writer = input ? _graph.Sources(node).GetValueOrDefault(key, -1) : node;
+        if (writer < 0)
+            return;
+        _focus.Value = new GraphFocus(StageOf(writer), writer);
+        _focusGround = key;
+        RefreshView();
     }
 
     private void BuildToolbar(Toolbar bar)
     {
-        bar.AddToggle("阶段", "显示 / 隐藏左侧的阶段列表", _ui!.ShowRail);
+        bar.AddToggle("节点图", "显示 / 隐藏底部的节点图 (G)", _ui!.ShowGraph);
         bar.AddTitle("中世纪城镇沙盒");
         bar.AddSeparator();
         bar.AddNumber("种子", _seed, 0, 999999, "地图种子；回车后按它重建地图");
@@ -128,11 +128,18 @@ public partial class Main
         for (int i = 0; i < Math.Min(_stages.Count, 9); i++)
         {
             int index = i;
-            keys.Map(Key.Key1 + i, () => _stage.Value = index);
+            keys.Map(Key.Key1 + i, () => _focus.Value = new GraphFocus(index, -1));
         }
 
         keys.Map(Key.F5, () => _ = _graph.Run());
-        keys.Map(Key.Escape, _graph.Cancel);
+        keys.Map(Key.Escape, () =>
+        {
+            if (_graph.IsRunning)
+                _graph.Cancel();
+            else
+                _focus.Value = GraphFocus.None;
+        });
+        keys.Map(Key.G, () => _ui!.ShowGraph.Value = !_ui.ShowGraph.Value);
         keys.Map(Key.H, () => _ui!.Visible = !_ui.Visible);
         keys.Map(Key.T, _camera.TopView);
         keys.Map(Key.F, () => FocusOnTown());
@@ -144,83 +151,6 @@ public partial class Main
             _debounce.Schedule(() => _ = _graph.Run(), 0.35);
     }
 
-    /// <summary>Applies the stage's view: its ground coloring and exactly its city layers.</summary>
-    private void ShowStageView(string stage)
-    {
-        if (!Views.TryGetValue(stage, out var view))
-            return;
-        bool Matches(GroundStyle? s) => s != null && (s.Group == view.Fields || s.Key.Name == view.Fields);
-        _ground.Value = view.Fields == null ? LandscapeGround
-            : Matches(ShownStyle) ? _ground.Value
-            : FieldGround(FieldStyles.All.ToList().FindIndex(Matches));
-        foreach (var (layer, setting) in _layers)
-            setting.Value = view.Layers.Contains(layer);
-    }
-
-    /// <summary>The visualization section of a stage page: the view button, then the toggles that matter there.</summary>
-    private void StageVisualization(Inspector ins, string stage)
-    {
-        if (Views.ContainsKey(stage))
-            ins.Buttons(("显示到此阶段", "切换到适合这个阶段的地面着色和图层", () => ShowStageView(stage)));
-        void Layer(CityLayer layer) => ins.Toggle(LayerNames.First(l => l.Layer == layer).Name, _layers[layer]);
-        switch (stage)
-        {
-            case TerrainStage:
-                ins.Toggle("森林", _forest);
-                ins.Toggle("河面", _water);
-                ins.Toggle("地被与岩石", _cover);
-                break;
-            case Sampling.Group:
-                FieldChoice(ins, "采样", "把一个采样场的值画在地面上");
-                Layer(CityLayer.Contours);
-                ContourIntervalSlider(ins);
-                break;
-            case Evaluation.Group:
-                FieldChoice(ins, "评价", "把可建设判定或一项评分画在地面上");
-                Layer(CityLayer.Site);
-                Layer(CityLayer.Contours);
-                break;
-            case RegionalFrame.Group:
-                Layer(CityLayer.Region);
-                FieldChoice(ins, "评价", "把可建设判定或一项评分画在地面上");
-                Layer(CityLayer.Contours);
-                break;
-            case "城镇布局":
-                Layer(CityLayer.Layout);
-                Layer(CityLayer.Region);
-                Layer(CityLayer.Site);
-                break;
-            case "路网":
-                Layer(CityLayer.Roads);
-                Layer(CityLayer.Layout);
-                break;
-            case "街区与地块":
-                Layer(CityLayer.Blocks);
-                Layer(CityLayer.Parcels);
-                Layer(CityLayer.Roads);
-                break;
-            case "建筑":
-                Layer(CityLayer.Buildings);
-                Layer(CityLayer.Parcels);
-                Layer(CityLayer.Roads);
-                ins.Toggle("森林", _forest);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// A ground coloring menu limited to one group of styles: item 0 is no coloring (or a style of another group),
-    /// item i + 1 the group's i-th style.
-    /// </summary>
-    private void FieldChoice(Inspector ins, string group, string tooltip)
-    {
-        var members = Enumerable.Range(0, FieldStyles.All.Count).Where(i => FieldStyles.All[i].Group == group).ToArray();
-        var names = new[] { "（不着色）" }.Concat(members.Select(i => FieldStyles.All[i].Name)).ToArray();
-        ins.Choice("地面着色", names, () => Array.IndexOf(members, _ground.Value - FieldGround(0)) + 1,
-            i => _ground.Value = i == 0 ? LandscapeGround : FieldGround(members[i - 1]), tooltip);
-        _ground.Changed += _ => ins.Refresh();
-    }
-
     private void ContourIntervalSlider(Inspector ins) =>
         ins.Slider("等高距 m", 1, 10, 0.5, () => _city.ContourInterval, v =>
         {
@@ -229,13 +159,11 @@ public partial class Main
         }, 2);
 
     /// <summary>
-    /// The terrain stage's settings: seed and the map's shape. They feed map generation (the whole graph depends on
-    /// the map), so a change rebuilds the map: after a short pause with "自动" on, otherwise on "重建地图".
+    /// The terrain stage's settings: the map's shape. They feed map generation (the whole graph depends on the map),
+    /// so a change rebuilds the map: after a short pause with "自动" on, otherwise on "重建地图" in the toolbar.
     /// </summary>
     private void TerrainParameters(Inspector ins)
     {
-        ins.Number("种子", 0, 999999, () => _seed.Value, v => _seed.Value = v, dice: true, tooltip: "地图种子");
-        _seed.Changed += _ => ins.Refresh();
         var pending = ins.Note("", UiStyle.Warning);
         pending.Visible = false;
         void Changed()
@@ -246,7 +174,7 @@ public partial class Main
             }
             else
             {
-                pending.Text = "地图参数已修改，点“重建地图”生效";
+                pending.Text = "地图参数已修改，点顶栏的“重建地图”生效";
                 pending.Visible = true;
             }
         }
@@ -266,7 +194,6 @@ public partial class Main
         Map("河宽 m", 20, 100, 1, () => _settings.RiverWidthMeters, v => _settings.RiverWidthMeters = v, "河道宽度");
         Map("森林密度", 0, 1, 0.05, () => _settings.ForestDensity, v => _settings.ForestDensity = v, "林地覆盖的多少");
         Map("树木间距 m", 10, 30, 1, () => _settings.TreeSpacingMeters, v => _settings.TreeSpacingMeters = v, "林中树木的平均间距");
-        ins.Buttons(("重建地图", "按当前种子和参数重新生成地形和城镇", () => RebuildMap(_seed.Value)));
         _mapInfo = ins.Note("");
     }
 
@@ -282,10 +209,11 @@ public partial class Main
         MapShown?.Invoke();
     }
 
-    /// <summary>Every display option in one place, whatever the stage.</summary>
+    /// <summary>What the scene shows when no node is focused, and the environment and camera in every case.</summary>
     private Inspector ViewPage()
     {
         var page = new Inspector();
+        page.Note("在节点图里选中节点或阶段时，画面只显示它的输出；点节点图的空白处（或按 Esc）回到下面的设置。");
         var ground = page.Section("地面");
         ground.Choice("着色", GroundNames, _ground, "地表：手绘风格的地面；其余把分析结果画在地面上");
         var layers = page.Section("城市图层");

@@ -77,6 +77,24 @@ public sealed class CityGraph : IKeyReader
     /// <summary>The node each declared input of node <paramref name="index"/> comes from.</summary>
     public IReadOnlyDictionary<IKey, int> Sources(int index) => _sources[index];
 
+    /// <summary>The nodes that read an output of node <paramref name="index"/> directly.</summary>
+    public IReadOnlyList<int> Dependents(int index) => _dependents[index];
+
+    /// <summary>The final version of a key, whatever its type, or null while the node that last writes it is not valid.</summary>
+    public object? Final(IKey key) => _lastWriter.TryGetValue(key, out int i) ? Value(i, key) : null;
+
+    /// <summary>
+    /// The version of <paramref name="key"/> that node <paramref name="index"/> wrote or edited, or null while it is not
+    /// valid.
+    /// </summary>
+    public object? Output(int index, IKey key) => Value(index, key);
+
+    /// <summary>
+    /// The version of <paramref name="key"/> that node <paramref name="index"/> read, or null while its source is not
+    /// valid.
+    /// </summary>
+    public object? Input(int index, IKey key) => _sources[index].TryGetValue(key, out int source) ? Value(source, key) : null;
+
     public void SetTerrain(ITerrain terrain)
     {
         Terrain = terrain;

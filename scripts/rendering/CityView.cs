@@ -6,23 +6,72 @@ using PcgCitySandbox.City;
 
 namespace PcgCitySandbox.Rendering;
 
-public enum CityLayer { Contours, Site, Region, Layout, Roads, Blocks, Parcels, Buildings }
+/// <summary>Named sets of keys the result view can show or hide together.</summary>
+public enum CityLayer { Contours, Region, Layout, Roads, Blocks, Parcels, Buildings }
 
 /// <summary>
-/// The single preview of the town graph. Each layer draws one or more keys and is rebuilt only when one of those
-/// values changes; a stale or missing value simply hides its layer. Which node wrote a key does not matter here.
+/// One value to draw: its key, the version shown and, for a node that edits the key, the version it started from.
+/// <paramref name="Detail"/> adds what only matters when inspecting a node (e.g. which entry each gate leads to).
+/// </summary>
+public sealed record Shown(IKey Key, object Value, object? Previous = null, bool Detail = false);
+
+/// <summary>
+/// Draws town graph values over the terrain, one key at a time. Every key that is not a field painted on the ground
+/// has a view here; <see cref="Show"/> displays exactly the values it is given (the outputs of one node, or the final
+/// town) and rebuilds a key's mesh only when its value changes. Which node wrote a value does not matter here.
 /// </summary>
 public partial class CityView : Node3D
 {
     private static readonly Color[] Walls = { new("d9cdb4"), new("cdbb98"), new("e3d9c4"), new("b9a684") };
     private static readonly Color[] Roofs = { new("8c4a36"), new("7a3f2f"), new("9a5a3e"), new("5e5048") };
     private static readonly Color Stone = new("a49c8c"), StoneTop = new("8c8578");
+    private static readonly object DetailMark = new();
+    private static readonly Color PlazaColor = new("cdb995"), CoreColor = new("d9772b"), InheritedColor = new("8d897d");
 
-    private readonly Dictionary<CityLayer, Node3D> _layers = new();
-    private readonly Dictionary<CityLayer, object?[]> _sources = new();
-    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site, CityLayer.Region, CityLayer.Blocks };
+    /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
+    public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
+        OriginColor = new("e0a72e");
+
+    private readonly Dictionary<IKey, View> _views;
+    private readonly Dictionary<IKey, Node3D> _roots = new();
+    private readonly Dictionary<IKey, object?[]> _built = new();
+    private IReadOnlyList<Shown> _shown = Array.Empty<Shown>();
     private CityGraph? _graph;
     private float _contourInterval = 2;
+
+    public CityView()
+    {
+        _views = new Dictionary<IKey, View>
+        {
+            [Keys.Height] = new((root, s, _) => BuildContours(root, (ScalarField)s.Value),
+                _ => new FieldLegend($"等高线 · 每 {_contourInterval:0.#} m，每 5 条加粗", null, "", "", null)),
+            [Keys.Crossings] = new(
+                (root, s, other) => BuildCrossings(root, (CrossingSet)s.Value, other(Keys.Routes) as RouteNetwork, s.Detail),
+                _ => Categories("渡口", (CrossingColor, "渡口（细线：过境道路没有用到）")), Uses: [Keys.Routes]),
+            [Keys.Routes] = new((root, s, _) => BuildRoutes(root, (RouteNetwork)s.Value),
+                _ => Categories("过境道路", (RouteColor, "过境道路"), (EntryColor, "图边入口"))),
+            [Keys.Origin] = new((root, s, _) => BuildOrigin(root, (TownOrigin)s.Value, s.Detail),
+                _ => Categories("起源点", (OriginColor, "起源点"))),
+            [Keys.Core] = new((root, s, _) => BuildCore(root, (TownCore)s.Value),
+                _ => Categories("城址", (CoreColor, "城址与规划半径"))),
+            [Keys.Plaza] = new((root, s, _) => BuildPlaza(root, (Plaza)s.Value),
+                _ => Categories("广场", (PlazaColor, "广场"))),
+            [Keys.Wall] = new((root, s, other) => BuildWall(root, (WallRing)s.Value, other(Keys.Gates) as GateSet),
+                _ => Categories("城墙", (Stone, "城墙与墙塔")), Uses: [Keys.Gates]),
+            [Keys.Gates] = new((root, s, _) => BuildGates(root, (GateSet)s.Value, s.Detail),
+                s => s.Detail ? Categories("城门", (EntryColor, "城门，细线连向它的图边入口")) : null),
+            [Keys.RoadLinks] = new((root, s, _) => BuildLinks(root, (RoadLinks)s.Value, s.Previous as RoadLinks),
+                LinksLegend, Context: [Keys.Grid]),
+            [Keys.Roads] = new((root, s, other) => BuildRoads(root, (RoadGraph)s.Value, other(Keys.Plaza) as Plaza),
+                _ => Categories("道路", (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Street), "街巷"),
+                    (RoadColor(RoadKind.Outer), "城外道路")), Uses: [Keys.Plaza]),
+            [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
+                _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
+            [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
+                _ => Categories("地块", (new Color("98a46c"), "临街地块"))),
+            [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
+        };
+    }
 
     /// <summary>Height between contour lines in meters; every fifth line is drawn wider.</summary>
     public float ContourInterval
@@ -33,94 +82,92 @@ public partial class CityView : Node3D
             if (Mathf.IsEqualApprox(value, _contourInterval))
                 return;
             _contourInterval = value;
-            _sources[CityLayer.Contours] = Array.Empty<object?>();
-            Refresh();
+            _built.Remove(Keys.Height);
+            Show(_shown);
         }
     }
 
-    public void Bind(CityGraph graph)
+    /// <summary>The keys a result-view layer stands for.</summary>
+    public static IReadOnlyList<IKey> LayerKeys(CityLayer layer) => layer switch
     {
-        _graph = graph;
-        foreach (var layer in Enum.GetValues<CityLayer>())
-        {
-            if (!_layers.ContainsKey(layer))
-            {
-                _layers[layer] = new Node3D { Name = layer.ToString() };
-                AddChild(_layers[layer]);
-            }
+        CityLayer.Contours => [Keys.Height],
+        CityLayer.Region => [Keys.Crossings, Keys.Routes, Keys.Origin],
+        CityLayer.Layout => [Keys.Plaza, Keys.Wall, Keys.Gates],
+        CityLayer.Roads => [Keys.Roads],
+        CityLayer.Blocks => [Keys.Blocks],
+        CityLayer.Parcels => [Keys.Parcels],
+        _ => [Keys.Buildings],
+    };
 
-            _sources[layer] = Array.Empty<object?>();
-        }
-
-        Refresh();
-    }
-
-    /// <summary>Overlay color of a cell that cannot be built on, for the reason given.</summary>
-    public static Color SiteColor(SiteBlock block) => FieldStyles.Buildability[(int)block];
-
-    /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
-    public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
-        OriginColor = new("e0a72e");
+    /// <summary>Whether the key is drawn here (otherwise it can only be painted on the ground, or not shown at all).</summary>
+    public bool Draws(IKey key) => _views.ContainsKey(key);
 
     /// <summary>Center-line color of a road of the given kind.</summary>
     public static Color RoadColor(RoadKind kind) => kind switch
     {
-        RoadKind.Main => new Color("7a4e2a"),
-        RoadKind.Outer => new Color("6d6450"),
-        _ => new Color("8f7454"),
+        RoadKind.Main => new Color("c0392b"),
+        RoadKind.Outer => new Color("2e86c1"),
+        _ => new Color("8f6a3a"),
     };
 
-    public bool IsVisible(CityLayer layer) => !_hidden.Contains(layer);
-
-    public void SetVisible(CityLayer layer, bool visible)
+    public void Bind(CityGraph graph)
     {
-        if (visible)
-            _hidden.Remove(layer);
-        else
-            _hidden.Add(layer);
-        Refresh();
+        _graph = graph;
+        foreach (var key in _views.Keys)
+        {
+            if (!_roots.ContainsKey(key))
+            {
+                _roots[key] = new Node3D { Name = key.Name.Replace('.', '_') };
+                AddChild(_roots[key]);
+            }
+        }
+
+        _built.Clear();
+        Show(_shown);
     }
 
-    public void Refresh()
+    /// <summary>Draws exactly these values (keys without a view here are ignored) and hides everything else.</summary>
+    public void Show(IReadOnlyList<Shown> shown)
     {
+        _shown = shown;
         if (_graph == null)
             return;
-
-        var height = _graph.Get(Keys.Height);
-        var buildable = _graph.Get(Keys.Buildable);
-        var crossings = _graph.Get(Keys.Crossings);
-        var routes = _graph.Get(Keys.Routes);
-        var origin = _graph.Get(Keys.Origin);
-        var plaza = _graph.Get(Keys.Plaza);
-        var wall = _graph.Get(Keys.Wall);
-        var gates = _graph.Get(Keys.Gates);
-        var roads = _graph.Get(Keys.Roads);
-        var blocks = _graph.Get(Keys.Blocks);
-        var parcels = _graph.Get(Keys.Parcels);
-        var buildings = _graph.Get(Keys.Buildings);
-        Update(CityLayer.Contours, root => BuildContours(root, height!), height);
-        Update(CityLayer.Site, root => BuildSite(root, buildable!), buildable);
-        Update(CityLayer.Region, root => BuildRegion(root, crossings!, routes!, origin!), crossings, routes, origin);
-        Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
-        Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
-        Update(CityLayer.Blocks, root => BuildBlocks(root, blocks!), blocks);
-        Update(CityLayer.Parcels, root => BuildParcels(root, parcels!), parcels);
-        Update(CityLayer.Buildings, root => BuildBuildings(root, buildings!), buildings);
+        var lookup = shown.Where(s => Draws(s.Key)).ToDictionary(s => s.Key, s => s.Value);
+        object? Other(IKey key) => lookup.TryGetValue(key, out var value) ? value : null;
+        foreach (var (key, view) in _views)
+        {
+            var root = _roots[key];
+            var item = shown.FirstOrDefault(s => s.Key == key);
+            root.Visible = item != null;
+            if (item == null)
+                continue;
+            var sources = new[] { item.Value, item.Previous, item.Detail ? DetailMark : null }.Concat(view.Uses.Select(Other))
+                .Concat(view.Context.Select(_graph.Final)).ToArray();
+            bool same = _built.TryGetValue(key, out var old) && old.Length == sources.Length &&
+                old.Zip(sources).All(p => ReferenceEquals(p.First, p.Second));
+            if (same)
+                continue;
+            foreach (var child in root.GetChildren())
+                child.QueueFree();
+            _built[key] = sources;
+            view.Build(root, item, Other);
+        }
     }
 
-    /// <summary>Shows the layer when all its keys have values; rebuilds it when any of them changed.</summary>
-    private void Update(CityLayer layer, Action<Node3D> build, params object?[] sources)
-    {
-        var root = _layers[layer];
-        root.Visible = sources.All(s => s != null) && !_hidden.Contains(layer);
-        var old = _sources[layer];
-        if (!root.Visible || old.Length == sources.Length && old.Zip(sources).All(p => ReferenceEquals(p.First, p.Second)))
-            return;
+    /// <summary>What the colors of a drawn value mean, or null when it needs no explanation.</summary>
+    public FieldLegend? Legend(Shown shown) => _views.TryGetValue(shown.Key, out var view) ? view.Legend(shown) : null;
 
-        foreach (var child in root.GetChildren())
-            child.QueueFree();
-        _sources[layer] = sources;
-        build(root);
+    private static FieldLegend Categories(string caption, params (Color, string)[] categories) =>
+        new(caption, null, "", "", categories);
+
+    private sealed record View(Action<Node3D, Shown, Func<IKey, object?>> Build, Func<Shown, FieldLegend?> Legend,
+        IKey[]? Uses = null, IKey[]? Context = null)
+    {
+        /// <summary>Other shown keys the drawing depends on (e.g. the wall leaves gaps at shown gates).</summary>
+        public IKey[] Uses { get; } = Uses ?? Array.Empty<IKey>();
+
+        /// <summary>Final values the drawing needs whether shown or not (e.g. the grid that link cells refer to).</summary>
+        public IKey[] Context { get; } = Context ?? Array.Empty<IKey>();
     }
 
     private float Height(Vector2 p) => _graph!.Terrain.HeightAt(p);
@@ -174,53 +221,72 @@ public partial class CityView : Node3D
         Add(root, MeshKit.Indexed(vertices, colors, indices), MeshKit.Material(unshaded: true, alpha: 0.6f), shadows: false);
     }
 
-    /// <summary>A translucent square over every cell that cannot be built on, colored by the reason.</summary>
-    private void BuildSite(Node3D root, CategoryField buildable)
-    {
-        var kit = new MeshKit();
-        var grid = buildable.Grid;
-        float half = grid.CellSize / 2;
-        for (int k = 0; k < grid.Count; k++)
-        {
-            if (buildable.Buildable(k))
-                continue;
-            var color = SiteColor(buildable.Block(k));
-            var c = grid.Center(k);
-            Vector3 P(float dx, float dz) => new(c.X + dx, Height(new Vector2(c.X + dx, c.Y + dz)) + 0.6f, c.Y + dz);
-            kit.Quad(P(-half, -half), P(half, -half), P(half, half), P(-half, half), color, Vector3.Up);
-        }
-
-        Add(root, kit, MeshKit.Material(unshaded: true, alpha: 0.45f), shadows: false);
-    }
-
     /// <summary>
-    /// The regional frame, drawn to read from the whole map: wide route ribbons on the ground, a plank deck at each
-    /// crossing a route uses (a thin outline at the others), a post at each entry and a tall mast at the origin.
+    /// A plank deck at each crossing, as wide as a road where a shown through route uses it (or where no routes are
+    /// shown), a thin outline elsewhere; in detail also a ring around each, so they can be found on the whole map.
     /// </summary>
-    private void BuildRegion(Node3D root, CrossingSet crossingSet, RouteNetwork network, TownOrigin origin)
+    private void BuildCrossings(Node3D root, CrossingSet crossingSet, RouteNetwork? network, bool detail)
     {
-        const float width = 7, deckWidth = 6;
-        var used = network.UsedCrossings.ToHashSet();
-        var decks = Region.Lines(crossingSet.Crossings.Select(x => ((IReadOnlyList<Vector2>)new[] { x.BankA, x.BankB }, deckWidth + 2)));
-        var ribbons = new MeshKit();
-        ribbons.Drape(Region.Lines(network.Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, width))).Subtract(decks).Triangulate(),
-            Height, 0.6f, RouteColor, maxEdge: 4);
-        Add(root, ribbons, MeshKit.Material(unshaded: true), shadows: false);
-
+        if (detail)
+            Rings(root, crossingSet.Crossings.Select(c => c.Center), 40, CrossingColor);
+        const float deckWidth = 6;
+        var used = network?.UsedCrossings.ToHashSet();
         var solids = new MeshKit();
         foreach (var crossing in crossingSet.Crossings)
         {
             var along = (crossing.BankB - crossing.BankA).Normalized();
-            var side = along.Orthogonal() * (used.Contains(crossing.Id) ? deckWidth : 1.5f) / 2;
+            var side = along.Orthogonal() * (used == null || used.Contains(crossing.Id) ? deckWidth : 1.5f) / 2;
             float deck = Math.Max(Height(crossing.BankA), Height(crossing.BankB)) + 0.4f;
             var corners = new[] { crossing.BankA + side, crossing.BankB + side, crossing.BankB - side, crossing.BankA - side };
             solids.Prism(corners, deck - 0.8f, deck, CrossingColor, CrossingColor.Lightened(0.2f));
         }
 
-        foreach (var entry in network.Entries)
-            Mast(solids, entry.Position, 4, 14, EntryColor);
-        Mast(solids, origin.Position, 6, 32, OriginColor);
         Add(root, solids, MeshKit.Material());
+    }
+
+    /// <summary>Wide route ribbons on the ground, drawn to read from the whole map, and a post at each map-edge entry.</summary>
+    private void BuildRoutes(Node3D root, RouteNetwork network)
+    {
+        const float width = 7;
+        var ribbons = new MeshKit();
+        ribbons.Drape(Region.Lines(network.Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, width))).Triangulate(),
+            Height, 0.6f, RouteColor, maxEdge: 4);
+        Add(root, ribbons, MeshKit.Material(unshaded: true), shadows: false);
+        var posts = new MeshKit();
+        foreach (var entry in network.Entries)
+            Mast(posts, entry.Position, 4, 14, EntryColor);
+        Add(root, posts, MeshKit.Material());
+    }
+
+    private void BuildOrigin(Node3D root, TownOrigin origin, bool detail)
+    {
+        if (detail)
+            Rings(root, new[] { origin.Position }, 50, OriginColor);
+        var mast = new MeshKit();
+        Mast(mast, origin.Position, 6, 32, OriginColor);
+        Add(root, mast, MeshKit.Material());
+    }
+
+    /// <summary>The planned town core: a mast at its center and a ring at its radius.</summary>
+    private void BuildCore(Node3D root, TownCore core)
+    {
+        var ring = Enumerable.Range(0, 97).Select(i => core.Position + Vector2.FromAngle(i * MathF.Tau / 96) * core.Radius).ToArray();
+        var kit = new MeshKit();
+        kit.Drape(Region.Lines(new[] { ((IReadOnlyList<Vector2>)ring, 3f) }).Triangulate(), Height, 0.6f, CoreColor, maxEdge: 4);
+        Add(root, kit, MeshKit.Material(unshaded: true), shadows: false);
+        var mast = new MeshKit();
+        Mast(mast, core.Position, 4, 18, CoreColor);
+        Add(root, mast, MeshKit.Material());
+    }
+
+    /// <summary>A ground ring of the given radius around each point, wide enough to see from the whole-map view.</summary>
+    private void Rings(Node3D root, IEnumerable<Vector2> centers, float radius, Color color)
+    {
+        var lines = centers.Select(c => ((IReadOnlyList<Vector2>)Enumerable.Range(0, 49)
+            .Select(i => c + Vector2.FromAngle(i * MathF.Tau / 48) * radius).ToArray(), 6f));
+        var kit = new MeshKit();
+        kit.Drape(Region.Lines(lines).Triangulate(), Height, 0.8f, color, maxEdge: 4);
+        Add(root, kit, MeshKit.Material(unshaded: true), shadows: false);
     }
 
     private void Mast(MeshKit kit, Vector2 at, float size, float height, Color color)
@@ -231,15 +297,19 @@ public partial class CityView : Node3D
         kit.Prism(corners, ground - 1, ground + height, color, color.Lightened(0.25f));
     }
 
-    private void BuildLayout(Node3D root, Plaza square, WallRing ring, GateSet gateSet)
+    private void BuildPlaza(Node3D root, Plaza square)
     {
         var plaza = new MeshKit();
-        plaza.Drape(square.Area.Triangulate(), Height, 0.35f, new Color("cdb995"));
+        plaza.Drape(square.Area.Triangulate(), Height, 0.35f, PlazaColor);
         Add(root, plaza, MeshKit.Material(), shadows: false);
+    }
 
+    /// <summary>The wall with a tower every fourth ring point; where gates are shown too, it leaves a gap at each.</summary>
+    private void BuildWall(Node3D root, WallRing ring, GateSet? gateSet)
+    {
         var wall = new MeshKit();
         var points = ring.Ring;
-        var gates = gateSet.Gates.Select(g => g.Position).ToList();
+        var gates = gateSet?.Gates.Select(g => g.Position).ToList() ?? new List<Vector2>();
         const float gap = 6, thickness = 2.4f, height = 7;
         for (int i = 0; i < points.Length; i++)
         {
@@ -263,14 +333,31 @@ public partial class CityView : Node3D
                 Tower(wall, a, along, 5, height + 3);
         }
 
+        Add(root, wall, MeshKit.Material());
+    }
+
+    /// <summary>
+    /// Two towers flanking each gate; in detail, also a post at the gate and a thin line to the map-edge entry its
+    /// outer road aims for.
+    /// </summary>
+    private void BuildGates(Node3D root, GateSet gateSet, bool detail)
+    {
+        const float gap = 6, height = 7;
+        var towers = new MeshKit();
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
         foreach (var gate in gateSet.Gates)
         {
             var tangent = gate.Outward.Orthogonal();
-            Tower(wall, gate.Position + tangent * (gap + 2.5f), gate.Outward, 6, height + 5);
-            Tower(wall, gate.Position - tangent * (gap + 2.5f), gate.Outward, 6, height + 5);
+            Tower(towers, gate.Position + tangent * (gap + 2.5f), gate.Outward, 6, height + 5);
+            Tower(towers, gate.Position - tangent * (gap + 2.5f), gate.Outward, 6, height + 5);
+            if (!detail)
+                continue;
+            Mast(towers, gate.Position, 2, height + 9, EntryColor);
+            DrapedLine(lines, gate.Position, gate.Entry, 1.5f, EntryColor);
         }
 
-        Add(root, wall, MeshKit.Material());
+        Add(root, towers, MeshKit.Material());
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
     }
 
     private void Tower(MeshKit kit, Vector2 center, Vector2 facing, float size, float height)
@@ -280,6 +367,40 @@ public partial class CityView : Node3D
         var corners = new[] { center + u + v, center - u + v, center - u - v, center + u - v };
         float ground = corners.Min(Height);
         kit.Prism(corners, ground - 1, corners.Max(Height) + height, Stone.Darkened(0.05f), StoneTop);
+    }
+
+    /// <summary>
+    /// Each grid link as a short ribbon between cell centers, colored by road class. When the value is an edit of
+    /// <paramref name="previous"/>, the links already there are gray and only the ones this node added are colored.
+    /// </summary>
+    private void BuildLinks(Node3D root, RoadLinks links, RoadLinks? previous)
+    {
+        if (_graph!.Final(Keys.Grid) is not SiteGrid grid)
+            return;
+        var kit = new MeshKit();
+        foreach (var ((a, b), kind) in links.Links)
+        {
+            bool inherited = previous != null && previous.TryGet(a, b, out _);
+            var p = grid.Center(a);
+            var q = grid.Center(b);
+            var side = (q - p).Normalized().Orthogonal() * (inherited ? 1.2f : 2.2f);
+            float lift = inherited ? 0.5f : 0.7f;
+            Vector3 P(Vector2 v) => new(v.X, Height(v) + lift, v.Y);
+            kit.Quad(P(p + side), P(q + side), P(q - side), P(p - side), inherited ? InheritedColor : RoadColor(kind), Vector3.Up);
+        }
+
+        Add(root, kit, MeshKit.Material(unshaded: true), shadows: false);
+    }
+
+    private FieldLegend LinksLegend(Shown shown)
+    {
+        var categories = new List<(Color, string)>
+        {
+            (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Street), "街巷"),
+        };
+        if (shown.Previous != null)
+            categories.Add((InheritedColor, "上游已有的连线"));
+        return new FieldLegend(shown.Previous != null ? "道路连线 · 彩色为本节点新加的" : "道路连线", null, "", "", categories);
     }
 
     private void BuildRoads(Node3D root, RoadGraph roads, Plaza? plaza)

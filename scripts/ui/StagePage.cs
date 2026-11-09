@@ -8,10 +8,10 @@ using PcgCitySandbox.City;
 namespace PcgCitySandbox.Ui;
 
 /// <summary>
-/// The page of the selected stage, the editor of the town graph: the stage's visualization options, then one card
-/// per node with status, the keys it reads and writes, summary, notices and controls generated from its options'
+/// The page of the selected stage, the editor of the town graph: the stage's own parameters, then one card per node
+/// with status, description, the keys it reads and writes, summary, notices and controls generated from its options'
 /// [Param] properties. Editing a value invalidates that node and everything downstream of it and raises
-/// <see cref="Edited"/>. Pages are built once and swapped on selection.
+/// <see cref="Edited"/>. Pages are built once and swapped on selection. The focused node's card is outlined.
 /// </summary>
 public partial class StagePage : VBoxContainer
 {
@@ -28,6 +28,12 @@ public partial class StagePage : VBoxContainer
 
     /// <summary>A node asked to be re-run now.</summary>
     public event Action? RunRequested;
+
+    /// <summary>A node's "显示" button was pressed: show that node's outputs.</summary>
+    public event Action<int>? FocusRequested;
+
+    /// <summary>A key on a card was clicked: the node, the key, and whether it is one the node reads (else writes).</summary>
+    public event Action<int, IKey, bool>? KeyClicked;
 
     public void Bind(CityGraph graph, IReadOnlyList<Stage> stages, Setting<int> selected, Action<Inspector>? header = null)
     {
@@ -87,6 +93,16 @@ public partial class StagePage : VBoxContainer
         }).CallDeferred();
     }
 
+    /// <summary>Outlines the card of the focused node (or none).</summary>
+    public void SetFocused(int node)
+    {
+        foreach (var card in _cards)
+        {
+            card.Panel.AddThemeStyleboxOverride("panel",
+                UiStyle.Box(UiStyle.Card, 6, 10, 7, card.Node == node ? UiStyle.Accent : null));
+        }
+    }
+
     private void ShowSelected()
     {
         for (int i = 0; i < _pages.Count; i++)
@@ -99,8 +115,6 @@ public partial class StagePage : VBoxContainer
     {
         var page = new Inspector();
         page.AddThemeConstantOverride("separation", 6);
-        if (stage.Visualization != null)
-            stage.Visualization(page.Section("可视化"));
         if (stage.Parameters != null)
             stage.Parameters(page.Section("参数"));
         if (stage.Nodes.Count > 0)
@@ -142,6 +156,8 @@ public partial class StagePage : VBoxContainer
         var state = UiStyle.Text("", 11, UiStyle.Muted, wrap: false);
         state.SizeFlagsHorizontal = SizeFlags.Fill;
         state.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        var show = UiStyle.Mini("显示", "画面只显示这个节点的输出");
+        show.Pressed += () => FocusRequested?.Invoke(index);
         var rerun = UiStyle.Mini("重跑", "让这个节点和下游过期并重新生成");
         rerun.Pressed += () =>
         {
@@ -151,6 +167,7 @@ public partial class StagePage : VBoxContainer
         head.AddChild(dot);
         head.AddChild(title);
         head.AddChild(state);
+        head.AddChild(show);
         head.AddChild(rerun);
         box.AddChild(head);
 
@@ -159,8 +176,8 @@ public partial class StagePage : VBoxContainer
         title.Pressed += () => body.Visible = !body.Visible;
         box.AddChild(body);
         body.AddChild(UiStyle.Text(node.Description, 12, UiStyle.Muted));
-        body.AddChild(Ports("读", node.Reads.Concat(node.Edits).ToList(), "地形"));
-        body.AddChild(Ports("写", node.Writes.Concat(node.Edits).ToList(), "—"));
+        body.AddChild(Ports(index, true, node.Reads.Concat(node.Edits).ToList()));
+        body.AddChild(Ports(index, false, node.Writes.Concat(node.Edits).ToList()));
         var summary = UiStyle.Text("", 12, UiStyle.Ink);
         var notices = UiStyle.Text("", 12, UiStyle.Warning);
         body.AddChild(summary);
@@ -191,9 +208,13 @@ public partial class StagePage : VBoxContainer
         return panel;
     }
 
-    /// <summary>One line of keys, each with its description on hover.</summary>
-    private static Control Ports(string caption, IReadOnlyList<IKey> keys, string none)
+    /// <summary>
+    /// One line of keys, each with its description on hover. Clicking one shows it: an output as this node wrote it,
+    /// an input as the node it came from wrote it.
+    /// </summary>
+    private Control Ports(int node, bool input, IReadOnlyList<IKey> keys)
     {
+        string caption = input ? "读" : "写", none = input ? "地形" : "—";
         var row = new HFlowContainer();
         row.AddThemeConstantOverride("h_separation", 0);
         Label Add(string text, Color color)
@@ -209,10 +230,23 @@ public partial class StagePage : VBoxContainer
             Add(none, UiStyle.Faint);
         for (int i = 0; i < keys.Count; i++)
         {
-            var key = Add(keys[i].Label + (i < keys.Count - 1 ? "、" : ""), UiStyle.Muted);
-            key.MouseFilter = MouseFilterEnum.Pass;
-            key.MouseDefaultCursorShape = CursorShape.Help;
-            key.TooltipText = UiStyle.Tip($"{keys[i].Label}（{keys[i].Name}）", keys[i].Description);
+            var key = keys[i];
+            var link = new LinkButton
+            {
+                Text = key.Label,
+                Underline = LinkButton.UnderlineMode.OnHover,
+                FocusMode = FocusModeEnum.None,
+                SizeFlagsVertical = SizeFlags.ShrinkCenter,
+                TooltipText = UiStyle.Tip($"{key.Label}（{key.Name}）", key.Description) +
+                    (input ? "\n\n点击显示它（上游节点写出的版本）" : "\n\n点击显示它"),
+            };
+            link.AddThemeFontSizeOverride("font_size", 11);
+            link.AddThemeColorOverride("font_color", UiStyle.Muted);
+            link.AddThemeColorOverride("font_hover_color", UiStyle.Accent);
+            link.Pressed += () => KeyClicked?.Invoke(node, key, input);
+            row.AddChild(link);
+            if (i < keys.Count - 1)
+                Add("、", UiStyle.Faint);
         }
 
         return row;

@@ -8,7 +8,7 @@ namespace PcgCitySandbox.Ui;
 
 /// <summary>
 /// One step of the workflow as the interface presents it: a group of graph nodes (or none, e.g. the terrain), plus
-/// what its page shows besides the nodes — visualization options and extra parameters — supplied by the composition.
+/// any parameters its page shows besides the nodes, supplied by the composition.
 /// </summary>
 public sealed class Stage
 {
@@ -20,9 +20,6 @@ public sealed class Stage
 
     public string Title { get; }
     public IReadOnlyList<int> Nodes { get; }
-
-    /// <summary>Fills the page's "可视化" section.</summary>
-    public Action<Inspector>? Visualization { get; set; }
 
     /// <summary>Fills a "参数" section above the node cards (for stages with settings outside the graph).</summary>
     public Action<Inspector>? Parameters { get; set; }

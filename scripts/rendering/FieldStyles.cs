@@ -36,6 +36,42 @@ public abstract class GroundStyle
 
     /// <summary>The field's name and value at <paramref name="p"/>, for the probe.</summary>
     public abstract string Describe(object value, Vector2 p);
+
+    /// <summary>Whether the probe lists this field (measurements and evaluations do; intermediate grids do not).</summary>
+    public virtual bool Probe => true;
+}
+
+/// <summary>A per-cell value that is not a field but reads best painted on the ground (the grid, zonings).</summary>
+public sealed class CellStyle<T> : GroundStyle where T : class
+{
+    private readonly Key<T> _key;
+    private readonly Func<T, Vector2, Color> _color;
+    private readonly Func<T, FieldLegend> _legend;
+    private readonly Func<T, Vector2, string> _describe;
+
+    public CellStyle(string group, Key<T> key, Func<T, Vector2, Color> color, Func<T, FieldLegend> legend,
+        Func<T, Vector2, string> describe)
+    {
+        Group = group;
+        _key = key;
+        _color = color;
+        _legend = legend;
+        _describe = describe;
+    }
+
+    public override IKey Key => _key;
+    public override string Group { get; }
+    public override bool Probe => false;
+    public override object? Value(IKeyReader graph) => graph.Get(_key);
+
+    public override Func<Vector2, Color> Painter(object value)
+    {
+        var typed = (T)value;
+        return p => _color(typed, p);
+    }
+
+    public override FieldLegend Legend(object value) => _legend((T)value);
+    public override string Describe(object value, Vector2 p) => _describe((T)value, p);
 }
 
 /// <summary>A scalar field: the value range its color ramp spans, the ramp, and how a value reads.</summary>
@@ -148,8 +184,13 @@ public static class FieldStyles
     /// <summary>Colors of the buildability reasons, indexed by <see cref="SiteBlock"/>; also the site overlay's.</summary>
     public static readonly IReadOnlyList<Color> Buildability = new Color[]
     {
-        new("d8e3ae"), new("2f6f9a"), new("7fb6c9"), new("a9cfd8"), new("c8553d"), new("2f6b3a"),
+        new("d8e3ae"), new("2f6f9a"), new("4fb39c"), new("a9cfd8"), new("c8553d"), new("2f6b3a"),
     };
+
+    private const int GridBlock = 25;
+    private static readonly string[] BlockTones = { "e6e0cf", "cdd6c3" };
+    private static readonly string[] ZoneNames = { "不能修路（水或太陡）", "城内可修路", "城外可修路", "墙边（不能沿墙修路）", "城门（唯一可穿墙处）" };
+    private static readonly Color[] ZoneColors = { new("8c8f94"), new("e3c77a"), new("a9cf8f"), new("c46b4f"), new("b5523b") };
 
     public static readonly IReadOnlyList<GroundStyle> All = new GroundStyle[]
     {
@@ -196,7 +237,50 @@ public static class FieldStyles
             Format = (_, v) => $"{v:0.00}×",
             NoDataName = "不可通行",
         },
+        new CellStyle<SiteGrid>("过程", Keys.Grid, GridColor,
+            g => new FieldLegend($"采样网格 · {g.Nx}×{g.Nz} 格，每格 {g.CellSize:0.#} m", null, "", "",
+                new[] { (new Color(BlockTones[0]), $"色块边长 {GridBlock * g.CellSize:0} m（{GridBlock} 格）") }),
+            (g, p) => $"格 ({(int)MathF.Floor((p.X - g.Origin.X) / g.CellSize)}, {(int)MathF.Floor((p.Y - g.Origin.Y) / g.CellSize)})"),
+        new CellStyle<Site>("过程", Keys.Site, (site, p) => SiteColor(site, p),
+            site => new FieldLegend("场地（过渡用的旧格式）", null, "", "", Enum.GetValues<SiteBlock>()
+                .Select(b => (Buildability[(int)b], $"{b.Label()} {site.Block.Count(x => x == b) / (float)site.Count:P0}")).ToArray()),
+            (site, p) => site.CellAt(p) is int k and >= 0 ? site.Block[k].Label() : ""),
+        new CellStyle<RoadZones>("过程", Keys.RoadZones, (zones, p) => ZoneColors[(int)Zone(zones, p)],
+            _ => new FieldLegend("通行区", null, "", "",
+                Enum.GetValues<RoadCell>().Select(z => (ZoneColors[(int)z], ZoneNames[(int)z])).ToArray()),
+            (zones, p) => ZoneNames[(int)Zone(zones, p)]),
     };
+
+    /// <summary>The style that paints <paramref name="key"/>, or null when it is not painted on the ground.</summary>
+    public static GroundStyle? For(IKey key) => All.FirstOrDefault(s => s.Key == key);
+
+    /// <summary>A checkerboard of cells inside a checkerboard of 25-cell blocks, so both the cell size and the extent read.</summary>
+    private static Color GridColor(SiteGrid grid, Vector2 p)
+    {
+        int x = (int)MathF.Floor((p.X - grid.Origin.X) / grid.CellSize);
+        int z = (int)MathF.Floor((p.Y - grid.Origin.Y) / grid.CellSize);
+        if (!grid.InGrid(x, z))
+            return new Color("9a968c");
+        var color = new Color(BlockTones[(x / GridBlock + z / GridBlock) & 1]);
+        return ((x + z) & 1) == 0 ? color : color.Darkened(0.07f);
+    }
+
+    private static Color SiteColor(Site site, Vector2 p) =>
+        site.CellAt(p) is int k and >= 0 ? Buildability[(int)site.Block[k]] : new Color("9a968c");
+
+    private enum RoadCell { Blocked, Inside, Outside, NearWall, Gate }
+
+    private static RoadCell Zone(RoadZones zones, Vector2 p)
+    {
+        int k = zones.Site.CellAt(p);
+        if (k < 0 || !zones.Passable(k))
+            return RoadCell.Blocked;
+        if (zones.IsGate(k))
+            return RoadCell.Gate;
+        if (zones.Allowed(k, RoadZone.Inside))
+            return RoadCell.Inside;
+        return zones.Allowed(k, RoadZone.Outside) ? RoadCell.Outside : RoadCell.NearWall;
+    }
 
     /// <summary>A piecewise-linear ramp through (position, hex color) stops given in increasing position.</summary>
     public static Func<float, Color> Stops(params (float At, string Hex)[] stops)

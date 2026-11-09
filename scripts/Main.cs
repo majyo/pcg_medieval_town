@@ -26,13 +26,23 @@ public partial class Main : Node3D
     private MapCamera _camera = null!;
     private Atmosphere _atmosphere = null!;
     private object? _painted;
+    private GroundStyle? _paintedStyle;
     private object? _treeMaskSource;
 
     // What is shown. Several controls may show one setting; changing it anywhere updates the scene and them all.
-    /// <summary>Ground coloring: <see cref="LandscapeGround"/> or <see cref="FieldGround"/>.</summary>
+    /// <summary>The node or stage whose outputs the scene shows; none shows the town as the settings below say.</summary>
+    private readonly Setting<GraphFocus> _focus = new(GraphFocus.None);
+
+    /// <summary>Which output of the focus is painted on the ground, when it has several; null picks the first.</summary>
+    private IKey? _focusGround;
+
+    /// <summary>Ground coloring without a focus: <see cref="LandscapeGround"/> or <see cref="FieldGround"/>.</summary>
     private readonly Setting<int> _ground = new(LandscapeGround);
+
+    /// <summary>City layers shown without a focus.</summary>
     private readonly Dictionary<CityLayer, Setting<bool>> _layers = new();
     private readonly Setting<bool> _forest = new(true), _water = new(true), _cover = new(true);
+    private List<Shown> _shown = new();
 
     private const int LandscapeGround = 0;
 
@@ -100,25 +110,23 @@ public partial class Main : Node3D
         AddChild(_city);
         _city.Bind(_graph);
 
+        var hidden = new[] { CityLayer.Contours, CityLayer.Region, CityLayer.Blocks };
         foreach (var layer in Enum.GetValues<CityLayer>())
         {
-            var setting = new Setting<bool>(_city.IsVisible(layer));
-            setting.Changed += on =>
-            {
-                _city.SetVisible(layer, on);
-                UpdateLegend();
-            };
+            var setting = new Setting<bool>(!hidden.Contains(layer));
+            setting.Changed += _ => RefreshView();
             _layers[layer] = setting;
         }
 
-        _ground.Changed += _ =>
+        _ground.Changed += _ => RefreshView();
+        _focus.Changed += _ =>
         {
-            _painted = null;
-            ApplyGround();
+            _focusGround = null;
+            RefreshView();
         };
-        _forest.Changed += on => _terrain?.ShowForest(on);
-        _water.Changed += on => _terrain?.ShowWater(on);
-        _cover.Changed += on => _terrain?.ShowCover(on);
+        _forest.Changed += _ => ShowEnvironment();
+        _water.Changed += _ => ShowEnvironment();
+        _cover.Changed += _ => ShowEnvironment();
     }
 
     /// <summary>Generates the map for <paramref name="seed"/> with the current map settings and regenerates the town on it.</summary>
@@ -139,78 +147,132 @@ public partial class Main : Node3D
         _terrain.Build(_map);
         _painted = null;
         ApplyGround(force: true);
-        _terrain.ShowForest(_forest);
-        _terrain.ShowWater(_water);
-        _terrain.ShowCover(_cover);
+        ShowEnvironment();
         _treeMaskSource = null;
         _terrain.Follow(_camera.GlobalPosition, _camera.Focus);
         MapChanged();
     }
 
     /// <summary>
-    /// Shows the chosen ground coloring. A field is painted when its value changes; while it is being regenerated
-    /// the last painting stays (marked as waiting in the legend) rather than flashing back to the landscape.
+    /// The outputs of the focus, in order: each key with the version the focused node wrote (and, for a key it edits,
+    /// the version it started from), or for a stage the last version any of its nodes wrote.
+    /// </summary>
+    private List<(IKey Key, object? Value, object? Previous)> FocusOutputs()
+    {
+        var focus = _focus.Value;
+        var outputs = new List<(IKey Key, object? Value, object? Previous)>();
+        if (focus.IsNone)
+            return outputs;
+        var nodes = focus.Node >= 0 ? new[] { focus.Node } : _stages[focus.Stage].Nodes;
+        foreach (int n in nodes)
+        {
+            var node = _graph.Nodes[n];
+            foreach (var key in node.Writes.Concat(node.Edits))
+            {
+                var previous = focus.Node >= 0 && node.Edits.Contains(key) ? _graph.Input(n, key) : null;
+                outputs.RemoveAll(o => o.Key == key);
+                outputs.Add((key, _graph.Output(n, key), previous));
+            }
+        }
+
+        return outputs;
+    }
+
+    /// <summary>
+    /// The ground coloring on screen: with a focus, the chosen (else the first) of its outputs that can be painted,
+    /// preferring measurements and evaluations over intermediate grids for a stage; otherwise the "视图" choice.
+    /// </summary>
+    private (GroundStyle? Style, object? Value) GroundShown()
+    {
+        if (_focus.Value.IsNone)
+            return (ShownStyle, ShownStyle?.Value(_graph));
+        var painted = FocusOutputs().Select(o => (Style: FieldStyles.For(o.Key), o.Value)).Where(o => o.Style != null).ToList();
+        if (painted.Count == 0)
+            return (null, null);
+        var chosen = painted.FirstOrDefault(o => o.Style!.Key == _focusGround);
+        if (chosen.Style == null)
+            chosen = _focus.Value.Node < 0 ? painted.FirstOrDefault(o => o.Style!.Probe, painted[0]) : painted[0];
+        return chosen;
+    }
+
+    /// <summary>Updates everything on screen from the focus and the view settings: city meshes, ground and legend.</summary>
+    private void RefreshView()
+    {
+        _shown = _focus.Value.IsNone
+            ? Enum.GetValues<CityLayer>().Where(l => _layers[l].Value).SelectMany(CityView.LayerKeys)
+                .Select(k => (Key: k, Value: _graph.Final(k))).Where(s => s.Value != null).Select(s => new Shown(s.Key, s.Value!)).ToList()
+            : FocusOutputs().Where(o => o.Value != null && _city.Draws(o.Key))
+                .Select(o => new Shown(o.Key, o.Value!, o.Previous, Detail: true)).ToList();
+        _city.Show(_shown);
+        ShowEnvironment();
+        ApplyGround();
+    }
+
+    /// <summary>Trees, rocks and ground cover only without a focus: they would hide the outputs being inspected.</summary>
+    private void ShowEnvironment()
+    {
+        if (_terrain == null)
+            return;
+        _terrain.ShowForest(_forest && _focus.Value.IsNone);
+        _terrain.ShowWater(_water);
+        _terrain.ShowCover(_cover && _focus.Value.IsNone);
+    }
+
+    /// <summary>
+    /// Shows the ground coloring. A field is painted when its value changes; while it is being regenerated the last
+    /// painting of the same field stays (marked as waiting in the legend) rather than flashing back to the landscape.
     /// </summary>
     private void ApplyGround(bool force = false)
     {
         if (_terrain == null)
             return;
-        var style = ShownStyle;
-        var field = style?.Value(_graph);
-        if (style == null || field == null && _painted == null)
+        var (style, value) = GroundShown();
+        if (style == null || value == null && _paintedStyle != style)
         {
             _terrain.ShowLandscape();
+            (_painted, _paintedStyle) = (null, null);
         }
-        else if (field != null && (force || !ReferenceEquals(field, _painted)))
+        else if (value != null && (force || !ReferenceEquals(value, _painted)))
         {
-            _painted = field;
-            _terrain.ShowColors(style.Painter(field));
+            (_painted, _paintedStyle) = (value, style);
+            _terrain.ShowColors(style.Painter(value));
         }
 
         UpdateLegend();
     }
 
-    /// <summary>Explains every color on screen that needs it: ground coloring, site overlay, roads, contours.</summary>
+    /// <summary>Says what is on screen: the focus, then every color that needs explaining.</summary>
     private void UpdateLegend()
     {
         if (_ui == null)
             return;
         var entries = new List<LegendEntry>();
-        if (ShownStyle is { } style)
+        var focus = _focus.Value;
+        if (!focus.IsNone)
         {
-            var field = style.Value(_graph);
-            var shown = field ?? _painted;
-            if (shown != null)
-            {
-                var legend = style.Legend(shown);
-                string caption = legend.Caption + (field == null ? " · 等待重新生成" : "");
-                entries.Add(new LegendEntry(caption, legend.Ramp, legend.Low, legend.High, legend.Categories));
-            }
+            string what = focus.Node >= 0 ? $"节点「{_graph.Nodes[focus.Node].Title}」的输出" : $"阶段「{_stages[focus.Stage].Title}」的输出";
+            var outputs = FocusOutputs();
+            if (focus.Stage == 0)
+                what = "地形（不显示城市）";
+            else if (outputs.Count > 0 && outputs.All(o => o.Value == null))
+                what += " · 等待生成";
+            entries.Add(new LegendEntry(what, null));
         }
 
-        if (_layers[CityLayer.Site].Value && _graph.Get(Keys.Buildable) != null)
+        var (style, value) = GroundShown();
+        if (style != null && (value ?? _painted) is { } painted)
         {
-            entries.Add(new LegendEntry("不可建设的原因", null, Categories: Enum.GetValues<SiteBlock>().Where(b => b != SiteBlock.None)
-                .Select(b => (CityView.SiteColor(b), b.Label())).ToArray()));
+            var legend = style.Legend(painted);
+            string caption = legend.Caption + (value == null ? " · 等待重新生成" : "");
+            entries.Add(new LegendEntry(caption, legend.Ramp, legend.Low, legend.High, legend.Categories));
         }
 
-        if (_layers[CityLayer.Region].Value && _graph.Get(Keys.Routes) != null)
+        foreach (var shown in _shown)
         {
-            entries.Add(new LegendEntry("区域格局", null, Categories: new[]
-            {
-                (CityView.RouteColor, "过境道路"), (CityView.CrossingColor, "渡口（细线为未使用的）"),
-                (CityView.EntryColor, "图边入口"), (CityView.OriginColor, "起源点"),
-            }));
+            if (_city.Legend(shown) is { } legend && entries.All(e => e.Caption != legend.Caption))
+                entries.Add(new LegendEntry(legend.Caption, legend.Ramp, legend.Low, legend.High, legend.Categories));
         }
 
-        if (_layers[CityLayer.Roads].Value && _graph.Get(Keys.Roads) != null)
-        {
-            entries.Add(new LegendEntry("道路", null, Categories: new[] { (RoadKind.Main, "主街"), (RoadKind.Street, "街巷"), (RoadKind.Outer, "城外道路") }
-                .Select(r => (CityView.RoadColor(r.Item1), r.Item2)).ToArray()));
-        }
-
-        if (_layers[CityLayer.Contours].Value && _graph.Get(Keys.Height) != null)
-            entries.Add(new LegendEntry($"等高线 · 每 {_city.ContourInterval:0.#} m，每 5 条加粗", null));
         _ui.Legend.Show(entries);
     }
 
@@ -243,15 +305,29 @@ public partial class Main : Node3D
             })));
         }
 
-        // The regional frame over the whole map, then around the origin.
-        void Region(Action frame)
+        // Each node's outputs on their own: the site and the region over the whole map, the town around its core.
+        void Focus(int node)
         {
-            ShowStageView(RegionalFrame.Group);
-            frame();
+            _focus.Value = new GraphFocus(StageOf(node), node);
+            if (_graph.Nodes[node].Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group)
+                _camera.TopView();
+            else
+                _camera.Frame(core, 0.75f, -0.5f, 900);
         }
 
-        views.Add(("region", () => Region(_camera.TopView)));
-        views.Add(("region_town", () => Region(() => _camera.Frame(core, 0.75f, -0.5f, 1300))));
+        void Result()
+        {
+            _focus.Value = GraphFocus.None;
+            _camera.Frame(core, 0.6f, -0.5f, 850);
+        }
+
+        for (int i = 0; i < _graph.Nodes.Count; i++)
+        {
+            int node = i;
+            views.Add(($"node_{node + 1:00}_{_graph.Nodes[node].GetType().Name}", () => Focus(node)));
+        }
+
+        views.Add(("result", Result));
         return views;
     }
 
@@ -318,8 +394,7 @@ public partial class Main : Node3D
     /// </summary>
     private void OnGraphChanged()
     {
-        _city.Refresh();
-        ApplyGround();
+        RefreshView();
         var wall = _graph.Get(Keys.Wall);
         var roads = _graph.Get(Keys.Roads);
         if (ReferenceEquals(_treeMaskSource, roads) || _terrain == null)
@@ -347,7 +422,7 @@ public partial class Main : Node3D
             return "鼠标移到地面上查看各采样场的读数";
 
         var parts = new List<string> { $"({hit.X:0}, {hit.Y:0})" };
-        foreach (var style in FieldStyles.All)
+        foreach (var style in FieldStyles.All.Where(s => s.Probe))
         {
             if (style.Value(_graph) is { } field)
                 parts.Add(style.Describe(field, hit));
