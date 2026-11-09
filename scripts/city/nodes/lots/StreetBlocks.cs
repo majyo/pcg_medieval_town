@@ -14,14 +14,17 @@ public sealed class StreetBlocksOptions
     public float MinArea { get; set; } = 80;
 }
 
-/// <summary>Developable land = wall interior minus a setback, the paved area and unbuildable cells; blocks are its parts.</summary>
+/// <summary>
+/// Developable land = wall interior minus a setback, the paved area, landmark plots and unbuildable cells; blocks are
+/// its parts.
+/// </summary>
 public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
 {
     public override string Group => "街区与地块";
     public override string Title => "街区";
     public override string Description =>
-        "城内退让城墙后，去掉路面和不可建设地，剩下的连通部分就是街区。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads];
+        "城内退让城墙后，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区。";
+    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads, Keys.Landmarks];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 
     protected override void Run(NodeContext c, StreetBlocksOptions o)
@@ -31,6 +34,7 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
         var roads = c.Get(Keys.Roads);
         var developable = wall.Interior.Offset(-o.WallSetback)
             .Subtract(roads.Footprint)
+            .Subtract(c.Get(Keys.Landmarks).Plots)
             .Subtract(Unbuildable(site, wall.Interior.Bounds));
         var blocks = developable.Parts().Where(b => b.Area >= o.MinArea).ToList();
         c.Set(Keys.Blocks, new BlockSet(developable, blocks));

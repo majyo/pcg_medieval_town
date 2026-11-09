@@ -34,7 +34,13 @@ public sealed class SummedArea
         int nx = _grid.Nx;
         int x0 = Math.Max(0, x - r), x1 = Math.Min(nx, x + r + 1);
         int z0 = Math.Max(0, z - r), z1 = Math.Min(_grid.Nz, z + r + 1);
-        double total = _sum[z1 * (nx + 1) + x1] - _sum[z0 * (nx + 1) + x1] - _sum[z1 * (nx + 1) + x0] + _sum[z0 * (nx + 1) + x0];
-        return total / ((x1 - x0) * (z1 - z0));
+        return Total(x0, z0, x1, z1) / ((x1 - x0) * (z1 - z0));
+    }
+
+    /// <summary>Total of the cells [x0, x1) × [z0, z1), which must lie in the grid.</summary>
+    public double Total(int x0, int z0, int x1, int z1)
+    {
+        int nx = _grid.Nx;
+        return _sum[z1 * (nx + 1) + x1] - _sum[z0 * (nx + 1) + x1] - _sum[z1 * (nx + 1) + x0] + _sum[z0 * (nx + 1) + x0];
     }
 }

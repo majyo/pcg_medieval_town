@@ -61,7 +61,11 @@ public sealed class CellStyle<T> : GroundStyle where T : class
 
     public override IKey Key => _key;
     public override string Group { get; }
-    public override bool Probe => false;
+
+    /// <summary>Whether the probe lists this value (off for intermediate grids).</summary>
+    public bool Listed { get; init; }
+
+    public override bool Probe => Listed;
     public override object? Value(IKeyReader graph) => graph.Get(_key);
 
     public override Func<Vector2, Color> Painter(object value)
@@ -187,6 +191,14 @@ public static class FieldStyles
         new("d8e3ae"), new("2f6f9a"), new("4fb39c"), new("a9cfd8"), new("c8553d"), new("2f6b3a"),
     };
 
+    /// <summary>Colors of the growth phases from the first on, oldest darkest; unbuilt land is pale.</summary>
+    public static readonly IReadOnlyList<Color> Phases = new Color[]
+    {
+        new("7a2e22"), new("c8642c"), new("e3a94a"), new("9db06a"), new("6f8fa8"),
+    };
+
+    private static readonly Color Unbuilt = new("e9e5d6");
+
     private const int GridBlock = 25;
     private static readonly string[] BlockTones = { "e6e0cf", "cdd6c3" };
     private static readonly string[] ZoneNames = { "不能修路（水或太陡）", "城内可修路", "城外可修路", "墙边（不能沿墙修路）", "城门（唯一可穿墙处）" };
@@ -237,6 +249,13 @@ public static class FieldStyles
             Format = (_, v) => $"{v:0.00}×",
             NoDataName = "不可通行",
         },
+        new CellStyle<GrowthHistory>("城镇", Keys.Growth, PhaseColor,
+            g => new FieldLegend("生长分期", null, "", "", Enumerable.Range(1, g.Latest)
+                .Select(n => (PhaseOf(n), $"{g.Label(n)} +{g.Phases[n - 1].Area / 10000:0.0} ha")).Append((Unbuilt, "未建成")).ToArray()),
+            (g, p) => g.Grid.CellAt(p) is int k and >= 0 && g.Built(k) ? g.Label(g.Phase[k]) : "未建成")
+        {
+            Listed = true,
+        },
         new CellStyle<SiteGrid>("过程", Keys.Grid, GridColor,
             g => new FieldLegend($"采样网格 · {g.Nx}×{g.Nz} 格，每格 {g.CellSize:0.#} m", null, "", "",
                 new[] { (new Color(BlockTones[0]), $"色块边长 {GridBlock * g.CellSize:0} m（{GridBlock} 格）") }),
@@ -264,6 +283,11 @@ public static class FieldStyles
         var color = new Color(BlockTones[(x / GridBlock + z / GridBlock) & 1]);
         return ((x + z) & 1) == 0 ? color : color.Darkened(0.07f);
     }
+
+    private static Color PhaseOf(int n) => Phases[Math.Min(n, Phases.Count) - 1];
+
+    private static Color PhaseColor(GrowthHistory growth, Vector2 p) =>
+        growth.Grid.CellAt(p) is int k and >= 0 && growth.Built(k) ? PhaseOf(growth.Phase[k]) : Unbuilt;
 
     private static Color SiteColor(Site site, Vector2 p) =>
         site.CellAt(p) is int k and >= 0 ? Buildability[(int)site.Block[k]] : new Color("9a968c");

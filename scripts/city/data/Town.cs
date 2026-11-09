@@ -10,9 +10,10 @@ public sealed record TownCore(Vector2 Position, float Radius) : ISummarized
     public string Summary => $"城址 ({Position.X:0}, {Position.Y:0})，规划半径 {Radius:0} m";
 }
 
+/// <summary>The market place and a point inside it (on its road, or the middle of a triangle at a junction).</summary>
 public sealed record Plaza(Region Area, Vector2 Center) : ISummarized
 {
-    public string Summary => $"广场 {Area.Area:0} m²";
+    public string Summary => $"市场 {Area.Area:0} m²";
 }
 
 /// <summary>Closed wall ring (site cell centers at gates) and the area it encloses.</summary>

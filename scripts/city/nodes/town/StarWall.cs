@@ -23,10 +23,10 @@ public sealed class StarWall : CityNode<StarWallOptions>
 {
     private const int RingPoints = 40;
 
-    public override string Group => "城镇布局";
+    public override string Group => TownGrowth.Group;
     public override string Title => "星形城墙";
     public override string Description =>
-        "围绕城址画一圈带起伏的城墙：每条射线遇到不可建设地就收缩，再轻度平滑。";
+        "过渡用：围绕城址画一圈带起伏的城墙，每条射线遇到不可建设地就收缩，再轻度平滑。";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Core, Keys.Plaza];
     public override IReadOnlyList<IKey> Writes => [Keys.Wall];
 

@@ -27,6 +27,7 @@ public partial class CityView : Node3D
     private static readonly Color Stone = new("a49c8c"), StoneTop = new("8c8578");
     private static readonly object DetailMark = new();
     private static readonly Color PlazaColor = new("cdb995"), CoreColor = new("d9772b"), InheritedColor = new("8d897d");
+    private static readonly Color ChurchyardColor = new("a9b98a"), ChurchWall = new("e6dcc6"), ChurchRoof = new("5e5048");
 
     /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
     public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
@@ -55,7 +56,9 @@ public partial class CityView : Node3D
             [Keys.Core] = new((root, s, _) => BuildCore(root, (TownCore)s.Value),
                 _ => Categories("城址", (CoreColor, "城址与规划半径"))),
             [Keys.Plaza] = new((root, s, _) => BuildPlaza(root, (Plaza)s.Value),
-                _ => Categories("广场", (PlazaColor, "广场"))),
+                _ => Categories("市场", (PlazaColor, "市场"))),
+            [Keys.Landmarks] = new((root, s, _) => BuildLandmarks(root, (LandmarkSet)s.Value),
+                _ => Categories("地标", (ChurchyardColor, "教堂墓园用地"), (ChurchRoof, "教堂（钟塔在西端，祭坛朝东）"))),
             [Keys.Wall] = new((root, s, other) => BuildWall(root, (WallRing)s.Value, other(Keys.Gates) as GateSet),
                 _ => Categories("城墙", (Stone, "城墙与墙塔")), Uses: [Keys.Gates]),
             [Keys.Gates] = new((root, s, _) => BuildGates(root, (GateSet)s.Value, s.Detail),
@@ -92,7 +95,7 @@ public partial class CityView : Node3D
     {
         CityLayer.Contours => [Keys.Height],
         CityLayer.Region => [Keys.Crossings, Keys.Routes, Keys.Origin],
-        CityLayer.Layout => [Keys.Plaza, Keys.Wall, Keys.Gates],
+        CityLayer.Layout => [Keys.Plaza, Keys.Landmarks, Keys.Wall, Keys.Gates],
         CityLayer.Roads => [Keys.Roads],
         CityLayer.Blocks => [Keys.Blocks],
         CityLayer.Parcels => [Keys.Parcels],
@@ -302,6 +305,51 @@ public partial class CityView : Node3D
         var plaza = new MeshKit();
         plaza.Drape(square.Area.Triangulate(), Height, 0.35f, PlazaColor);
         Add(root, plaza, MeshKit.Material(), shadows: false);
+    }
+
+    /// <summary>
+    /// Each landmark plot as a green churchyard with its church: a gabled nave along the plot's axis, the altar end
+    /// toward <see cref="Landmark.Axis"/>, and a bell tower at the other end.
+    /// </summary>
+    private void BuildLandmarks(Node3D root, LandmarkSet set)
+    {
+        var yard = new MeshKit();
+        var church = new MeshKit();
+        foreach (var landmark in set.Landmarks)
+        {
+            yard.Drape(landmark.Plot.Triangulate(), Height, 0.3f, ChurchyardColor);
+            var size = landmark.Plot.Bounds.Size;
+            bool alongX = MathF.Abs(landmark.Axis.X) >= MathF.Abs(landmark.Axis.Y);
+            float length = (alongX ? size.X : size.Y) * 0.62f, width = MathF.Min((alongX ? size.Y : size.X) * 0.45f, 12);
+            var u = landmark.Axis.Normalized();
+            var v = u.Orthogonal();
+            var nave = landmark.Center + u * length * 0.08f;
+            var corners = new[]
+            {
+                nave - u * length / 2 - v * width / 2, nave + u * length / 2 - v * width / 2,
+                nave + u * length / 2 + v * width / 2, nave - u * length / 2 + v * width / 2,
+            };
+            float ground = corners.Min(Height), eaves = corners.Max(Height) + 10, ridge = eaves + width * 0.6f;
+            church.Prism(corners, ground - 1, eaves, ChurchWall, ChurchWall);
+            Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
+            Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
+            Vector2 west = nave - u * length / 2, east = nave + u * length / 2;
+            church.Quad(E(corners[0]), E(corners[1]), R(east), R(west), ChurchRoof, Vector3.Up);
+            church.Quad(E(corners[2]), E(corners[3]), R(west), R(east), ChurchRoof, Vector3.Up);
+            church.Triangle(E(corners[1]), E(corners[2]), R(east), ChurchWall, new Vector3(u.X, 0, u.Y));
+            church.Triangle(E(corners[3]), E(corners[0]), R(west), ChurchWall, new Vector3(-u.X, 0, -u.Y));
+            float tower = width * 0.85f;
+            var foot = west - u * (tower / 2 - 1);
+            var towerCorners = new[]
+            {
+                foot - u * tower / 2 - v * tower / 2, foot + u * tower / 2 - v * tower / 2,
+                foot + u * tower / 2 + v * tower / 2, foot - u * tower / 2 + v * tower / 2,
+            };
+            church.Prism(towerCorners, towerCorners.Min(Height) - 1, ridge + 12, Stone, ChurchRoof);
+        }
+
+        Add(root, yard, MeshKit.Material(), shadows: false);
+        Add(root, church, MeshKit.Material());
     }
 
     /// <summary>The wall with a tower every fourth ring point; where gates are shown too, it leaves a gap at each.</summary>

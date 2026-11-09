@@ -28,9 +28,6 @@ public sealed class ChooseOriginOptions
     [Param("离图边最小距离 m", 100, 600, 10,
         Hint = "起源点离图边至少多远，给城镇留出生长的空间")]
     public float EdgeMargin { get; set; } = 320;
-    [Param("过渡：规划半径 m", 100, 450, 10,
-        Hint = "过渡用：城墙按这个半径围绕起源点画。城镇改为分期生长后删除")]
-    public float TownRadius { get; set; } = 230;
     [Param("种子", 0, 99999,
         Hint = "只影响得分相近的候选之间的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
     public int Seed { get; set; } = 1;
@@ -38,8 +35,7 @@ public sealed class ChooseOriginOptions
 
 /// <summary>
 /// Where the town starts: a buildable cell on a through route with good land around it (mean habitability over a
-/// square window), better still by a river crossing or at a junction, and not too far out. Until the town grows from
-/// its origin, the origin also becomes the planned town core (with a fixed radius) for the layout nodes.
+/// square window), better still by a river crossing or at a junction, and not too far out.
 /// </summary>
 public sealed class ChooseOrigin : CityNode<ChooseOriginOptions>
 {
@@ -48,7 +44,7 @@ public sealed class ChooseOrigin : CityNode<ChooseOriginOptions>
     public override string Description =>
         "在过境道路上选出城镇最早出现的地点：周围宜居度高，靠近渡口桥头或路口更好，离图心不太远。";
     public override IReadOnlyList<IKey> Reads => [Keys.Routes, Keys.Crossings, Keys.Habitability, Keys.Buildable];
-    public override IReadOnlyList<IKey> Writes => [Keys.Origin, Keys.Core];
+    public override IReadOnlyList<IKey> Writes => [Keys.Origin];
 
     protected override void Run(NodeContext c, ChooseOriginOptions o)
     {
@@ -90,6 +86,5 @@ public sealed class ChooseOrigin : CityNode<ChooseOriginOptions>
         var position = grid.Center(best);
         var routes = network.Routes.Where(route => route.Cells.Contains(best)).Select(route => route.Id).ToList();
         c.Set(Keys.Origin, new TownOrigin(position, best, bestKind, routes));
-        c.Set(Keys.Core, new TownCore(position, o.TownRadius));
     }
 }

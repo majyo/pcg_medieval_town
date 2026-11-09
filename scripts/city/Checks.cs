@@ -133,17 +133,20 @@ public static class Checks
 
     /// <summary>
     /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result.
-    /// Checked on the outer roads node (sampling, evaluation, regional frame, layout, zoning and main streets stay
-    /// valid), on the habitability score (the sampled fields, the other evaluations, the crossings and the routes stay
-    /// valid; the origin and the town go stale) and on the sampled heights (only the grid and the forest, which do not
-    /// depend on them, stay valid).
+    /// Checked on the outer roads node (sampling, evaluation, regional frame, town growth, zoning and main streets
+    /// stay valid), on the church (only it, the second phase, and the blocks, parcels and houses that keep off its
+    /// plot go stale), on the habitability score (the sampled fields, the other evaluations, the crossings and the
+    /// routes stay valid; the origin and the town go stale) and on the sampled heights (only the grid and the forest,
+    /// which do not depend on them, stay valid).
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
         var errors = new List<string>();
         errors.AddRange(await Invalidation<OuterRoads>(graph, "城外道路",
-            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
-                node is SquarePlaza or StarWall or PlaceGates or RoadZoning or MainStreets));
+            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group or TownGrowth.Group ||
+                node is RoadZoning or MainStreets));
+        errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
+            node => node is not (ChurchSite or MarketGrowth or StreetBlocks or FrontageParcels or GableHouses)));
         errors.AddRange(await Invalidation<Habitability>(graph, "宜居度",
             node => node.Group == Sampling.Group || node is BuildableLand or TravelCost or RiverCrossings or RegionalRoutes));
         errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is SampleGrid or SampleForest));
@@ -201,7 +204,11 @@ public static class Checks
         var buildable = graph.Get(Keys.Buildable);
         var routes = graph.Get(Keys.Routes);
         var origin = graph.Get(Keys.Origin);
-        if (roads == null || parcels == null || buildings == null || buildable == null || routes == null || origin == null
+        var growth = graph.Get(Keys.Growth);
+        var plaza = graph.Get(Keys.Plaza);
+        var landmarks = graph.Get(Keys.Landmarks);
+        if (growth == null || plaza == null || landmarks == null || roads == null || parcels == null || buildings == null
+            || buildable == null || routes == null || origin == null
             || fields.Any(f => f == null))
             return "incomplete";
         return string.Join("|",
@@ -209,6 +216,9 @@ public static class Checks
             string.Join(",", buildable.Counts),
             string.Join(",", routes.Routes.Select(r => r.Cells.Length)),
             origin.Position,
+            string.Join(",", growth.Phases.Select(p => p.Cells)),
+            plaza.Area.Area.ToString("F1"),
+            string.Join(",", landmarks.Landmarks.Select(l => l.Center)),
             graph.Get(Keys.Core)!.Position,
             roads.Edges.Count,
             roads.Edges.Sum(e => e.Length).ToString("F2"),

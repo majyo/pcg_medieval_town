@@ -88,7 +88,7 @@ public partial class Main : Node3D
                     ("bank", bank.Focus, 0.35f, bank.Yaw, 45),
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
-                };
+                }.Concat(LandmarkViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -331,6 +331,11 @@ public partial class Main : Node3D
         return views;
     }
 
+    /// <summary>A close-up of each landmark from the south-east, so its building and plot can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> LandmarkViews() =>
+        (_graph.Get(Keys.Landmarks)?.Landmarks ?? Array.Empty<Landmark>()).Select(l =>
+            ($"landmark_{l.Id}", new Vector3(l.Center.X, _map.HeightAt(l.Center), l.Center.Y), 0.35f, 2.4f, 110f));
+
     private static string ShortName(IKey key) => key.Name[(key.Name.IndexOf('.') + 1)..];
 
     private void ShowField(int view, Action frame)
@@ -341,7 +346,7 @@ public partial class Main : Node3D
 
     private Vector3 FocusOnTown()
     {
-        var center = _graph.Get(Keys.Core)?.Position ?? Vector2.Zero;
+        var center = _graph.Get(Keys.Plaza)?.Center ?? _graph.Get(Keys.Origin)?.Position ?? Vector2.Zero;
         var core = new Vector3(center.X, _map.HeightAt(center), center.Y);
         _camera.Frame(core, 0.83f, -0.38f, 1200);
         return core;

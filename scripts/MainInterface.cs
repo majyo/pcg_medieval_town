@@ -29,7 +29,7 @@ public partial class Main
 
     private static readonly (CityLayer Layer, string Name)[] LayerNames =
     {
-        (CityLayer.Contours, "等高线"), (CityLayer.Region, "区域格局"), (CityLayer.Layout, "广场、城墙与城门"), (CityLayer.Roads, "道路"),
+        (CityLayer.Contours, "等高线"), (CityLayer.Region, "区域格局"), (CityLayer.Layout, "市场、教堂、城墙与城门"), (CityLayer.Roads, "道路"),
         (CityLayer.Blocks, "街区"), (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
     };
 

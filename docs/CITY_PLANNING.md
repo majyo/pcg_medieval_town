@@ -1,6 +1,6 @@
 # 城市规划阶段 · 方案
 
-> 状态：第 1 步（场地评价）、第 2 步（区域格局）已完成，其余未实施。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）和场地采样第一阶段（[SITE_SAMPLING.md](SITE_SAMPLING.md)）。本方案同时覆盖场地采样 §7 留下的“第二阶段”。
+> 状态：第 1–3 步（场地评价、区域格局、一二期生长）已完成，其余未实施。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）和场地采样第一阶段（[SITE_SAMPLING.md](SITE_SAMPLING.md)）。本方案同时覆盖场地采样 §7 留下的“第二阶段”。
 
 ## 1. 目标与范围
 
@@ -75,17 +75,18 @@
 
 | 期 | 节点 | 读 → 写 | 内容 | 主要参数 |
 | --- | --- | --- | --- | --- |
-| 一期 村落 | `Village` 村落 | origin、routes、habitability、buildable → `town.growth` | 从起源点沿道路长出约 2 ha 的带状村落（§3.5 的生长工具） | 目标面积 ha、临路进深 m |
-| 二期 市镇 | `MarketPlace` 市场 | origin、routes、growth、buildable → `town.plaza` | 在村落范围内、最靠近道路交汇处的平地上开出市场：道路加宽成的纺锤形或三角形。现有 `Plaza` 类型不变；以后可换方形、街市等变体 | 面积 m²、形状 |
-| | `ChurchSite` 教堂 | plaza、growth、relief、buildable → `town.landmarks` | 市场附近地势最高的可建设处，离主路一小段，矩形用地东西朝向（祭坛朝东） | 搜索半径 m、用地尺寸 |
-| | `MarketGrowth` 市镇扩展 | plaza、routes、landmarks、habitability；编辑 `town.growth` | 以市场为中心沿道路扩展到约 6 ha | 目标面积 ha |
+| 一期 村落 | `Village` 村落 | origin、routes、habitability、buildable → `town.growth` | 从起源点沿道路长出约 2 ha 的带状村落（§3.5 的生长工具） | 累计面积 ha、临路进深 m、离路代价、宜居度权重 m |
+| 二期 市镇 | `MarketPlace` 市场 | origin、routes、growth、buildable、slope → `town.plaza` | 村落里（两格以内有一期建成格）有路口时，在离起源点最近的路口开三角形市场：每条离开路口的道路上取一点，按目标面积定远近，围成三角形；放不下（缩到七成以下）或村落里没有路口时，在路口（或起源点）附近的村落道路上把道路加宽成纺锤形，取近、平、缩得少的一处。都放不下时缩小，每次 0.9 倍，最小一半。现有 `Plaza` 类型不变 | 面积 m²、纺锤长宽比、搜索范围 m |
+| | `ChurchSite` 教堂 | plaza、growth、routes、height、relief、buildable → `town.landmarks` | 市场附近、紧挨村落（用地内或外围一格有建成格）的东西向整格矩形用地，全在可建设格上，离过境道路中线、离市场边缘各有一段；得分 = 比市场高多少 + 地形位置 − 离市场的远近。祭坛朝东 | 用地长、宽 m，搜索半径 m，离路 m，离市场 m |
+| | `MarketGrowth` 市镇扩展 | plaza、landmarks、routes、habitability、buildable；编辑 `town.growth` | 市场和教堂用地先算作本期建成，再以市场下的道路格为起点沿道路扩展到累计约 6 ha | 同 `Village` |
+| | `LegacyCore` 城址（过渡） | plaza → `town.core` | 市场中心加固定规划半径，让 `StarWall`、`PlaceGates`、`MainStreets` 在第 3 步照常工作；第 4 步删除 | 规划半径 m |
 | 三期 筑墙 | `EnclosingWall` 城墙 | growth、buildable、relief、shore → `town.wall` | 围住一、二期建成区并留出余地（默认面积再加 60%）：建成区外扩后取平滑外轮廓，靠近河岸时贴着河岸退让线走（河当护城河），遇到岗地边缘（TPI 高）时外推到边缘上。替换 `StarWall` | 余地比例、平滑度、最少顶点间距 m |
 | | `RouteGates` 城门 | routes；编辑 `town.wall` → `town.gates` | 每条道路穿过城墙的地方开一座门，门点对齐到格心；同一条路多次穿墙时城墙局部外凸把它包进来，相距太近的门合并。`Gate.Entry` 是这条路的图边入口。替换 `PlaceGates` | 城门最小间距 m |
 | | `WalledInfill` 城内填充 | wall、routes、plaza；编辑 `town.growth` | 城内沿道路继续填充到城内面积的一定比例，其余留作菜园 | 填充比例 |
 | 四期 城外 | `Suburbs` 城外街带 | gates、routes、wall；编辑 `town.growth` | 从城门沿道路向外长出街带，面积为城内建成区的一定比例；渡口桥头另长一小片 | 面积比例、最大离门距离 m |
 | 分区 | `LandUse` 功能分区 | growth、plaza、landmarks、shore、wall → `town.land_use` | 已建成或城内的每格一个用途：市场核心（离市场、教堂近）、手工业（近水，鞣革、染坊、水磨需要水）、居住（其余临路处）、菜园（城内未建成）、城外街带（四期） | 核心半径 m、手工业离水距离 m |
 
-`town.core` 退役：原来读它的地方（`Main` 取景、`Checks`）改读 `town.origin` 或 `town.plaza`。
+`town.core` 退役：原来读它的地方（`Main` 取景、`Checks`）改读 `town.origin` 或 `town.plaza`。第 3 步起 `Main` 取景已改读市场中心。
 
 ### 3.4 共用工具：全图寻路（`tools/RouteSearch.cs`）
 
@@ -102,6 +103,8 @@
 3. 按得分从小到大收入，直到达到目标面积；只收入与已建成区或道路连通的格。
 
 离路距离超过临路进深的格得分急剧上升，所以早期是沿路的带状，面积大了才往纵深填。节点可以传入额外的限制（城内/城外）。
+
+实现上（第 3 步）：第 1 步是沿 `RouteNetwork.Links` 的 Dijkstra；第 2 步把它合成一次全图 Dijkstra——道路格的起始代价是沿路距离，每走一步加“离路代价 × 步长”，只经过可建设格，同时记下离路距离，超过进深的部分每米再加 12；第 3 步是从道路格和已建成区出发的优先队列扩张，每次收入代价最低的边界格，所以每期都是连成片的（上下左右相邻），不会隔着沟谷跳过去。过河桥头的另一岸可以沿路长出一小片，它通过道路和主体相连。
 
 ### 3.6 路网分组的衔接
 
@@ -157,9 +160,9 @@
 | --- | --- | --- |
 | 场地评价 | 可建设判定（分类）、宜居度、通行代价 | — |
 | 区域格局 | 宜居度 | 过境道路（按全图视角画粗线）、图边入口、渡口（标出过河方向）、起源点 |
-| 城镇生长 | 生长分期 或 功能分区（分类） | 市场、教堂、城墙、城门；阶段页加一个“显示到第 N 期”的滑条，图层和着色都只显示到该期 |
+| 城镇生长 | 生长分期 或 功能分区（分类） | 市场、教堂、城墙、城门。“显示到第 N 期”由节点图完成：各期节点编辑同一个 `town.growth`，点哪一期的节点就只看到它及之前的各期（见 [VISUALIZATION.md](VISUALIZATION.md) §0），不另加滑条 |
 
-新增图层（`CityLayer`）：`Region`（道路、入口、渡口、起源点）、`Growth`（按期着色的建成区，叠在地面上）、`Landmarks`。原来的 `Site` 图层改为显示 `eval.buildable`。
+按键登记画法（VISUALIZATION 方案）：`town.growth` 画在地面上（按期着色），`town.landmarks` 画墓园用地和教堂（成果画面的“市场、教堂、城墙与城门”图层也包括它）。
 
 ### 5.2 着色与探针
 
@@ -181,9 +184,9 @@
 | `region.crossings` | 至少一处；每处中点在水面上，两个桥头都是可通行的干地，河宽不超过上限 |
 | `region.routes` | 入口都在图边 10 m 以内；道路网连通；每一格可通行或属于某个渡口；相邻格是 8 邻域 |
 | `town.origin` | 在可建设格上，离最近道路不超过一格进深 |
-| `town.growth` | 各期面积递增且与参数目标相差在一成以内；建成格都可建设；每期的新格都与此前的建成区或道路连通 |
-| `town.plaza` | 在一期建成区内或紧邻，在城墙内（沿用） |
-| `town.landmarks` | 教堂用地在城墙内、在可建设格上，不压道路和市场 |
+| `town.growth` | 共用网格；每期格数与记录一致且不为 0；建成格都可建设；每期结束时，每一片上下左右相连的建成格都接到道路上。（“与参数目标相差在一成以内”放不进契约：契约不读节点参数；地不够时节点给出提示） |
+| `town.plaza` | 覆盖的格都可建设；中心两格以内有一期建成格；在城墙内（沿用） |
+| `town.landmarks` | 用地是整格矩形、在可建设格上，不压过境道路格、不和市场重叠，所属那一期结束时已全部建成；在城墙内留到第 4 步 |
 | `town.wall` | 简单多边形；包住一、二期全部建成格、市场和教堂；不进水域 |
 | `town.gates` | 至少一座，都在城墙上（沿用）；道路穿墙的每一处都有城门，城门都在道路上 |
 | `town.land_use` | 城内每格都有用途；“手工业”格离水都在设定距离内；“城外街带”格都在城外 |
@@ -206,7 +209,10 @@
    - 结果（73129 / 7 / 22017）：渡口各 3 处，河宽 40–47 m；4 个入口、3 条道路、2 个 T 形路口，总长 4.1–4.4 km，过河 1 / 1 / 2 处；起源点为桥头 / 桥头 / 路口。过境道路耗时 0.14–0.4 s。
    - 另加：`tools/SummedArea`（窗口均值，`LandformPosition` 也改用它）；`--seed=N` 命令行参数和 `project.ps1 -Seed N`，用来截取另外两个种子。
    - 过渡期的已知问题：城墙、城门、城外道路仍按旧算法画，和过境道路是两套，城墙在谷坡一侧被截短。第 4 步解决。
-3. **一、二期**：`Growth` 工具、`Village`、`MarketPlace`、`ChurchSite`、`MarketGrowth`；`Growth`、`Landmarks` 图层和分期滑条。删除 `SquarePlaza`。
+3. ✅ **一、二期**：`Growth` 工具、`Village`、`MarketPlace`、`ChurchSite`、`MarketGrowth`；`Growth`、`Landmarks` 图层和分期滑条。删除 `SquarePlaza`。
+   - 结果（73129 / 7 / 22017）：一期 2.0 ha、累计 6.0 ha，沿道路伸出带状的臂；隔着一段不可建设地（多为易淹地）的路边会另长出一小片，它沿道路与主体相连。市场：路口三角形 1305 m²（缩小）/ 纺锤形 2030 m² / 路口三角形 1062 m²（缩小）。教堂用地 44 × 28 m，都在市场附近的高处。城镇生长一组 0.2–0.4 s。
+   - 和计划的差别：分期滑条由节点图取代（点哪一期看到哪一期）；`town.core` 改由过渡节点 `LegacyCore` 从市场中心写出，`ChooseOrigin` 不再写它；`StreetBlocks` 扣除教堂用地，免得房屋压在教堂上；`capture` 加了每个地标的近景。
+   - 过渡期的已知问题：星形城墙仍按 230 m 半径围绕市场画，长臂的末端会在墙外，墙内的街巷和地块也不读建成区，第 4 步解决。
 4. **三期与骨架道路**：`EnclosingWall`、`RouteGates`、`WalledInfill`、`SkeletonLinks`；`roads` 契约放开渡口。删除 `ChooseCore` 遗留的 `town.core`、`StarWall`、`PlaceGates`、`MainStreets`、`OuterRoads`。至此“没有桥”的局限解除。
 5. **四期与分区**：`Suburbs`、`LandUse`；分区着色与截图。
 6. **收尾**：下游改读 `eval.buildable`，删除 `LegacySite` 和 `site`；更新 ARCHITECTURE 的节点表、不变量和已知局限。

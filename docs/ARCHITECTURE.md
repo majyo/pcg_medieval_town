@@ -90,20 +90,24 @@ camera      city ← ui
 | | `LegacySite` 场地汇总（过渡） | eval.buildable、site.height、site.slope、eval.habitability → site | 把评价打包成下游仍在读的 `Site`（采样网格上，适宜性即宜居度）；下游改读评价键后删除 |
 | 区域格局 | `RiverCrossings` 渡口 | site.shore、site.above_water、site.slope、eval.travel_cost → region.crossings | 在河道中线上每 20 m 取候选，按最短横断面过河；河窄、两岸高出水面 1–6 m、两岸引道平缓的得分高；取相距 300 m 以上的最好 3 处。桥头是两岸第一个可通行的格 |
 | | `RegionalRoutes` 过境道路 | eval.travel_cost、site.height、site.shore、region.crossings → region.routes | 图边选 4 个入口（朝内好走、相距 600 m 以上、河两岸至少各一个、南北边靠近河谷的优先）；相距最远且能连通的两个入口之间修干线，其余入口按接入代价从低到高接到已有路网上，形成 T 形路口。寻路按通行代价计价，河面只能走渡口，坡度超过 6% 的部分按超出量的平方加价（与方向有关，路会斜着爬坡）；结果再拉直：直线按真实长度计价不贵于网格路径就用直线 |
-| | `ChooseOrigin` 起源点 | region.routes、region.crossings、eval.habitability、eval.buildable → town.origin、town.core | 道路上离图边 320 m 以上的可建设格，得分 = 周围 300 m 方窗的平均宜居度 + 桥头（220 m 内有使用中的渡口）/ 路口（60 m 内）加分 − 离图心的小惩罚。过渡期同时写 town.core（起源点 + 230 m 规划半径） |
-| | `SquarePlaza` 方形广场 | site、town.core → town.plaza | 城址上的方形广场，不能完全放在可建设土地上时逐步缩小 |
-| | `StarWall` 星形城墙 | site、town.core、town.plaza → town.wall | 带起伏的圆，沿射线遇到不可建设土地就收缩，再轻度平滑 |
-| | `PlaceGates` 布置城门 | site、town.core；编辑 town.wall → town.gates | 按扇区在朝向开阔地的墙点上开门，门点对齐到格心（因此编辑城墙），每座城门对应一个地图边缘入口 |
+| | `ChooseOrigin` 起源点 | region.routes、region.crossings、eval.habitability、eval.buildable → town.origin | 道路上离图边 320 m 以上的可建设格，得分 = 周围 300 m 方窗的平均宜居度 + 桥头（220 m 内有使用中的渡口）/ 路口（60 m 内）加分 − 离图心的小惩罚 |
+| 城镇生长 | `Village` 一期 村落 | town.origin、region.routes、eval.habitability、eval.buildable → town.growth | 从起源点沿过境道路长出 2 ha（`tools/Growth`）：每格代价 = 沿路距离 + 3 × 离路距离（超过 30 m 进深后每米再加 12）− 80 m × 宜居度，从道路和已建成区向外按代价从低到高收入，只走可建设格 |
+| | `MarketPlace` 市场 | town.origin、region.routes、town.growth、eval.buildable、site.slope → town.plaza | 村落里有路口时，市场是几条路各取一点围成的三角形（2000 m²）；否则在离起源点 150 m 内的村落道路上，把道路加宽成长宽比 3 的纺锤形，取近、平、不用缩小的一处。放不下时按 0.9 倍逐步缩小 |
+| | `ChurchSite` 教堂 | town.plaza、town.growth、region.routes、site.height、site.relief、eval.buildable → town.landmarks | 市场 160 m 内、紧挨村落的 44 × 28 m 东西向整格用地，全在可建设格上，离过境道路中线 10 m、离市场 6 m 以上；取比市场高、地形位置高、离市场近的一处。教堂祭坛朝东，钟塔在西端 |
+| | `MarketGrowth` 二期 市镇 | town.plaza、town.landmarks、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 市场和教堂用地先算作二期建成，再以市场下的道路格为起点同样生长，到累计 6 ha |
+| | `LegacyCore` 城址（过渡） | town.plaza → town.core | 市场中心加 230 m 规划半径，供星形城墙、城门和主街使用；城墙改为围住建成区后删除 |
+| | `StarWall` 星形城墙 | site、town.core、town.plaza → town.wall | 带起伏的圆，沿射线遇到不可建设土地就收缩，再轻度平滑（过渡） |
+| | `PlaceGates` 布置城门 | site、town.core；编辑 town.wall → town.gates | 按扇区在朝向开阔地的墙点上开门，门点对齐到格心（因此编辑城墙），每座城门对应一个地图边缘入口（过渡） |
 | 路网 | `RoadZoning` 通行区 | site、town.wall、town.gates → road.zones | 哪些格可以修路：不是水、坡度不超限，城内或城外，只能在城门处穿墙 |
 | | `MainStreets` 主街 | road.zones、town.core、town.gates → road.links | 每座城门到广场的城内 A\* |
 | | `OuterRoads` 城外道路 | road.zones、town.gates；编辑 road.links | 每座城门到地图边缘入口的城外 A\* |
 | | `StreetMesh` 街巷网 | road.zones；编辑 road.links | 城内按间距撒点，最近点对连成树，再加少量不形成锐角的环 |
 | | `ExtractRoads` 提取路网 | site、road.links、town.plaza → roads | 网格连线中度为 2 的链变成折线，锚点、路口、端点和道路等级变化处成为节点；道路加广场成为铺装区。不需要线段求交 |
-| 街区与地块 | `StreetBlocks` 街区 | site、town.wall、roads → blocks | 可建区 = 城墙内退让 − 铺装区 − 不可建设格，按连通部分分成街区 |
+| 街区与地块 | `StreetBlocks` 街区 | site、town.wall、roads、town.landmarks → blocks | 可建区 = 城墙内退让 − 铺装区 − 地标用地 − 不可建设格，按连通部分分成街区 |
 | | `FrontageParcels` 临街地块 | blocks、roads → parcels | 沿每条街两侧按面宽切出进深固定的地块，先主街后街巷，后切的扣除已占用部分 |
 | 建筑 | `GableHouses` 临街双坡房屋 | parcels → buildings | 每个地块临街一栋矩形房屋，层数随机，主街加一层；双坡屋顶，窄长房屋山墙朝街；偶尔留出小巷 |
 
-`road.links` 是累加型数据：主街新建，城外道路和街巷网依次在副本上添加；A\* 偏好已有连线，所以后修的路会并入先修的路。
+`road.links` 是累加型数据：主街新建，城外道路和街巷网依次在副本上添加；A\* 偏好已有连线，所以后修的路会并入先修的路。`town.growth` 也是：每格记下建成于第几期，后一期在副本上加格，所以点“一期 村落”只看到一期，点“二期 市镇”看到一、二期两种颜色。
 
 ## 4. 不变量
 
@@ -117,13 +121,15 @@ camera      city ← ui
 - 等高线：采样高程按 2 m 间距提取的每个端点，在该处取高程都等于它的高度（误差 1 cm 内）。
   - site：使用共用的采样网格，可建设比例在合理范围内。
   - region.crossings：至少一处；格子从一个桥头逐格（只走上下左右）到另一个桥头；中点在水面上，桥头是可通行的陆地。region.routes：入口离图边不超过 10 m；每条道路从入口出发，到另一个入口或接到更早的道路上，格子 8 邻域相邻，每格可通行或属于它经过的渡口；全部入口连通。town.origin：在可建设格上，在过境道路上。
-  - town.core：在可建设格上。town.plaza：在城墙内。town.gates：至少一座，都在城墙上。
+  - town.growth：使用共用网格；期数从 1 起，每期格数与记录一致且不为 0；建成格都可建设；每一期结束时，由上下左右相邻的建成格连成的每一片都接到过境道路上（含相邻）。
+  - town.plaza：覆盖的格都可建设；中心两格以内有一期建成格；在城墙内。town.landmarks：用地在网格内，与它的格一致，全在可建设格上，不压过境道路格，不和市场重叠，在所属那一期结束时已全部建成。
+  - town.core：在可建设格上。town.gates：至少一座，都在城墙上。
   - roads：引用有效，没有零长度路段，全部连通，城门全部接入；不进水域；城内道路只在城门处穿过城墙。
   - blocks：可建区在城墙内，不压铺装区。
   - parcels：在可建区内，不压道路，互不重叠。
   - buildings：在各自地块内，互不重叠，高度有效。
 - 说明：每个节点有 `Description`，每个节点参数有 `Hint`，`Keys` 里每个键有说明。
-- 节点图：读了没人写的键、重复新写同一个键时构建报错；没有节点改动过它读到的值；让“城外道路”过期后，恰好它和它的下游变为过期；让“宜居度”过期后，采样场、其余评价节点、渡口和过境道路保持有效，起源点和整座城镇过期；让“高程”过期后，只有“采样网格”和“林地”保持有效；三种情况重跑后结果都与完整生成相同。
+- 节点图：读了没人写的键、重复新写同一个键时构建报错；没有节点改动过它读到的值；让“城外道路”过期后，恰好它和它的下游变为过期；让“教堂”过期后，只有它、二期市镇和避开教堂用地的街区、地块、房屋过期；让“宜居度”过期后，采样场、其余评价节点、渡口和过境道路保持有效，起源点和整座城镇过期；让“高程”过期后，只有“采样网格”和“林地”保持有效；三种情况重跑后结果都与完整生成相同。
 - 同一种子生成两次，结果相同。
 
 ## 5. 加功能的规则
@@ -140,10 +146,10 @@ camera      city ← ui
 
 - 没有桥：城门朝河时，城外道路无法到达地图边缘，会给出提示。
 - 道路贴着原地形，没有纵断面或地形修整。如果以后要做，用“叠加高度场”实现，不复制地形数据。
-- 地块只有临街一种类型，街区深处留作后院，没有公共建筑（教堂、市政厅）和城外街带。
-- 城镇布局、路网、街区节点仍读过渡用的 `site` 键（由 `LegacySite` 从评价键打包），整座城镇已在 4 m 采样网格上生成；改读评价键是城市规划阶段的最后一步（见 [CITY_PLANNING.md](CITY_PLANNING.md) §8）。
-- 地图生成约 0.6 秒，场地采样约 0.15–0.3 秒，场地评价约 0.1 秒，区域格局约 0.2–0.4 秒（大部分是全图寻路），其余节点合计约 0.5 秒（Debug 编译）。
-- 城镇布局还没有接上区域格局：城墙仍是围绕起源点的星形圆，城门按扇区均分，主街和城外道路也不沿过境道路走，所以城外道路和过境道路是两套。按 [CITY_PLANNING.md](CITY_PLANNING.md) 第 4 步，城门会落在过境道路穿墙处，骨架道路直接取自过境道路。
+- 地块只有临街一种类型，街区深处留作后院；公共建筑只有教堂（街区避开它的用地），没有市政厅和城外街带。
+- 城墙、城门、路网、街区节点仍读过渡用的 `site` 键（由 `LegacySite` 从评价键打包），整座城镇已在 4 m 采样网格上生成；改读评价键是城市规划阶段的最后一步（见 [CITY_PLANNING.md](CITY_PLANNING.md) §8）。
+- 地图生成约 0.6 秒，场地采样约 0.15–0.3 秒，场地评价约 0.1 秒，区域格局约 0.2–0.4 秒（大部分是全图寻路），城镇生长约 0.2–0.4 秒，其余节点合计约 0.5 秒（Debug 编译）。
+- 城墙还没有接上生长：星形城墙仍是围绕市场的固定半径圆（`LegacyCore`），不一定围住一、二期的全部建成区；城门按扇区均分，主街和城外道路也不沿过境道路走，所以城外道路和过境道路是两套；城内街巷和地块也不读建成区。按 [CITY_PLANNING.md](CITY_PLANNING.md) 第 4 步，城墙围住建成区，城门落在过境道路穿墙处，骨架道路直接取自过境道路。
 - Terrain3D 没有纹理资源时会在着色器末尾追加棋盘格调试代码，所以 `GroundSurface` 注册了一个不会被采样的占位纹理。
 - 远离焦点的粗 LOD 网格碰到地图边缘的洞时整块三角形会被丢弃，地图近侧边缘与裙边之间可能露出一条细缝。
 - 城市部分（房屋、道路）仍是普通的顶点色材质，风格还没有和地面、植被统一。

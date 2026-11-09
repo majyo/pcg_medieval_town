@@ -24,7 +24,7 @@ public sealed class PlaceGates : CityNode<PlaceGatesOptions>
 {
     private const float OpenStep = 8, OpenReach = 200;
 
-    public override string Group => "城镇布局";
+    public override string Group => TownGrowth.Group;
     public override string Title => "布置城门";
     public override string Description =>
         "把圆周均分成扇区，每个扇区在城墙上挑一处朝向开阔地的点开城门，并为它定一个图边入口。";

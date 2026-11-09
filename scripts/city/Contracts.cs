@@ -34,8 +34,10 @@ public static class Contracts
         new(Keys.Crossings, CrossingRules),
         new(Keys.Routes, RouteRules),
         new(Keys.Origin, OriginRules),
-        new(Keys.Core, CoreRules),
+        new(Keys.Growth, GrowthRules),
         new(Keys.Plaza, PlazaRules),
+        new(Keys.Landmarks, LandmarkRules),
+        new(Keys.Core, CoreRules),
         new(Keys.Gates, GateRules),
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
@@ -365,6 +367,137 @@ public static class Contracts
             yield return "起源点不在过境道路上";
     }
 
+    /// <summary>
+    /// Phases are numbered from 1 with the cell counts they record; every built cell is buildable; and after each
+    /// phase, every group of built cells joined by side neighbors reaches a route cell (or touches one).
+    /// </summary>
+    private static IEnumerable<string> GrowthRules(IKeyReader r)
+    {
+        var growth = r.Get(Keys.Growth)!;
+        var grid = growth.Grid;
+        var buildable = r.Get(Keys.Buildable)!;
+        var network = r.Get(Keys.Routes)!;
+        if (!ReferenceEquals(grid, r.Get(Keys.Grid)))
+            yield return "没有使用共用的采样网格";
+        if (growth.Latest == 0)
+            yield return "还没有任何一期";
+        var counts = new int[256];
+        foreach (byte p in growth.Phase)
+            counts[p]++;
+        if (counts.Skip(growth.Latest + 1).Any(n => n > 0))
+            yield return "有格的期数超出记录";
+        for (int n = 1; n <= growth.Latest; n++)
+        {
+            if (counts[n] != growth.Phases[n - 1].Cells)
+                yield return $"{growth.Label(n)} 的格数 {counts[n]} 与记录 {growth.Phases[n - 1].Cells} 不符";
+            if (counts[n] == 0)
+                yield return $"{growth.Label(n)} 没有新建成的格";
+        }
+
+        int unbuildable = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && !buildable.Buildable(k));
+        if (unbuildable > 0)
+            yield return $"有 {unbuildable} 个建成格不可建设";
+
+        bool TouchesRoad(int k)
+        {
+            int x = k % grid.Nx, z = k / grid.Nx;
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (grid.InGrid(x + dx, z + dz) && network.Cells.Contains(grid.Index(x + dx, z + dz)))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        for (int n = 1; n <= growth.Latest; n++)
+        {
+            int phase = n;
+            bool Built(int k) => growth.Phase[k] is var p && p >= 1 && p <= phase;
+            var reached = new bool[grid.Count];
+            var queue = new Queue<int>();
+            for (int k = 0; k < grid.Count; k++)
+            {
+                if (Built(k) && TouchesRoad(k))
+                {
+                    reached[k] = true;
+                    queue.Enqueue(k);
+                }
+            }
+
+            while (queue.TryDequeue(out int k))
+            {
+                Growth.ForSides(grid, k, j =>
+                {
+                    if (!reached[j] && Built(j))
+                    {
+                        reached[j] = true;
+                        queue.Enqueue(j);
+                    }
+                });
+            }
+
+            int cut = Enumerable.Range(0, grid.Count).Count(k => Built(k) && !reached[k]);
+            if (cut > 0)
+                yield return $"{growth.Label(n)} 之后有 {cut} 个建成格与道路不连通";
+        }
+    }
+
+    /// <summary>
+    /// The market covers only buildable cells, lies at the village (a phase-one cell within two cells of its center)
+    /// and inside the wall.
+    /// </summary>
+    private static IEnumerable<string> PlazaRules(IKeyReader r)
+    {
+        var plaza = r.Get(Keys.Plaza)!;
+        var growth = r.Get(Keys.Growth)!;
+        var buildable = r.Get(Keys.Buildable)!;
+        var grid = growth.Grid;
+        var cells = Growth.CellsIn(grid, plaza.Area);
+        if (cells.Count == 0)
+            yield return "市场没有覆盖任何格";
+        if (!cells.All(buildable.Buildable))
+            yield return "市场压在不可建设格上";
+        int center = grid.CellAt(plaza.Center);
+        if (center < 0 || !growth.CellsOf(1).Any(k => Chebyshev(grid, k, center) <= 2))
+            yield return "市场不在一期村落里，也不紧邻它";
+        if (r.Get(Keys.Wall) is { } wall && plaza.Area.Subtract(wall.Interior).Area >= 1)
+            yield return "市场超出城墙";
+    }
+
+    /// <summary>Each plot lies on buildable cells that are built by the end of the growth, off the routes and the market.</summary>
+    private static IEnumerable<string> LandmarkRules(IKeyReader r)
+    {
+        var growth = r.Get(Keys.Growth)!;
+        var grid = growth.Grid;
+        var buildable = r.Get(Keys.Buildable)!;
+        var routes = r.Get(Keys.Routes)!;
+        var plaza = r.Get(Keys.Plaza)!;
+        foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks)
+        {
+            if (landmark.X0 < 0 || landmark.Z0 < 0 || landmark.X0 + landmark.Nx > grid.Nx || landmark.Z0 + landmark.Nz > grid.Nz)
+            {
+                yield return $"{landmark.KindLabel}用地超出网格";
+                continue;
+            }
+
+            var cells = landmark.Cells(grid).ToList();
+            if (Math.Abs(landmark.Plot.Area - cells.Count * grid.CellSize * grid.CellSize) > 1)
+                yield return $"{landmark.KindLabel}用地与它的格不符";
+            if (!cells.All(buildable.Buildable))
+                yield return $"{landmark.KindLabel}用地压在不可建设格上";
+            if (cells.Any(routes.Cells.Contains))
+                yield return $"{landmark.KindLabel}用地压在过境道路上";
+            if (landmark.Plot.Intersect(plaza.Area).Area >= 1)
+                yield return $"{landmark.KindLabel}用地和市场重叠";
+            if (growth.Latest >= landmark.Phase && !cells.All(growth.Built))
+                yield return $"{landmark.KindLabel}用地在{GrowthHistory.Ordinal(landmark.Phase)}结束时没有全部建成";
+        }
+    }
+
     private static int Chebyshev(SiteGrid grid, int a, int b) =>
         Math.Max(Math.Abs(a % grid.Nx - b % grid.Nx), Math.Abs(a / grid.Nx - b / grid.Nx));
 
@@ -384,12 +517,6 @@ public static class Contracts
         var site = r.Get(Keys.Site)!;
         if (!site.Buildable(site.CellAt(r.Get(Keys.Core)!.Position)))
             yield return "城址不在可建设格";
-    }
-
-    private static IEnumerable<string> PlazaRules(IKeyReader r)
-    {
-        if (r.Get(Keys.Plaza)!.Area.Subtract(r.Get(Keys.Wall)!.Interior).Area >= 1)
-            yield return "广场超出城墙";
     }
 
     private static IEnumerable<string> GateRules(IKeyReader r)
