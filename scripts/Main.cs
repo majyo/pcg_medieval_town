@@ -27,6 +27,9 @@ public partial class Main : Node3D
     private Atmosphere _atmosphere = null!;
     private object? _painted;
     private GroundStyle? _paintedStyle;
+
+    /// <summary>The version the painted value's node started from, when it edits the value (its cells are grayed).</summary>
+    private object? _paintedPrevious;
     private object? _treeMaskSource;
 
     // What is shown. Several controls may show one setting; changing it anywhere updates the scene and them all.
@@ -182,13 +185,14 @@ public partial class Main : Node3D
     /// The ground coloring on screen: with a focus, the chosen (else the first) of its outputs that can be painted,
     /// preferring measurements and evaluations over intermediate grids for a stage; otherwise the "视图" choice.
     /// </summary>
-    private (GroundStyle? Style, object? Value) GroundShown()
+    private (GroundStyle? Style, object? Value, object? Previous) GroundShown()
     {
         if (_focus.Value.IsNone)
-            return (ShownStyle, ShownStyle?.Value(_graph));
-        var painted = FocusOutputs().Select(o => (Style: FieldStyles.For(o.Key), o.Value)).Where(o => o.Style != null).ToList();
+            return (ShownStyle, ShownStyle?.Value(_graph), null);
+        var painted = FocusOutputs().Select(o => (Style: FieldStyles.For(o.Key), o.Value, o.Previous))
+            .Where(o => o.Style != null).ToList();
         if (painted.Count == 0)
-            return (null, null);
+            return (null, null, null);
         var chosen = painted.FirstOrDefault(o => o.Style!.Key == _focusGround);
         if (chosen.Style == null)
             chosen = _focus.Value.Node < 0 ? painted.FirstOrDefault(o => o.Style!.Probe, painted[0]) : painted[0];
@@ -226,16 +230,16 @@ public partial class Main : Node3D
     {
         if (_terrain == null)
             return;
-        var (style, value) = GroundShown();
+        var (style, value, previous) = GroundShown();
         if (style == null || value == null && _paintedStyle != style)
         {
             _terrain.ShowLandscape();
-            (_painted, _paintedStyle) = (null, null);
+            (_painted, _paintedPrevious, _paintedStyle) = (null, null, null);
         }
-        else if (value != null && (force || !ReferenceEquals(value, _painted)))
+        else if (value != null && (force || !ReferenceEquals(value, _painted) || !ReferenceEquals(previous, _paintedPrevious)))
         {
-            (_painted, _paintedStyle) = (value, style);
-            _terrain.ShowColors(style.Painter(value));
+            (_painted, _paintedPrevious, _paintedStyle) = (value, previous, style);
+            _terrain.ShowColors(style.Painter(value, previous));
         }
 
         UpdateLegend();
@@ -259,10 +263,10 @@ public partial class Main : Node3D
             entries.Add(new LegendEntry(what, null));
         }
 
-        var (style, value) = GroundShown();
+        var (style, value, previous) = GroundShown();
         if (style != null && (value ?? _painted) is { } painted)
         {
-            var legend = style.Legend(painted);
+            var legend = style.Legend(painted, value == null ? null : previous);
             string caption = legend.Caption + (value == null ? " · 等待重新生成" : "");
             entries.Add(new LegendEntry(caption, legend.Ramp, legend.Low, legend.High, legend.Categories));
         }
@@ -293,6 +297,7 @@ public partial class Main : Node3D
         var townViews = new (IKey Key, bool Contours)[]
         {
             (Keys.Slope, false), (Keys.AboveWater, true), (Keys.Buildable, false), (Keys.Habitability, true),
+            (Keys.LandUse, false),
         };
         foreach (var (key, contours) in townViews)
         {
@@ -394,18 +399,20 @@ public partial class Main : Node3D
     }
 
     /// <summary>
-    /// The one place city results reach the terrain view: no trees, rocks or ground cover inside the walls or
-    /// within a few meters of a road.
+    /// The one place city results reach the terrain view: no trees, rocks or ground cover inside the walls, on the
+    /// built land outside them, or within a few meters of a road.
     /// </summary>
     private void OnGraphChanged()
     {
         RefreshView();
         var wall = _graph.Get(Keys.Wall);
+        var growth = _graph.Get(Keys.Growth);
         var roads = _graph.Get(Keys.Roads);
         if (ReferenceEquals(_treeMaskSource, roads) || _terrain == null)
             return;
         _treeMaskSource = roads;
-        _terrain.SetExclusion(wall == null ? null : new Exclusion(wall.Interior.Contains, wall.Interior.Bounds,
+        var town = wall == null ? null : growth == null ? wall.Interior : wall.Interior.Union(growth.Footprint);
+        _terrain.SetExclusion(town == null ? null : new Exclusion(town.Contains, town.Bounds,
             roads?.Edges.Select(e => (e.Points, e.Width / 2 + 3)) ?? Enumerable.Empty<(Vector2[], float)>()));
     }
 

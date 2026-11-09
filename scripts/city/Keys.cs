@@ -48,6 +48,10 @@ public static class Keys
         "城墙的环线和它围住的城内范围");
     public static readonly Key<GateSet> Gates = new("town.gates", "城门",
         "过境道路穿过城墙处的城门，每座通向一个图边入口");
+    public static readonly Key<ScalarField> Reach = new("land.reach", "离城路程",
+        "从各城门出发、按过境道路的通行代价走到每一格的路程（只有使用中的渡口能过河）；城内为 0，走不到的格无值");
+    public static readonly Key<CategoryField> LandUse = new("land.use", "用地",
+        "全图每一格的用途：城镇分区写出城镇和水域，作坊、农业带依次把其余的格分完");
     public static readonly Key<RoadZones> RoadZones = new("road.zones", "通行区",
         "每格能否修路，在城内还是城外；只能在城门处穿墙");
     public static readonly Key<RoadLinks> RoadLinks = new("road.links", "道路连线",
@@ -55,7 +59,7 @@ public static class Keys
     public static readonly Key<RoadGraph> Roads = new("roads", "路网",
         "由连线提取出的路网：路口、路段折线、路宽和铺装范围");
     public static readonly Key<BlockSet> Blocks = new("blocks", "街区",
-        "可建区（城内退让后，去掉道路和不可建设地）分成的街区");
+        "可建区（城内外的建成格，城墙两侧退让，去掉道路和不可建设地）分成的街区");
     public static readonly Key<ParcelSet> Parcels = new("parcels", "地块",
         "沿街切出的临街地块");
     public static readonly Key<BuildingSet> Buildings = new("buildings", "建筑",

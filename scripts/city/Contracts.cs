@@ -16,6 +16,9 @@ public static class Contracts
 {
     private const double Tolerance = 0.5;
 
+    /// <summary>The widest wall setback a growth phase can be given (the upper end of its slider).</summary>
+    private const float MaxWallSetback = 30;
+
     public static readonly IReadOnlyList<Invariant> All = new Invariant[]
     {
         new(Keys.Grid, GridRules),
@@ -43,6 +46,8 @@ public static class Contracts
         new(Keys.Blocks, BlockRules),
         new(Keys.Parcels, ParcelRules),
         new(Keys.Buildings, BuildingRules),
+        new(Keys.Reach, r => FieldRules(r, Keys.Reach).Concat(ReachRules(r))),
+        new(Keys.LandUse, LandUseRules),
     };
 
     private static IEnumerable<string> GridRules(IKeyReader r)
@@ -371,6 +376,101 @@ public static class Contracts
     /// Phases are numbered from 1 with the cell counts they record; every built cell is buildable; and after each
     /// phase, every group of built cells joined by side neighbors reaches a route cell (or touches one).
     /// </summary>
+    private static IEnumerable<string> ReachRules(IKeyReader r)
+    {
+        var reach = r.Get(Keys.Reach)!;
+        var grid = reach.Grid;
+        var wall = r.Get(Keys.Wall)!;
+        var growth = r.Get(Keys.Growth)!;
+        if (reach.Values.Any(v => !reach.IsNoData(v) && v < 0))
+            yield return "有负的路程";
+        if (Growth.CellsIn(grid, wall.Interior).Any(k => reach.Values[k] != 0))
+            yield return "城内的路程不是 0";
+        if (r.Get(Keys.Gates)!.Gates.Any(g => reach.Values[grid.CellAt(g.Position)] != 0))
+            yield return "城门格的路程不是 0";
+        int lost = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && reach.IsNoData(reach.Values[k]));
+        if (lost > 0)
+            yield return $"有 {lost} 个建成格从城门走不到";
+    }
+
+    private static IEnumerable<string> LandUseRules(IKeyReader r)
+    {
+        var land = r.Get(Keys.LandUse)!;
+        var grid = land.Grid;
+        if (!ReferenceEquals(grid, r.Get(Keys.Grid)))
+            yield return "没有使用共用的采样网格";
+        var shore = r.Get(Keys.Shore)!;
+        var growth = r.Get(Keys.Growth)!;
+        var wall = r.Get(Keys.Wall)!;
+        var buildable = r.Get(Keys.Buildable)!;
+        var slope = r.Get(Keys.Slope)!;
+        var travel = r.Get(Keys.TravelCost)!;
+        var inside = new bool[grid.Count];
+        foreach (int k in Growth.CellsIn(grid, wall.Interior))
+            inside[k] = true;
+        var toWall = Proximity.ToRing(grid, wall.Ring, 600 + grid.CellSize);
+        var level = Workshops.WaterLevel(r.Get(Keys.Height)!, r.Get(Keys.AboveWater)!);
+        float townLevel = Workshops.TownWaterLevel(shore, level, toWall);
+
+        var wrong = new Dictionary<string, int>();
+        void Count(string rule) => wrong[rule] = wrong.GetValueOrDefault(rule) + 1;
+        for (int k = 0; k < grid.Count; k++)
+        {
+            var use = land.Use(k);
+            if (use == LandUse.Unassigned)
+                Count("有格未分配");
+            if (use == LandUse.Water != shore.Values[k] < 0)
+                Count("水域与离水 < 0 的格不一致");
+            if (growth.Built(k) != LandUses.Built.Contains(use))
+                Count("建成格与城镇四类（公共、核心、居住、城外街区）不一致");
+            if (inside[k] && use != LandUse.Water && use != LandUse.WallStrip && !LandUses.Inside.Contains(use))
+                Count("城内有城外的用途");
+            if (!inside[k] && LandUses.Inside.Contains(use))
+                Count("城外有城内的用途");
+            if (use == LandUse.WallStrip && !(toWall[k] <= MaxStrip + grid.CellSize))
+                Count("城墙空地离墙太远");
+            if (buildable.Block(k) == SiteBlock.Forest && use > LandUse.Mill && use != LandUse.Woodland)
+                Count("城外的森林格不是林地");
+            bool ok = use switch
+            {
+                LandUse.WetWorks => shore.Values[k] is >= 0 and <= 60 && level[k] < townLevel,
+                LandUse.FireWorks => !NextToBuilt(grid, growth, k),
+                LandUse.Mill => shore.Values[k] is >= 0 and <= 12,
+                LandUse.Woodland => buildable.Block(k) == SiteBlock.Forest,
+                LandUse.Meadow => Countryside.IsMeadow(buildable, shore, r.Get(Keys.AboveWater)!, k),
+                LandUse.Garden => buildable.Buildable(k),
+                LandUse.Vineyard => Countryside.IsVineSlope(slope, r.Get(Keys.Aspect)!, k),
+                LandUse.Arable => slope.Values[k] <= 6,
+                LandUse.Pasture => !travel.IsNoData(travel.Values[k]),
+                LandUse.Waste => travel.IsNoData(travel.Values[k]),
+                _ => true,
+            };
+            if (!ok)
+                Count($"{use.Label()}不满足它的条件");
+        }
+
+        foreach (var (rule, n) in wrong)
+            yield return $"{rule}（{n} 格）";
+    }
+
+    /// <summary>The widest wall strip a town quarters node can be given (the upper end of its slider).</summary>
+    private const float MaxStrip = 60;
+
+    private static bool NextToBuilt(SiteGrid grid, GrowthHistory growth, int k)
+    {
+        int x = k % grid.Nx, z = k / grid.Nx;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (grid.InGrid(x + dx, z + dz) && growth.Built(grid.Index(x + dx, z + dz)))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private static IEnumerable<string> GrowthRules(IKeyReader r)
     {
         var growth = r.Get(Keys.Growth)!;
@@ -401,6 +501,31 @@ public static class Contracts
             int outside = growth.CellsOf(infill).Count(k => !wall.Interior.Contains(grid.Center(k)));
             if (outside > 0)
                 yield return $"{growth.Label(infill)} 有 {outside} 格在城外";
+        }
+
+        int suburbs = growth.Phases.ToList().FindIndex(p => p.Name == Suburbs.PhaseName) + 1;
+        if (suburbs > 0 && r.Get(Keys.Wall) is { } town)
+        {
+            var cells = growth.CellsOf(suburbs).ToList();
+            int onWall = cells.Count(k => Geometry.DistanceToRing(grid.Center(k), town.Ring) < grid.CellSize);
+            if (onWall > 0)
+                yield return $"{growth.Label(suburbs)} 有 {onWall} 格贴着城墙";
+
+            // Outside cells only once the inside is full: past the widest setback, no free buildable cell inside
+            // borders a built one.
+            if (cells.Any(k => !town.Interior.Contains(grid.Center(k))))
+            {
+                int left = Growth.CellsIn(grid, town.Interior.Offset(-MaxWallSetback)).Count(k =>
+                {
+                    if (growth.Built(k) || !buildable.Buildable(k))
+                        return false;
+                    bool beside = false;
+                    Growth.ForSides(grid, k, j => beside |= growth.Built(j));
+                    return beside;
+                });
+                if (left > 0)
+                    yield return $"{growth.Label(suburbs)} 长到了城外，城内却还有 {left} 格可建设地挨着建成区";
+            }
         }
 
         bool TouchesRoad(int k)
@@ -636,8 +761,10 @@ public static class Contracts
     {
         var blocks = r.Get(Keys.Blocks)!;
         var roads = r.Get(Keys.Roads)!;
-        if (blocks.Developable.Subtract(r.Get(Keys.Wall)!.Interior).Area >= Tolerance)
-            yield return "可建区超出城墙";
+        var ring = r.Get(Keys.Wall)!.Ring;
+        if (blocks.Developable.Intersect(Region.Lines(new[] { ((IReadOnlyList<Vector2>)ring.Append(ring[0]).ToArray(), 4f) }))
+            .Area >= Tolerance)
+            yield return "可建区压到城墙";
         var growth = r.Get(Keys.Growth)!;
         if (blocks.Developable.Subtract(growth.Footprint.Offset(growth.Grid.CellSize)).Area >= Tolerance)
             yield return "可建区超出建成格一格以上（压到菜园）";

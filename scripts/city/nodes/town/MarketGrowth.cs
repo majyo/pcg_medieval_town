@@ -6,7 +6,7 @@ namespace PcgCitySandbox.City;
 
 public sealed class MarketGrowthOptions : GrowthOptions
 {
-    public MarketGrowthOptions() => Area = 6;
+    public MarketGrowthOptions() => Area = 8;
 }
 
 /// <summary>Phase two: the market town. The plaza and the church become built, then the town spreads from the plaza.</summary>

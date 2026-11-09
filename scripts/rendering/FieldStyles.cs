@@ -32,7 +32,16 @@ public abstract class GroundStyle
     /// <summary>Ground color at any point of the map.</summary>
     public abstract Func<Vector2, Color> Painter(object value);
 
+    /// <summary>
+    /// Ground color for a node that edits the value: by default the same as <see cref="Painter(object)"/>; a style
+    /// may gray out what <paramref name="previous"/> (the version the node started from) already held.
+    /// </summary>
+    public virtual Func<Vector2, Color> Painter(object value, object? previous) => Painter(value);
+
     public abstract FieldLegend Legend(object value);
+
+    /// <summary>The legend for a node that edits the value; by default the same as <see cref="Legend(object)"/>.</summary>
+    public virtual FieldLegend Legend(object value, object? previous) => Legend(value);
 
     /// <summary>The field's name and value at <paramref name="p"/>, for the probe.</summary>
     public abstract string Describe(object value, Vector2 p);
@@ -169,8 +178,43 @@ public sealed class CategoryStyle : GroundStyle
     public override FieldLegend Legend(object value)
     {
         var field = (CategoryField)value;
-        return new FieldLegend(field.Label, null, "", "",
-            Enumerable.Range(0, field.Names.Count).Select(c => (Colors[c], $"{field.Names[c]} {field.Fraction(c):P0}")).ToArray());
+        return new FieldLegend(field.Label, null, "", "", Enumerable.Range(0, field.Names.Count).Where(c => field.Counts[c] > 0)
+            .Select(c => (Colors[c], $"{field.Names[c]} {Share(field.Fraction(c))}")).ToArray());
+    }
+
+    /// <summary>A share as a percentage, with one decimal below 10% so small categories do not read as 0%.</summary>
+    private static string Share(float fraction) => fraction >= 0.1f ? $"{fraction:P0}" : $"{fraction:P1}";
+
+    /// <summary>Cells the editing node changed in their colors, the rest grayed.</summary>
+    public override Func<Vector2, Color> Painter(object value, object? previous)
+    {
+        if (previous is not CategoryField before)
+            return Painter(value);
+        var field = (CategoryField)value;
+        return p =>
+        {
+            int k = field.Grid.CellAt(p);
+            var color = Colors[field.Nearest(p)];
+            return k >= 0 && before.Values[k] == field.Values[k] ? Inherited(color) : color;
+        };
+    }
+
+    /// <summary>Only the categories the editing node wrote, with the share each has now; the rest as one gray entry.</summary>
+    public override FieldLegend Legend(object value, object? previous)
+    {
+        if (previous is not CategoryField before)
+            return Legend(value);
+        var field = (CategoryField)value;
+        var written = Enumerable.Range(0, field.Names.Count).Where(c => field.Counts[c] > before.Counts[c]);
+        return new FieldLegend(field.Label + " · 本节点写入的类别", null, "", "",
+            written.Select(c => (Colors[c], $"{field.Names[c]} {Share(field.Fraction(c))}"))
+                .Append((Inherited(new Color("b0aa9a")), "上游已有的用途")).ToArray());
+    }
+
+    private static Color Inherited(Color color)
+    {
+        float gray = color.R * 0.3f + color.G * 0.59f + color.B * 0.11f;
+        return new Color(gray, gray, gray).Lerp(new Color("d9d6cb"), 0.55f);
     }
 
     public override string Describe(object value, Vector2 p)
@@ -198,6 +242,17 @@ public static class FieldStyles
     };
 
     private static readonly Color Unbuilt = new("e9e5d6");
+
+    /// <summary>
+    /// Colors of the land uses, indexed by <see cref="LandUse"/>: the town in warm tones, the wall strip pale gray,
+    /// the trades dark, the countryside light (woodland dark green, water as in the buildability map).
+    /// </summary>
+    public static readonly IReadOnlyList<Color> LandColors = new Color[]
+    {
+        new("d9d6cb"), new("2f6f9a"), new("9c3f2c"), new("c8642c"), new("e3a94a"), new("d38a55"), new("c4bdac"),
+        new("a9c26a"), new("8c7a64"), new("3f5577"), new("5a3a34"), new("2f8a8f"), new("2f5e34"), new("6fbfa0"),
+        new("cfd85a"), new("8a5a9a"), new("ecd27a"), new("9fc58a"), new("a8a39a"),
+    };
 
     private const int GridBlock = 25;
     private static readonly string[] BlockTones = { "e6e0cf", "cdd6c3" };
@@ -256,6 +311,13 @@ public static class FieldStyles
         {
             Listed = true,
         },
+        // Near the gates pale, far out darker; the ramp ends at the default farming radius and a half.
+        new FieldStyle("用地", Keys.Reach, _ => (0, 1800), Stops((0, "f3ecd2"), (0.66f, "c9a86a"), (1, "6e5a44")))
+        {
+            Format = (_, v) => $"{v:0} m",
+            NoDataName = "走不到",
+        },
+        new CategoryStyle("用地", Keys.LandUse, LandColors),
         new CellStyle<SiteGrid>("过程", Keys.Grid, GridColor,
             g => new FieldLegend($"采样网格 · {g.Nx}×{g.Nz} 格，每格 {g.CellSize:0.#} m", null, "", "",
                 new[] { (new Color(BlockTones[0]), $"色块边长 {GridBlock * g.CellSize:0} m（{GridBlock} 格）") }),

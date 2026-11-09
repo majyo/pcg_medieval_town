@@ -9,10 +9,10 @@ public sealed class EnclosingWallOptions
 {
     [Param("余地比例", 0, 2, 0.05,
         Hint = "城内面积 = 筑墙前的建成面积 ×（1 + 余地比例）。调大后城内留出更多空地")]
-    public float Margin { get; set; } = 0.6f;
+    public float Margin { get; set; } = 0.25f;
     [Param("建成区优先 m", 0, 300, 10,
         Hint = "已建成的格相当于离市场近多少米。调大后城墙更愿意绕出去把沿路的房子包进来，形状更不规则")]
-    public float BuiltPreference { get; set; } = 50;
+    public float BuiltPreference { get; set; } = 100;
     [Param("离河 m", 0, 60, 1,
         Hint = "城墙离水至少多远；靠河的一侧墙停在这条线上，河当护城河")]
     public float RiverSetback { get; set; } = 20;

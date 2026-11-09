@@ -150,9 +150,9 @@ public sealed class CategoryField : ISummarized
 
     public float Fraction(int category) => Values.Length > 0 ? Counts[category] / (float)Values.Length : 0;
 
-    /// <summary>Every category that occurs, largest first, with its share.</summary>
+    /// <summary>Every category that occurs, largest first, with its share (one decimal below 10%).</summary>
     public string Summary => string.Join("，", Enumerable.Range(0, Names.Count).Where(c => Counts[c] > 0)
-        .OrderByDescending(c => Counts[c]).Select(c => $"{Names[c]} {Fraction(c):P0}"));
+        .OrderByDescending(c => Counts[c]).Select(c => $"{Names[c]} {(Fraction(c) >= 0.1f ? $"{Fraction(c):P0}" : $"{Fraction(c):P1}")}"));
 
     /// <summary>Category of the cell containing <paramref name="p"/>, clamped to the grid.</summary>
     public byte Nearest(Vector2 p)

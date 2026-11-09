@@ -28,8 +28,8 @@ public sealed class FrontageParcelsOptions
 }
 
 /// <summary>
-/// Cuts plots of random frontage along both sides of every town street, main streets first and longer streets
-/// before shorter, to a starting depth. Then all plots grow back together in thin strips, so plots from opposite
+/// Cuts plots of random frontage along both sides of every road with blocks beside it (main streets, then outer
+/// roads, then lanes; longer before shorter), to a starting depth. Then all plots grow back together in thin strips, so plots from opposite
 /// streets meet near the middle of the block, up to a maximum depth. Gaps left in a block (at bends, corners and
 /// street ends) join the plot they share the longest border with, so the block is covered.
 /// </summary>
@@ -42,7 +42,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
     public override string Group => "街区与地块";
     public override string Title => "临街地块";
     public override string Description =>
-        "沿每条街两侧按随机面宽切出临街地块（先主街后街巷），再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
+        "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，后街巷），再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
     public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads];
     public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 
@@ -60,8 +60,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
         var blockOf = new List<int>();
         var index = new Dictionary<(int, int), List<int>>();
         var rng = new Random(o.Seed);
-        var ordered = roads.Edges.Where(e => e.Kind != RoadKind.Outer)
-            .OrderBy(e => e.Kind).ThenByDescending(e => e.Length).ThenBy(e => e.Id);
+        var ordered = roads.Edges.OrderBy(e => e.Kind).ThenByDescending(e => e.Length).ThenBy(e => e.Id);
         foreach (var edge in ordered)
         {
             c.Cancellation.ThrowIfCancellationRequested();
