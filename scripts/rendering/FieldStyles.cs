@@ -26,7 +26,8 @@ public sealed class FieldStyle
     /// <summary>Color at a position along the ramp, 0 to 1.</summary>
     public Func<float, Color> Ramp { get; }
 
-    public Color NoData { get; init; } = new("d9d6cb");
+    /// <summary>Color of cells without a value (e.g. the aspect of flat ground).</summary>
+    private static readonly Color NoData = new("d9d6cb");
 
     /// <summary>How a value reads in the probe; defaults to the field's own formatting.</summary>
     public Func<ScalarField, float, string>? Format { get; init; }

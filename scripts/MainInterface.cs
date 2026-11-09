@@ -27,18 +27,19 @@ public partial class Main
     private readonly Debounce _debounce = new() { Name = "Debounce" };
 
     /// <summary>
-    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": a ground coloring (null keeps a
-    /// sampled field if one is showing, else the first field) and the city layers to show; all others are hidden.
+    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": whether the ground shows a sampled
+    /// field (the one showing, else the first) instead of the landscape, and the city layers to show; all others are
+    /// hidden.
     /// </summary>
-    private static readonly Dictionary<string, (int? Ground, CityLayer[] Layers)> Views = new()
+    private static readonly Dictionary<string, (bool Field, CityLayer[] Layers)> Views = new()
     {
-        [TerrainStage] = (0, Array.Empty<CityLayer>()),
-        ["场地采样"] = (null, new[] { CityLayer.Contours }),
-        ["场地"] = (0, new[] { CityLayer.Site }),
-        ["城镇布局"] = (0, new[] { CityLayer.Layout }),
-        ["路网"] = (0, new[] { CityLayer.Layout, CityLayer.Roads }),
-        ["街区与地块"] = (0, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
-        ["建筑"] = (0, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Buildings }),
+        [TerrainStage] = (false, Array.Empty<CityLayer>()),
+        ["场地采样"] = (true, new[] { CityLayer.Contours }),
+        ["场地"] = (false, new[] { CityLayer.Site }),
+        ["城镇布局"] = (false, new[] { CityLayer.Layout }),
+        ["路网"] = (false, new[] { CityLayer.Layout, CityLayer.Roads }),
+        ["街区与地块"] = (false, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
+        ["建筑"] = (false, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Buildings }),
     };
 
     private static readonly (CityLayer Layer, string Name)[] LayerNames =
@@ -47,6 +48,7 @@ public partial class Main
         (CityLayer.Blocks, "街区"), (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
     };
 
+    /// <summary>Menu items in <see cref="_ground"/> order: landscape, suitability, then every field.</summary>
     private static string[] GroundNames =>
         new[] { "地表", "地形适宜性" }.Concat(FieldStyles.All.Select(s => "采样 · " + s.Name)).ToArray();
 
@@ -145,7 +147,7 @@ public partial class Main
     {
         if (!Views.TryGetValue(stage, out var view))
             return;
-        _ground.Value = view.Ground ?? (_ground.Value >= 2 ? _ground.Value : 2);
+        _ground.Value = !view.Field ? LandscapeGround : GroundStyle != null ? _ground.Value : FieldGround(0);
         foreach (var (layer, setting) in _layers)
             setting.Value = view.Layers.Contains(layer);
     }
@@ -159,28 +161,23 @@ public partial class Main
         switch (stage)
         {
             case TerrainStage:
-                ins.Toggle("地形适宜性着色", () => _ground.Value == 1, on => _ground.Value = on ? 1 : 0);
-                _ground.Changed += _ => ins.Refresh();
+                SuitabilityToggle(ins);
                 ins.Toggle("森林", _forest);
                 ins.Toggle("河面", _water);
                 ins.Toggle("地被与岩石", _cover);
                 break;
             case "场地采样":
+                // Item 0 is no coloring, item i + 1 the field FieldStyles.All[i].
                 var fields = new[] { "（不着色）" }.Concat(FieldStyles.All.Select(s => s.Name)).ToArray();
-                ins.Choice("地面着色", fields, () => _ground.Value >= 2 ? _ground.Value - 1 : 0, i => _ground.Value = i == 0 ? 0 : i + 1,
-                    "把一个采样场的值画在地面上");
+                ins.Choice("地面着色", fields, () => GroundStyle == null ? 0 : _ground.Value - FieldGround(0) + 1,
+                    i => _ground.Value = i == 0 ? LandscapeGround : FieldGround(i - 1), "把一个采样场的值画在地面上");
                 _ground.Changed += _ => ins.Refresh();
                 Layer(CityLayer.Contours);
-                ins.Slider("等高距 m", 1, 10, 0.5, () => _city.ContourInterval, v =>
-                {
-                    _city.ContourInterval = (float)v;
-                    UpdateLegend();
-                }, 2);
+                ContourIntervalSlider(ins);
                 break;
             case "场地":
                 Layer(CityLayer.Site);
-                ins.Toggle("地形适宜性着色", () => _ground.Value == 1, on => _ground.Value = on ? 1 : 0);
-                _ground.Changed += _ => ins.Refresh();
+                SuitabilityToggle(ins);
                 break;
             case "城镇布局":
                 Layer(CityLayer.Layout);
@@ -203,6 +200,20 @@ public partial class Main
                 break;
         }
     }
+
+    private void SuitabilityToggle(Inspector ins)
+    {
+        ins.Toggle("地形适宜性着色", () => _ground.Value == SuitabilityGround,
+            on => _ground.Value = on ? SuitabilityGround : LandscapeGround);
+        _ground.Changed += _ => ins.Refresh();
+    }
+
+    private void ContourIntervalSlider(Inspector ins) =>
+        ins.Slider("等高距 m", 1, 10, 0.5, () => _city.ContourInterval, v =>
+        {
+            _city.ContourInterval = (float)v;
+            UpdateLegend();
+        }, 2);
 
     /// <summary>
     /// The terrain stage's settings: seed and the map's shape. They feed map generation (the whole graph depends on
@@ -267,11 +278,7 @@ public partial class Main
         var layers = page.Section("城市图层");
         foreach (var (layer, name) in LayerNames)
             layers.Toggle(name, _layers[layer]);
-        layers.Slider("等高距 m", 1, 10, 0.5, () => _city.ContourInterval, v =>
-        {
-            _city.ContourInterval = (float)v;
-            UpdateLegend();
-        }, 2);
+        ContourIntervalSlider(layers);
         var environment = page.Section("环境要素");
         environment.Toggle("森林", _forest);
         environment.Toggle("河面", _water);

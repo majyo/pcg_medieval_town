@@ -28,10 +28,18 @@ public partial class Main : Node3D
     private object? _treeMaskSource;
 
     // What is shown. Several controls may show one setting; changing it anywhere updates the scene and them all.
-    /// <summary>Ground coloring: 0 landscape, 1 terrain suitability, 2 + i the field of <c>FieldStyles.All[i]</c>.</summary>
-    private readonly Setting<int> _ground = new(0);
+    /// <summary>Ground coloring: <see cref="LandscapeGround"/>, <see cref="SuitabilityGround"/> or <see cref="FieldGround"/>.</summary>
+    private readonly Setting<int> _ground = new(LandscapeGround);
     private readonly Dictionary<CityLayer, Setting<bool>> _layers = new();
     private readonly Setting<bool> _forest = new(true), _water = new(true), _cover = new(true);
+
+    private const int LandscapeGround = 0, SuitabilityGround = 1;
+
+    /// <summary>Ground coloring that paints the field of <c>FieldStyles.All[index]</c>.</summary>
+    private static int FieldGround(int index) => 2 + index;
+
+    /// <summary>The field style the ground is colored by, or null for the landscape and suitability views.</summary>
+    private FieldStyle? GroundStyle => _ground.Value >= FieldGround(0) ? FieldStyles.All[_ground.Value - FieldGround(0)] : null;
 
     public override async void _Ready()
     {
@@ -143,11 +151,11 @@ public partial class Main : Node3D
     {
         if (_terrain == null)
             return;
-        var style = _ground.Value >= 2 ? FieldStyles.All[_ground.Value - 2] : null;
+        var style = GroundStyle;
         var field = style == null ? null : _graph.Get(style.Key);
         if (style == null || field == null && _paintedField == null)
         {
-            if (_ground.Value == 1)
+            if (_ground.Value == SuitabilityGround)
                 _terrain.ShowSuitability();
             else
                 _terrain.ShowLandscape();
@@ -167,9 +175,8 @@ public partial class Main : Node3D
         if (_ui == null)
             return;
         var entries = new List<LegendEntry>();
-        if (_ground.Value >= 2)
+        if (GroundStyle is { } style)
         {
-            var style = FieldStyles.All[_ground.Value - 2];
             var field = _graph.Get(style.Key);
             var shown = field ?? _paintedField;
             if (shown != null)
@@ -179,7 +186,7 @@ public partial class Main : Node3D
                 entries.Add(new LegendEntry(caption, style.Ramp, style.Describe(shown, low), style.Describe(shown, high)));
             }
         }
-        else if (_ground.Value == 1)
+        else if (_ground.Value == SuitabilityGround)
         {
             entries.Add(new LegendEntry("地形适宜性", TerrainRenderer.SuitabilityRamp, "不适宜", "适宜",
                 new[] { (TerrainRenderer.SuitabilityWater, "水域") }));
@@ -211,13 +218,13 @@ public partial class Main : Node3D
         var views = new List<(string Name, Action Setup)>();
         for (int i = 0; i < FieldStyles.All.Count; i++)
         {
-            int view = 2 + i;
+            int view = FieldGround(i);
             views.Add(($"field_{FieldStyles.All[i].Key.Name.Replace("site.", "")}", () => ShowField(view, _camera.TopView)));
         }
 
         foreach (var (key, contours) in new[] { (Keys.Slope, false), (Keys.AboveWater, true) })
         {
-            int view = 2 + FieldStyles.All.ToList().FindIndex(s => s.Key == key);
+            int view = FieldGround(FieldStyles.All.ToList().FindIndex(s => s.Key == key));
             string name = $"field_{key.Name.Replace("site.", "")}_town";
             views.Add((name, () => ShowField(view, () =>
             {

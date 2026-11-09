@@ -4,8 +4,8 @@ using Godot;
 namespace PcgCitySandbox.City;
 
 /// <summary>
-/// The sampling grid every site field shares: square cells over the whole map, centered on the origin. Fields on
-/// the same grid instance have the same cell numbering, so they combine cell by cell.
+/// Square cells over the map. The sampled fields all share one instance (centered on the origin), so they combine
+/// cell by cell; <see cref="Site"/> keeps its own coarser one.
 /// </summary>
 public sealed class SiteGrid : ISummarized
 {
@@ -22,7 +22,6 @@ public sealed class SiteGrid : ISummarized
     public int Nx { get; }
     public int Nz { get; }
     public int Count => Nx * Nz;
-    public float CellArea => CellSize * CellSize;
     public Vector2 Size => new(Nx * CellSize, Nz * CellSize);
 
     public string Summary => $"{Nx}×{Nz} 格，{CellSize:0.#} m";

@@ -55,7 +55,7 @@ public partial class GroundSurface : Node3D
         // samples no textures, but one placeholder asset keeps that block out.
         _terrain.Assets.SetTextureAsset(0, PlaceholderTexture());
 
-        Masks = MaskImage(masks);
+        Masks = PointImage(masks);
         Import(HeightImage(), new Variant(), Masks);
         CutOutsideMap();
         _terrain.Material.SetShaderParam("view_mode", 0);
@@ -67,7 +67,7 @@ public partial class GroundSurface : Node3D
     /// </summary>
     public void SetMasks(Func<Vector2, Color> masks)
     {
-        Masks = MaskImage(masks);
+        Masks = PointImage(masks);
         Import(new Variant(), new Variant(), Masks);
         _terrain.Material.SetShaderParam("view_mode", 0);
     }
@@ -75,14 +75,7 @@ public partial class GroundSurface : Node3D
     /// <summary>Analysis view: shows the sRGB color <paramref name="color"/> gives at each height-grid point as is.</summary>
     public void Paint(Func<Vector2, Color> color)
     {
-        Import(new Variant(), new Variant(), MaskImage(color));
-        _terrain.Material.SetShaderParam("view_mode", 1);
-    }
-
-    /// <summary>Analysis view: shows per-analysis-grid-vertex sRGB colors as they are.</summary>
-    public void SetColors(Func<int, Color> gridColor)
-    {
-        Import(new Variant(), new Variant(), ColorImage(gridColor));
+        Import(new Variant(), new Variant(), PointImage(color));
         _terrain.Material.SetShaderParam("view_mode", 1);
     }
 
@@ -124,38 +117,14 @@ public partial class GroundSurface : Node3D
     private Image HeightImage() =>
         Image.CreateFromData(_side, _side, false, Image.Format.Rf, MemoryMarshal.AsBytes(_map.HeightGrid.AsSpan()).ToArray());
 
-    /// <summary>Evaluates <paramref name="masks"/> (masks or colors) at every height-grid point.</summary>
-    private Image MaskImage(Func<Vector2, Color> masks)
+    /// <summary>Evaluates <paramref name="value"/> (masks or colors) at every height-grid point.</summary>
+    private Image PointImage(Func<Vector2, Color> value)
     {
         var pixels = new byte[_side * _side * 4];
         Parallel.For(0, _side, z =>
         {
             for (int x = 0; x < _side; x++)
-                Write(pixels, z * _side + x, masks(_map.HeightPosition(x, z)));
-        });
-        return Image.CreateFromData(_side, _side, false, Image.Format.Rgba8, pixels);
-    }
-
-    /// <summary>Analysis-grid colors bilinearly resampled onto the height grid.</summary>
-    private Image ColorImage(Func<int, Color> gridColor)
-    {
-        var grid = new Color[_map.Heights.Length];
-        for (int i = 0; i < grid.Length; i++)
-            grid[i] = gridColor(i);
-        var pixels = new byte[_side * _side * 4];
-        Parallel.For(0, _side, z =>
-        {
-            for (int x = 0; x < _side; x++)
-            {
-                var p = _map.HeightPosition(x, z);
-                float gx = Mathf.Clamp((p.X + _map.Half) / _map.Spacing, 0, _map.Side - 1.001f);
-                float gz = Mathf.Clamp((p.Y + _map.Half) / _map.Spacing, 0, _map.Side - 1.001f);
-                int ix = (int)gx, iz = (int)gz;
-                float u = gx - ix, v = gz - iz;
-                var top = grid[_map.Index(ix, iz)].Lerp(grid[_map.Index(ix + 1, iz)], u);
-                var bottom = grid[_map.Index(ix, iz + 1)].Lerp(grid[_map.Index(ix + 1, iz + 1)], u);
-                Write(pixels, z * _side + x, top.Lerp(bottom, v));
-            }
+                Write(pixels, z * _side + x, value(_map.HeightPosition(x, z)));
         });
         return Image.CreateFromData(_side, _side, false, Image.Format.Rgba8, pixels);
     }

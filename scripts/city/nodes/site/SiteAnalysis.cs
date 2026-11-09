@@ -23,7 +23,7 @@ public sealed class SiteAnalysis : CityNode<SiteAnalysisOptions>
     {
         var map = c.Terrain;
         int n = (int)MathF.Floor(map.Half * 2 / o.CellSize);
-        var site = new Site(new Vector2(-map.Half, -map.Half), o.CellSize, n, n);
+        var site = new Site(new SiteGrid(new Vector2(-map.Half, -map.Half), o.CellSize, n, n));
         int buildable = 0;
         for (int k = 0; k < site.Count; k++)
         {

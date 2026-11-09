@@ -59,7 +59,7 @@ public partial class TerrainRenderer : Node3D
         if (_view == GroundView.Suitability)
             return;
         _view = GroundView.Suitability;
-        _ground.SetColors(SuitabilityColor);
+        _ground.Paint(SuitabilityColor);
     }
 
     /// <summary>Colors the ground with <paramref name="color"/> at every height-grid point; always repaints.</summary>
@@ -115,8 +115,11 @@ public partial class TerrainRenderer : Node3D
 
     public static readonly Color SuitabilityWater = new("315f74");
 
-    /// <summary>Suitability color at analysis grid vertex <paramref name="i"/>.</summary>
-    private Color SuitabilityColor(int i) => _data.Water[i] ? SuitabilityWater : SuitabilityRamp(_data.Suitability[i]);
+    private Color SuitabilityColor(Vector2 p)
+    {
+        var sample = _data.Sample(p);
+        return sample.IsWater ? SuitabilityWater : SuitabilityRamp(sample.Suitability);
+    }
 
     private void BuildSkirt()
     {

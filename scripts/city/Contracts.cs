@@ -21,7 +21,7 @@ public static class Contracts
         new(Keys.Grid, GridRules),
         new(Keys.Height, r => FieldRules(r, Keys.Height).Concat(HeightRules(r))),
         new(Keys.Slope, r => FieldRules(r, Keys.Slope).Concat(Range(r, Keys.Slope, 0, 45))),
-        new(Keys.Aspect, r => FieldRules(r, Keys.Aspect).Concat(AspectRules(r))),
+        new(Keys.Aspect, r => FieldRules(r, Keys.Aspect).Concat(Range(r, Keys.Aspect, 0, 360, maxExclusive: true))),
         new(Keys.Shore, r => FieldRules(r, Keys.Shore).Concat(ShoreRules(r))),
         new(Keys.AboveWater, r => FieldRules(r, Keys.AboveWater).Concat(AboveWaterRules(r))),
         new(Keys.Relief, r => FieldRules(r, Keys.Relief).Concat(ReliefRules(r))),
@@ -65,19 +65,15 @@ public static class Contracts
             yield return "统计的最小/最大值与数据不符";
     }
 
-    /// <summary>Every value (no-data cells excepted) lies in [<paramref name="min"/>, <paramref name="max"/>].</summary>
-    private static IEnumerable<string> Range(IKeyReader r, Key<ScalarField> key, float min, float max)
+    /// <summary>
+    /// Every value (no-data cells excepted) lies in [<paramref name="min"/>, <paramref name="max"/>], or in
+    /// [<paramref name="min"/>, <paramref name="max"/>) for angles that wrap.
+    /// </summary>
+    private static IEnumerable<string> Range(IKeyReader r, Key<ScalarField> key, float min, float max, bool maxExclusive = false)
     {
         var field = r.Get(key)!;
-        if (field.Values.Any(v => !field.IsNoData(v) && (v < min || v > max)))
-            yield return $"取值超出 [{min}, {max}]：{field.Min}–{field.Max}";
-    }
-
-    private static IEnumerable<string> AspectRules(IKeyReader r)
-    {
-        var aspect = r.Get(Keys.Aspect)!;
-        if (aspect.Values.Any(v => !aspect.IsNoData(v) && v is < 0 or >= 360))
-            yield return $"坡向超出 [0, 360)：{aspect.Min}–{aspect.Max}";
+        if (field.Values.Any(v => !field.IsNoData(v) && (v < min || v > max || maxExclusive && v == max)))
+            yield return $"取值超出 [{min}, {max}{(maxExclusive ? ")" : "]")}：{field.Min}–{field.Max}";
     }
 
     /// <summary>

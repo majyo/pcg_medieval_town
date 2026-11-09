@@ -123,9 +123,11 @@ public partial class CityView : Node3D
 
     private float Height(Vector2 p) => _graph!.Terrain.HeightAt(p);
 
-    private static void Add(Node3D root, MeshKit kit, Material material, bool shadows = true)
+    private static void Add(Node3D root, MeshKit kit, Material material, bool shadows = true) =>
+        Add(root, kit.Commit(), material, shadows);
+
+    private static void Add(Node3D root, ArrayMesh? mesh, Material material, bool shadows = true)
     {
-        var mesh = kit.Commit();
         if (mesh == null)
             return;
         root.AddChild(new MeshInstance3D
@@ -167,15 +169,7 @@ public partial class CityView : Node3D
             (indices[t], indices[t + 1], indices[t + 2]) = (v, v + 1, v + 2);
             (indices[t + 3], indices[t + 4], indices[t + 5]) = (v, v + 2, v + 3);
         });
-        var mesh = MeshKit.Indexed(vertices, colors, indices);
-        if (mesh == null)
-            return;
-        root.AddChild(new MeshInstance3D
-        {
-            Mesh = mesh,
-            MaterialOverride = MeshKit.Material(unshaded: true, alpha: 0.6f),
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        });
+        Add(root, MeshKit.Indexed(vertices, colors, indices), MeshKit.Material(unshaded: true, alpha: 0.6f), shadows: false);
     }
 
     private void BuildSite(Node3D root, Site site)
