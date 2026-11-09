@@ -102,7 +102,17 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
                 }
 
                 cells.Add(current);
-                var points = Geometry.Simplify(cells.Select(site.Center).ToList(), site.CellSize * 0.4f);
+                // Main and outer roads follow the straightened through routes, whose cells step around lines at any
+                // angle; simplify them as loosely as the routes were, or they zigzag and their paving nicks the plots.
+                // Where the loose line touches water (a crossing, or a cut river bend), keep the tight one.
+                var centers = cells.Select(site.Center).ToList();
+                var points = Geometry.Simplify(centers, site.CellSize * 0.4f);
+                if (kind != RoadKind.Street)
+                {
+                    var loose = Geometry.Simplify(centers, site.CellSize * 0.75f);
+                    if (Geometry.Samples(loose, 1).All(p => site.CellAt(p) is int k && k >= 0 && site.Block[k] != SiteBlock.Water))
+                        points = loose;
+                }
                 edges.Add(new RoadEdge(edges.Count, Id(start), Id(current), points, kind, o.Width(kind)));
             }
         }

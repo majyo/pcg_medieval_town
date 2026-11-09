@@ -4,12 +4,6 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-/// <summary>Where the town stands and how far it is planned to reach.</summary>
-public sealed record TownCore(Vector2 Position, float Radius) : ISummarized
-{
-    public string Summary => $"城址 ({Position.X:0}, {Position.Y:0})，规划半径 {Radius:0} m";
-}
-
 /// <summary>The market place and a point inside it (on its road, or the middle of a triangle at a junction).</summary>
 public sealed record Plaza(Region Area, Vector2 Center) : ISummarized
 {

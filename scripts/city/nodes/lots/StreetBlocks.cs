@@ -15,16 +15,16 @@ public sealed class StreetBlocksOptions
 }
 
 /// <summary>
-/// Developable land = wall interior minus a setback, the paved area, landmark plots and unbuildable cells; blocks are
-/// its parts.
+/// Developable land = built cells inside the wall, minus a setback from the wall, the paved area, landmark plots and
+/// unbuildable cells; blocks are its parts. The unbuilt land inside the wall stays gardens.
 /// </summary>
 public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
 {
     public override string Group => "街区与地块";
     public override string Title => "街区";
     public override string Description =>
-        "城内退让城墙后，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads, Keys.Landmarks];
+        "城内已建成的地退让城墙后，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区；城内没建成的地留作菜园。";
+    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 
     protected override void Run(NodeContext c, StreetBlocksOptions o)
@@ -33,6 +33,7 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
         var wall = c.Get(Keys.Wall);
         var roads = c.Get(Keys.Roads);
         var developable = wall.Interior.Offset(-o.WallSetback)
+            .Intersect(c.Get(Keys.Growth).Footprint.Rounded(site.CellSize))
             .Subtract(roads.Footprint)
             .Subtract(c.Get(Keys.Landmarks).Plots)
             .Subtract(Unbuildable(site, wall.Interior.Bounds));

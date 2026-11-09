@@ -35,6 +35,20 @@ public sealed class GrowthHistory : ISummarized
 
     public bool Built(int k) => Phase[k] != 0;
 
+    /// <summary>The built cells as one region (cell squares merged), computed once.</summary>
+    public Region Footprint => _footprint ??= Squares(Enumerable.Range(0, Phase.Length).Where(Built));
+
+    private Region? _footprint;
+
+    private Region Squares(IEnumerable<int> cells)
+    {
+        float h = Grid.CellSize / 2;
+        return Region.Polygons(cells.Select(k => Grid.Center(k)).Select(p => new[]
+        {
+            p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h),
+        }));
+    }
+
     /// <summary>Built area after phase <paramref name="n"/>, in m².</summary>
     public float AreaAfter(int n) => Phases.Take(n).Sum(p => p.Area);
 

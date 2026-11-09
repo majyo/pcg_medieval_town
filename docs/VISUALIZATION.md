@@ -158,12 +158,12 @@ ViewState
 | `region.routes` | 干线和支线用两种线宽，入口画编号标记 | 同上 |
 | `town.origin` | 屏幕固定大小的标记加标签（现在的立柱在全图下太小） | 同上 |
 | `region.origin_score`（新增） | 地面着色：每个候选格的综合得分，不可选的格为灰色 | `ChooseOrigin` 新写的诊断键，见下 |
-| `town.core` | 城址点和规划半径圆 | 过渡键，城镇生长完成后随它删除 |
+| `town.core` | （已删除） | 过渡键，城市规划第 4 步删除 |
 | `town.plaza`、`town.wall`、`town.gates` | 各自独立的画法，分别有 Focus 和 Result 两种样子 | 从“广场与城墙”拆出；布置城门编辑城墙时，用 `previous` 标出被挪动的墙点 |
 | `town.growth` | 地面着色（分类）：按建成于第几期着色，越早越深，未建成为浅色；探针读“二期 市镇” | 已实现。各期节点编辑同一个键，点哪一期就只看到它及之前的各期，取代 CITY_PLANNING 原计划的“显示到第 N 期”滑条 |
 | `town.landmarks` | 墓园用地铺浅绿，上面是教堂：双坡中殿和西端钟塔，祭坛朝东 | 已实现；成果画面也画 |
 | `road.zones` | 地面着色（分类）：城内可修、城外可修、城门、不可修 | 需要给 `RoadZones` 加一个按格取类别的方法 |
-| `road.links` | 格心之间的线，按道路等级配色；用 `previous` 区分：本节点新加的连线为 Focus，继承的为 Context | 主街、城外道路、街巷网各自能看出加了什么 |
+| `road.links` | 格心之间的线，按道路等级配色；用 `previous` 区分：本节点新加的连线为 Focus，继承的为 Context | 骨架道路、街巷网各自能看出加了什么 |
 | `roads` | 中心线 + 铺装面，等级用色相和线宽两种方式区分 | |
 | `blocks`、`parcels`、`buildings` | 已有，Focus / Result 两种样子 | |
 | `site` | 隐藏 | 过渡键，CITY_PLANNING 第 6 步删除 |

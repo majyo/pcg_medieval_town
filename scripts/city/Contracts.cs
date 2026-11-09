@@ -37,7 +37,6 @@ public static class Contracts
         new(Keys.Growth, GrowthRules),
         new(Keys.Plaza, PlazaRules),
         new(Keys.Landmarks, LandmarkRules),
-        new(Keys.Core, CoreRules),
         new(Keys.Wall, WallRules),
         new(Keys.Gates, GateRules),
         new(Keys.Roads, RoadRules),
@@ -518,13 +517,6 @@ public static class Contracts
             yield return $"场地可建设比例异常 {site.BuildableFraction:P0}";
     }
 
-    private static IEnumerable<string> CoreRules(IKeyReader r)
-    {
-        var site = r.Get(Keys.Site)!;
-        if (!site.Buildable(site.CellAt(r.Get(Keys.Core)!.Position)))
-            yield return "城址不在可建设格";
-    }
-
     /// <summary>
     /// The wall is a simple polygon that stays out of the water, holds the landmark plots (the market: see its rules), and
     /// encloses at least half of the town built before it.
@@ -607,6 +599,8 @@ public static class Contracts
         var interior = r.Get(Keys.Wall)!.Interior;
         var gates = r.Get(Keys.Gates)!.Gates;
         var roads = r.Get(Keys.Roads)!;
+        var used = r.Get(Keys.Routes)!.UsedCrossings.ToHashSet();
+        var bridges = r.Get(Keys.Crossings)!.Crossings.Where(x => used.Contains(x.Id)).ToList();
         if (!roads.Edges.All(e => e.From < roads.Nodes.Count && e.To < roads.Nodes.Count))
             yield return "路段引用了不存在的节点";
         if (!roads.Edges.All(e => e.Length > 0.01f))
@@ -622,9 +616,10 @@ public static class Contracts
             {
                 int k = site.CellAt(p);
                 bool nearGate = gates.Any(g => g.Position.DistanceTo(p) < site.CellSize * 1.5f);
-                if (k < 0 || site.Block[k] == SiteBlock.Water)
+                bool onBridge = bridges.Any(b => Geometry.DistanceToSegment(p, b.BankA, b.BankB) <= site.CellSize);
+                if (k < 0 || site.Block[k] == SiteBlock.Water && !onBridge)
                 {
-                    yield return $"路段 {edge.Id} 穿过水域 {p}";
+                    yield return $"路段 {edge.Id} 在渡口以外穿过水域 {p}";
                     break;
                 }
 
@@ -643,6 +638,9 @@ public static class Contracts
         var roads = r.Get(Keys.Roads)!;
         if (blocks.Developable.Subtract(r.Get(Keys.Wall)!.Interior).Area >= Tolerance)
             yield return "可建区超出城墙";
+        var growth = r.Get(Keys.Growth)!;
+        if (blocks.Developable.Subtract(growth.Footprint.Offset(growth.Grid.CellSize)).Area >= Tolerance)
+            yield return "可建区超出建成格一格以上（压到菜园）";
         if (blocks.Developable.Intersect(roads.Footprint).Area >= Tolerance)
             yield return "可建区压到道路";
     }

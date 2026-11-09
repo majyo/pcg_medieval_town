@@ -44,8 +44,6 @@ public static class Keys
         "城镇的市场广场：路口处的三角形，或道路加宽成的纺锤形");
     public static readonly Key<LandmarkSet> Landmarks = new("town.landmarks", "地标",
         "公共建筑的用地，目前是教堂（东西向，祭坛朝东）");
-    public static readonly Key<TownCore> Core = new("town.core", "城址",
-        "过渡用：市场中心加固定的规划半径，主街以它为终点");
     public static readonly Key<WallRing> Wall = new("town.wall", "城墙",
         "城墙的环线和它围住的城内范围");
     public static readonly Key<GateSet> Gates = new("town.gates", "城门",
@@ -53,7 +51,7 @@ public static class Keys
     public static readonly Key<RoadZones> RoadZones = new("road.zones", "通行区",
         "每格能否修路，在城内还是城外；只能在城门处穿墙");
     public static readonly Key<RoadLinks> RoadLinks = new("road.links", "道路连线",
-        "相邻格之间的道路连线（带等级），由主街、城外道路、街巷网依次累加");
+        "相邻格之间的道路连线（带等级）：骨架道路抄自过境道路（城内为主街、城外为城外道路），街巷网再累加");
     public static readonly Key<RoadGraph> Roads = new("roads", "路网",
         "由连线提取出的路网：路口、路段折线、路宽和铺装范围");
     public static readonly Key<BlockSet> Blocks = new("blocks", "街区",

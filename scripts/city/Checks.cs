@@ -143,15 +143,15 @@ public static class Checks
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
         var errors = new List<string>();
-        errors.AddRange(await Invalidation<OuterRoads>(graph, "城外道路",
+        errors.AddRange(await Invalidation<SkeletonLinks>(graph, "骨架道路",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group or TownGrowth.Group ||
-                node is RoadZoning or MainStreets));
+                node is RoadZoning));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
-                node is Village or MarketPlace or LegacyCore));
+                node is Village or MarketPlace));
         errors.AddRange(await Invalidation<EnclosingWall>(graph, "城墙",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
-                node is Village or MarketPlace or ChurchSite or MarketGrowth or LegacyCore));
+                node is Village or MarketPlace or ChurchSite or MarketGrowth));
         errors.AddRange(await Invalidation<Habitability>(graph, "宜居度",
             node => node.Group == Sampling.Group || node is BuildableLand or TravelCost or RiverCrossings or RegionalRoutes));
         errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is SampleGrid or SampleForest));
@@ -226,7 +226,6 @@ public static class Checks
             string.Join(",", landmarks.Landmarks.Select(l => l.Center)),
             graph.Get(Keys.Wall)!.Interior.Area.ToString("F1"),
             graph.Get(Keys.Gates)!.Gates.Count,
-            graph.Get(Keys.Core)!.Position,
             roads.Edges.Count,
             roads.Edges.Sum(e => e.Length).ToString("F2"),
             parcels.Parcels.Count,

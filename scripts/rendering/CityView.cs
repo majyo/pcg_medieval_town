@@ -26,7 +26,7 @@ public partial class CityView : Node3D
     private static readonly Color[] Roofs = { new("8c4a36"), new("7a3f2f"), new("9a5a3e"), new("5e5048") };
     private static readonly Color Stone = new("a49c8c"), StoneTop = new("8c8578");
     private static readonly object DetailMark = new();
-    private static readonly Color PlazaColor = new("cdb995"), CoreColor = new("d9772b"), InheritedColor = new("8d897d");
+    private static readonly Color PlazaColor = new("cdb995"), InheritedColor = new("8d897d");
     private static readonly Color ChurchyardColor = new("a9b98a"), ChurchWall = new("e6dcc6"), ChurchRoof = new("5e5048");
 
     /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
@@ -47,14 +47,14 @@ public partial class CityView : Node3D
             [Keys.Height] = new((root, s, _) => BuildContours(root, (ScalarField)s.Value),
                 _ => new FieldLegend($"等高线 · 每 {_contourInterval:0.#} m，每 5 条加粗", null, "", "", null)),
             [Keys.Crossings] = new(
-                (root, s, other) => BuildCrossings(root, (CrossingSet)s.Value, other(Keys.Routes) as RouteNetwork, s.Detail),
-                _ => Categories("渡口", (CrossingColor, "渡口（细线：过境道路没有用到）")), Uses: [Keys.Routes]),
+                (root, s, other) => BuildCrossings(root, (CrossingSet)s.Value,
+                    other(Keys.Routes) as RouteNetwork ?? _graph!.Final(Keys.Routes) as RouteNetwork, s.Detail),
+                s => Categories("渡口", (CrossingColor, s.Detail ? "渡口（细线：过境道路没有用到）" : "桥")),
+                Uses: [Keys.Routes], Context: [Keys.Routes]),
             [Keys.Routes] = new((root, s, _) => BuildRoutes(root, (RouteNetwork)s.Value),
                 _ => Categories("过境道路", (RouteColor, "过境道路"), (EntryColor, "图边入口"))),
             [Keys.Origin] = new((root, s, _) => BuildOrigin(root, (TownOrigin)s.Value, s.Detail),
                 _ => Categories("起源点", (OriginColor, "起源点"))),
-            [Keys.Core] = new((root, s, _) => BuildCore(root, (TownCore)s.Value),
-                _ => Categories("城址", (CoreColor, "城址与规划半径"))),
             [Keys.Plaza] = new((root, s, _) => BuildPlaza(root, (Plaza)s.Value),
                 _ => Categories("市场", (PlazaColor, "市场"))),
             [Keys.Landmarks] = new((root, s, _) => BuildLandmarks(root, (LandmarkSet)s.Value),
@@ -96,7 +96,7 @@ public partial class CityView : Node3D
         CityLayer.Contours => [Keys.Height],
         CityLayer.Region => [Keys.Crossings, Keys.Routes, Keys.Origin],
         CityLayer.Layout => [Keys.Plaza, Keys.Landmarks, Keys.Wall, Keys.Gates],
-        CityLayer.Roads => [Keys.Roads],
+        CityLayer.Roads => [Keys.Roads, Keys.Crossings],
         CityLayer.Blocks => [Keys.Blocks],
         CityLayer.Parcels => [Keys.Parcels],
         _ => [Keys.Buildings],
@@ -225,8 +225,8 @@ public partial class CityView : Node3D
     }
 
     /// <summary>
-    /// A plank deck at each crossing, as wide as a road where a shown through route uses it (or where no routes are
-    /// shown), a thin outline elsewhere; in detail also a ring around each, so they can be found on the whole map.
+    /// A plank deck as wide as a road at each crossing a through route uses. When inspecting, the other crossings get a
+    /// thin outline and every crossing a ring, so they can be found on the whole map; in the result they are left out.
     /// </summary>
     private void BuildCrossings(Node3D root, CrossingSet crossingSet, RouteNetwork? network, bool detail)
     {
@@ -237,8 +237,11 @@ public partial class CityView : Node3D
         var solids = new MeshKit();
         foreach (var crossing in crossingSet.Crossings)
         {
+            bool inUse = used == null || used.Contains(crossing.Id);
+            if (!inUse && !detail)
+                continue;
             var along = (crossing.BankB - crossing.BankA).Normalized();
-            var side = along.Orthogonal() * (used == null || used.Contains(crossing.Id) ? deckWidth : 1.5f) / 2;
+            var side = along.Orthogonal() * (inUse ? deckWidth : 1.5f) / 2;
             float deck = Math.Max(Height(crossing.BankA), Height(crossing.BankB)) + 0.4f;
             var corners = new[] { crossing.BankA + side, crossing.BankB + side, crossing.BankB - side, crossing.BankA - side };
             solids.Prism(corners, deck - 0.8f, deck, CrossingColor, CrossingColor.Lightened(0.2f));
@@ -267,18 +270,6 @@ public partial class CityView : Node3D
             Rings(root, new[] { origin.Position }, 50, OriginColor);
         var mast = new MeshKit();
         Mast(mast, origin.Position, 6, 32, OriginColor);
-        Add(root, mast, MeshKit.Material());
-    }
-
-    /// <summary>The planned town core: a mast at its center and a ring at its radius.</summary>
-    private void BuildCore(Node3D root, TownCore core)
-    {
-        var ring = Enumerable.Range(0, 97).Select(i => core.Position + Vector2.FromAngle(i * MathF.Tau / 96) * core.Radius).ToArray();
-        var kit = new MeshKit();
-        kit.Drape(Region.Lines(new[] { ((IReadOnlyList<Vector2>)ring, 3f) }).Triangulate(), Height, 0.6f, CoreColor, maxEdge: 4);
-        Add(root, kit, MeshKit.Material(unshaded: true), shadows: false);
-        var mast = new MeshKit();
-        Mast(mast, core.Position, 4, 18, CoreColor);
         Add(root, mast, MeshKit.Material());
     }
 

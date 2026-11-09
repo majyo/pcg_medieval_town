@@ -52,6 +52,16 @@ public sealed class Region
     public Region Intersect(Region other) => new(Clipper.Intersect(_paths, other._paths, FillRule.NonZero));
     public Region Subtract(Region other) => new(Clipper.Difference(_paths, other._paths, FillRule.NonZero));
 
+    /// <summary>
+    /// Rounds the outline at the scale of <paramref name="meters"/>: closes notches and opens spurs narrower than
+    /// twice that, so stair steps of grid cells become smooth lines.
+    /// </summary>
+    public Region Rounded(float meters)
+    {
+        Paths64 Grow(Paths64 paths, double by) => Clipper.InflatePaths(paths, by * Scale, JoinType.Round, EndType.Polygon);
+        return new Region(Grow(Grow(Grow(_paths, meters), -2 * meters), meters));
+    }
+
     /// <summary>Positive grows, negative shrinks.</summary>
     public Region Offset(float meters) =>
         new(Clipper.InflatePaths(_paths, meters * Scale, JoinType.Miter, EndType.Polygon));
