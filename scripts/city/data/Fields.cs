@@ -81,7 +81,7 @@ public sealed class ScalarField : ISummarized
 
     public bool IsNoData(float v) => NoData.HasValue && v == NoData.Value;
 
-    public string Format(float v) => IsNoData(v) ? "—" : $"{v:0.0}{(Unit == "°" ? "" : " ")}{Unit}";
+    public string Format(float v) => IsNoData(v) ? "—" : $"{v:0.0}{(Unit is "°" or "" ? "" : " ")}{Unit}";
 
     /// <summary>Value of the cell containing <paramref name="p"/>, clamped to the grid.</summary>
     public float Nearest(Vector2 p)

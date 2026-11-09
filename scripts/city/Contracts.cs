@@ -22,6 +22,10 @@ public static class Contracts
         new(Keys.Height, r => FieldRules(r, Keys.Height).Concat(HeightRules(r))),
         new(Keys.Slope, r => FieldRules(r, Keys.Slope).Concat(Range(r, Keys.Slope, 0, 45))),
         new(Keys.Aspect, r => FieldRules(r, Keys.Aspect).Concat(AspectRules(r))),
+        new(Keys.Shore, r => FieldRules(r, Keys.Shore).Concat(ShoreRules(r))),
+        new(Keys.AboveWater, r => FieldRules(r, Keys.AboveWater).Concat(AboveWaterRules(r))),
+        new(Keys.Relief, r => FieldRules(r, Keys.Relief).Concat(ReliefRules(r))),
+        new(Keys.Forest, r => FieldRules(r, Keys.Forest).Concat(Range(r, Keys.Forest, 0, 1)).Concat(ForestRules(r))),
         new(Keys.Site, SiteRules),
         new(Keys.Core, CoreRules),
         new(Keys.Plaza, PlazaRules),
@@ -74,6 +78,88 @@ public static class Contracts
         var aspect = r.Get(Keys.Aspect)!;
         if (aspect.Values.Any(v => !aspect.IsNoData(v) && v is < 0 or >= 360))
             yield return $"坡向超出 [0, 360)：{aspect.Min}–{aspect.Max}";
+    }
+
+    /// <summary>
+    /// The distance counts from the channel edge (the river's half-width). Everything inside it is the terrain's
+    /// water; the real waterline lies a few meters further out, where the bank rises past the water level.
+    /// </summary>
+    private static IEnumerable<string> ShoreRules(IKeyReader r)
+    {
+        const float waterlineReach = 8;
+        var shore = r.Get(Keys.Shore)!;
+        int wetLand = 0, farWater = 0;
+        for (int k = 0; k < shore.Grid.Count; k++)
+        {
+            bool water = r.Terrain.Sample(shore.Grid.Center(k)).IsWater;
+            if (!water && shore.Values[k] < 0)
+                wetLand++;
+            else if (water && shore.Values[k] >= waterlineReach)
+                farWater++;
+        }
+
+        if (wetLand > 0)
+            yield return $"{wetLand} 个陆地格的离水距离为负";
+        if (farWater > 0)
+            yield return $"{farWater} 个水面格离河道边 {waterlineReach} m 以上";
+    }
+
+    /// <summary>Well inside the water the ground is below the water level; well away from it, above.</summary>
+    private static IEnumerable<string> AboveWaterRules(IKeyReader r)
+    {
+        var shore = r.Get(Keys.Shore)!.Values;
+        var above = r.Get(Keys.AboveWater)!.Values;
+        int high = 0, low = 0;
+        for (int k = 0; k < above.Length; k++)
+        {
+            if (shore[k] < -2 && above[k] > 0.5f)
+                high++;
+            else if (shore[k] > 30 && above[k] < 0)
+                low++;
+        }
+
+        if (high > 0)
+            yield return $"{high} 个水面格高出水位 0.5 m 以上";
+        if (low > 0)
+            yield return $"{low} 个离水 30 m 以外的格低于水位";
+    }
+
+    /// <summary>Relative to its surroundings, the map averages out near zero, and the river channel lies low.</summary>
+    private static IEnumerable<string> ReliefRules(IKeyReader r)
+    {
+        var relief = r.Get(Keys.Relief)!.Values;
+        var shore = r.Get(Keys.Shore)!.Values;
+        double mean = relief.Average(v => (double)v);
+        if (Math.Abs(mean) >= 0.5)
+            yield return $"全图平均地形位置 {mean:0.00} m，应接近 0";
+        int deep = 0, low = 0;
+        for (int k = 0; k < relief.Length; k++)
+        {
+            if (shore[k] >= -10)
+                continue;
+            deep++;
+            if (relief[k] < 0)
+                low++;
+        }
+
+        if (deep > 0 && low < deep * 0.9)
+            yield return $"河道深处只有 {low}/{deep} 格低于周围";
+    }
+
+    /// <summary>No forest stands in the water.</summary>
+    private static IEnumerable<string> ForestRules(IKeyReader r)
+    {
+        var forest = r.Get(Keys.Forest)!.Values;
+        var shore = r.Get(Keys.Shore)!.Values;
+        int wet = 0;
+        for (int k = 0; k < forest.Length; k++)
+        {
+            if (shore[k] < 0 && forest[k] > 0)
+                wet++;
+        }
+
+        if (wet > 0)
+            yield return $"{wet} 个水面格有林地";
     }
 
     /// <summary>Averaging inside a cell only filters meter-scale relief: each value stays near the ground at the cell center.</summary>

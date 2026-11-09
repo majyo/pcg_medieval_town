@@ -6,7 +6,7 @@ using PcgCitySandbox.City;
 
 namespace PcgCitySandbox.Rendering;
 
-public enum CityLayer { Site, Layout, Roads, Parcels, Buildings }
+public enum CityLayer { Contours, Site, Layout, Roads, Parcels, Buildings }
 
 /// <summary>
 /// The single preview of the town graph. Each layer draws one or more keys and is rebuilt only when one of those
@@ -20,7 +20,7 @@ public partial class CityView : Node3D
 
     private readonly Dictionary<CityLayer, Node3D> _layers = new();
     private readonly Dictionary<CityLayer, object?[]> _sources = new();
-    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Site };
+    private readonly HashSet<CityLayer> _hidden = new() { CityLayer.Contours, CityLayer.Site };
     private CityGraph? _graph;
 
     public void Bind(CityGraph graph)
@@ -56,6 +56,7 @@ public partial class CityView : Node3D
         if (_graph == null)
             return;
 
+        var height = _graph.Get(Keys.Height);
         var site = _graph.Get(Keys.Site);
         var plaza = _graph.Get(Keys.Plaza);
         var wall = _graph.Get(Keys.Wall);
@@ -63,6 +64,7 @@ public partial class CityView : Node3D
         var roads = _graph.Get(Keys.Roads);
         var parcels = _graph.Get(Keys.Parcels);
         var buildings = _graph.Get(Keys.Buildings);
+        Update(CityLayer.Contours, root => BuildContours(root, height!), height);
         Update(CityLayer.Site, root => BuildSite(root, site!), site);
         Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
         Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
@@ -97,6 +99,47 @@ public partial class CityView : Node3D
             Mesh = mesh,
             MaterialOverride = material,
             CastShadow = shadows ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off,
+        });
+    }
+
+    /// <summary>
+    /// Contours of the sampled heights every 2 m, every fifth (10 m) wider: flat ribbons lifted just above the
+    /// ground at both ends of each segment. Segments are shorter than a cell diagonal, so they follow the ground.
+    /// </summary>
+    private void BuildContours(Node3D root, ScalarField height)
+    {
+        const float interval = 2, lift = 0.4f;
+        var segments = Contours.Extract(height, interval);
+        var vertices = new Vector3[segments.Count * 4];
+        var colors = new Color[segments.Count * 4];
+        var indices = new int[segments.Count * 6];
+        Color minor = new("4a3b2a"), major = new("2e2418");
+        System.Threading.Tasks.Parallel.For(0, segments.Count, i =>
+        {
+            var s = segments[i];
+            bool isMajor = (int)MathF.Round(s.Level / interval) % 5 == 0;
+            var along = s.B - s.A;
+            var side = along.LengthSquared() < 1e-8f ? Vector2.Zero : along.Normalized().Orthogonal() * (isMajor ? 0.6f : 0.25f);
+            Vector3 P(Vector2 p) => new(p.X, Height(p) + lift, p.Y);
+            int v = i * 4;
+            vertices[v] = P(s.A + side);
+            vertices[v + 1] = P(s.B + side);
+            vertices[v + 2] = P(s.B - side);
+            vertices[v + 3] = P(s.A - side);
+            var color = isMajor ? major : minor;
+            colors[v] = colors[v + 1] = colors[v + 2] = colors[v + 3] = color;
+            int t = i * 6;
+            (indices[t], indices[t + 1], indices[t + 2]) = (v, v + 1, v + 2);
+            (indices[t + 3], indices[t + 4], indices[t + 5]) = (v, v + 2, v + 3);
+        });
+        var mesh = MeshKit.Indexed(vertices, colors, indices);
+        if (mesh == null)
+            return;
+        root.AddChild(new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = MeshKit.Material(unshaded: true, alpha: 0.6f),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         });
     }
 

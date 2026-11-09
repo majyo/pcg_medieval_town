@@ -110,7 +110,7 @@ public partial class Main : Node3D
         _mapPanel.AddToggle("地被与岩石", _showCover, on => _terrain.ShowCover(_showCover = on));
         foreach (var (layer, name) in new[]
         {
-            (CityLayer.Site, "场地限制"), (CityLayer.Layout, "广场与城墙"), (CityLayer.Roads, "道路"),
+            (CityLayer.Contours, "等高线"), (CityLayer.Site, "场地限制"), (CityLayer.Layout, "广场与城墙"), (CityLayer.Roads, "道路"),
             (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
         })
         {
@@ -180,11 +180,14 @@ public partial class Main : Node3D
         }
 
         var (low, high) = style.Range(shown);
-        string caption = $"{shown.Label}（{shown.Unit}）" + (field == null ? " · 等待重新生成" : "");
+        string caption = shown.Label + (shown.Unit == "" ? "" : $"（{shown.Unit}）") + (field == null ? " · 等待重新生成" : "");
         _mapPanel.ShowLegend(caption, style.Ramp, style.Describe(shown, low), style.Describe(shown, high));
     }
 
-    /// <summary>Capture views: each sampled field over the whole map, then slope around the town in perspective.</summary>
+    /// <summary>
+    /// Capture views: each sampled field over the whole map, then slope around the town, then height above water
+    /// around the town with contours.
+    /// </summary>
     private List<(string Name, Action Setup)> FieldViews(Vector3 core)
     {
         var views = new List<(string Name, Action Setup)>();
@@ -194,8 +197,17 @@ public partial class Main : Node3D
             views.Add(($"field_{FieldStyles.All[i].Key.Name.Replace("site.", "")}", () => ShowField(view, _camera.TopView)));
         }
 
-        int slope = 2 + FieldStyles.All.ToList().FindIndex(s => s.Key == Keys.Slope);
-        views.Add(("field_slope_town", () => ShowField(slope, () => _camera.Frame(core, 0.6f, -0.5f, 850))));
+        foreach (var (key, contours) in new[] { (Keys.Slope, false), (Keys.AboveWater, true) })
+        {
+            int view = 2 + FieldStyles.All.ToList().FindIndex(s => s.Key == key);
+            string name = $"field_{key.Name.Replace("site.", "")}_town";
+            views.Add((name, () => ShowField(view, () =>
+            {
+                _city.SetVisible(CityLayer.Contours, contours);
+                _camera.Frame(core, 0.6f, -0.5f, 850);
+            })));
+        }
+
         return views;
     }
 

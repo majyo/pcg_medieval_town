@@ -108,6 +108,24 @@ public sealed class MeshKit
         }
     }
 
+    /// <summary>
+    /// An indexed, vertex-colored triangle mesh straight from arrays, without normals (for unshaded materials).
+    /// Much faster than adding vertices one by one when there are hundreds of thousands of them.
+    /// </summary>
+    public static ArrayMesh? Indexed(Vector3[] vertices, Color[] colors, int[] indices)
+    {
+        if (indices.Length == 0)
+            return null;
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = vertices;
+        arrays[(int)Mesh.ArrayType.Color] = colors;
+        arrays[(int)Mesh.ArrayType.Index] = indices;
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        return mesh;
+    }
+
     public ArrayMesh? Commit()
     {
         if (_empty)

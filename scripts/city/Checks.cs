@@ -42,6 +42,7 @@ public static class Checks
 
             GD.Print($"seed={seed} fingerprint: {Fingerprint(graph)}");
             failures.AddRange(Invariants(graph).Select(e => $"seed={seed} {e}"));
+            failures.AddRange(ContourRules(graph).Select(e => $"seed={seed} {e}"));
             failures.AddRange((await Invalidation(graph)).Select(e => $"seed={seed} {e}"));
             if (seed == Seeds[0])
                 firstFingerprint = Fingerprint(graph);
@@ -79,6 +80,25 @@ public static class Checks
         return errors.Take(20).ToList();
     }
 
+    /// <summary>Every contour point of the sampled heights lies at its level when the field is sampled there.</summary>
+    private static IEnumerable<string> ContourRules(CityGraph graph)
+    {
+        var height = graph.Get(Keys.Height)!;
+        var segments = Contours.Extract(height, 2);
+        GD.Print($"    contours: {segments.Count} 段（2 m 间距）");
+        if (segments.Count == 0)
+            yield return "等高线为空";
+        foreach (var s in segments)
+        {
+            float a = height.Sample(s.A), b = height.Sample(s.B);
+            if (MathF.Abs(a - s.Level) > 0.01f || MathF.Abs(b - s.Level) > 0.01f)
+            {
+                yield return $"等高线 {s.Level} m 的端点 {s.A}–{s.B} 处高程为 {a:0.000} / {b:0.000} m";
+                yield break;
+            }
+        }
+    }
+
     /// <summary>The graph rejects a missing input and a second fresh writer of a key.</summary>
     private static IEnumerable<string> Wiring(ITerrain terrain)
     {
@@ -98,7 +118,7 @@ public static class Checks
         var errors = new List<string>();
         errors.AddRange(await Invalidation<OuterRoads>(graph, "城外道路", node => node.Group == Sampling.Group ||
             node is SiteAnalysis or ChooseCore or SquarePlaza or StarWall or PlaceGates or RoadZoning or MainStreets));
-        errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is not (SampleHeight or SlopeAspect)));
+        errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is not (SampleHeight or SlopeAspect or SurfaceWater or LandformPosition)));
         return errors;
     }
 
@@ -149,7 +169,7 @@ public static class Checks
         var roads = graph.Get(Keys.Roads);
         var parcels = graph.Get(Keys.Parcels);
         var buildings = graph.Get(Keys.Buildings);
-        var fields = new[] { Keys.Height, Keys.Slope, Keys.Aspect }.Select(graph.Get).ToArray();
+        var fields = Keys.Fields.Select(graph.Get).ToArray();
         if (roads == null || parcels == null || buildings == null || fields.Any(f => f == null))
             return "incomplete";
         return string.Join("|",
