@@ -24,22 +24,22 @@ public partial class Main : Node3D
     private CityView _city = null!;
     private MapCamera _camera = null!;
     private Atmosphere _atmosphere = null!;
-    private ScalarField? _paintedField;
+    private object? _painted;
     private object? _treeMaskSource;
 
     // What is shown. Several controls may show one setting; changing it anywhere updates the scene and them all.
-    /// <summary>Ground coloring: <see cref="LandscapeGround"/>, <see cref="SuitabilityGround"/> or <see cref="FieldGround"/>.</summary>
+    /// <summary>Ground coloring: <see cref="LandscapeGround"/> or <see cref="FieldGround"/>.</summary>
     private readonly Setting<int> _ground = new(LandscapeGround);
     private readonly Dictionary<CityLayer, Setting<bool>> _layers = new();
     private readonly Setting<bool> _forest = new(true), _water = new(true), _cover = new(true);
 
-    private const int LandscapeGround = 0, SuitabilityGround = 1;
+    private const int LandscapeGround = 0;
 
     /// <summary>Ground coloring that paints the field of <c>FieldStyles.All[index]</c>.</summary>
-    private static int FieldGround(int index) => 2 + index;
+    private static int FieldGround(int index) => 1 + index;
 
-    /// <summary>The field style the ground is colored by, or null for the landscape and suitability views.</summary>
-    private FieldStyle? GroundStyle => _ground.Value >= FieldGround(0) ? FieldStyles.All[_ground.Value - FieldGround(0)] : null;
+    /// <summary>The style the ground is colored by, or null for the landscape.</summary>
+    private GroundStyle? ShownStyle => _ground.Value >= FieldGround(0) ? FieldStyles.All[_ground.Value - FieldGround(0)] : null;
 
     public override async void _Ready()
     {
@@ -109,7 +109,7 @@ public partial class Main : Node3D
 
         _ground.Changed += _ =>
         {
-            _paintedField = null;
+            _painted = null;
             ApplyGround();
         };
         _forest.Changed += on => _terrain?.ShowForest(on);
@@ -133,7 +133,7 @@ public partial class Main : Node3D
         _terrain = new TerrainRenderer { Name = "Terrain" };
         AddChild(_terrain);
         _terrain.Build(_map);
-        _paintedField = null;
+        _painted = null;
         ApplyGround(force: true);
         _terrain.ShowForest(_forest);
         _terrain.ShowWater(_water);
@@ -151,19 +151,16 @@ public partial class Main : Node3D
     {
         if (_terrain == null)
             return;
-        var style = GroundStyle;
-        var field = style == null ? null : _graph.Get(style.Key);
-        if (style == null || field == null && _paintedField == null)
+        var style = ShownStyle;
+        var field = style?.Value(_graph);
+        if (style == null || field == null && _painted == null)
         {
-            if (_ground.Value == SuitabilityGround)
-                _terrain.ShowSuitability();
-            else
-                _terrain.ShowLandscape();
+            _terrain.ShowLandscape();
         }
-        else if (field != null && (force || !ReferenceEquals(field, _paintedField)))
+        else if (field != null && (force || !ReferenceEquals(field, _painted)))
         {
-            _paintedField = field;
-            _terrain.ShowColors(p => style.ColorOf(field, field.Sample(p)));
+            _painted = field;
+            _terrain.ShowColors(style.Painter(field));
         }
 
         UpdateLegend();
@@ -175,26 +172,21 @@ public partial class Main : Node3D
         if (_ui == null)
             return;
         var entries = new List<LegendEntry>();
-        if (GroundStyle is { } style)
+        if (ShownStyle is { } style)
         {
-            var field = _graph.Get(style.Key);
-            var shown = field ?? _paintedField;
+            var field = style.Value(_graph);
+            var shown = field ?? _painted;
             if (shown != null)
             {
-                var (low, high) = style.Range(shown);
-                string caption = shown.Label + (shown.Unit == "" ? "" : $"（{shown.Unit}）") + (field == null ? " · 等待重新生成" : "");
-                entries.Add(new LegendEntry(caption, style.Ramp, style.Describe(shown, low), style.Describe(shown, high)));
+                var legend = style.Legend(shown);
+                string caption = legend.Caption + (field == null ? " · 等待重新生成" : "");
+                entries.Add(new LegendEntry(caption, legend.Ramp, legend.Low, legend.High, legend.Categories));
             }
         }
-        else if (_ground.Value == SuitabilityGround)
-        {
-            entries.Add(new LegendEntry("地形适宜性", TerrainRenderer.SuitabilityRamp, "不适宜", "适宜",
-                new[] { (TerrainRenderer.SuitabilityWater, "水域") }));
-        }
 
-        if (_layers[CityLayer.Site].Value && _graph.Get(Keys.Site) != null)
+        if (_layers[CityLayer.Site].Value && _graph.Get(Keys.Buildable) != null)
         {
-            entries.Add(new LegendEntry("不可建设的原因", null, Categories: new[] { SiteBlock.Water, SiteBlock.Bank, SiteBlock.Slope, SiteBlock.Forest }
+            entries.Add(new LegendEntry("不可建设的原因", null, Categories: Enum.GetValues<SiteBlock>().Where(b => b != SiteBlock.None)
                 .Select(b => (CityView.SiteColor(b), b.Label())).ToArray()));
         }
 
@@ -210,8 +202,8 @@ public partial class Main : Node3D
     }
 
     /// <summary>
-    /// Capture views: each sampled field over the whole map, then slope around the town, then height above water
-    /// around the town with contours.
+    /// Capture views: each sampled field and evaluation over the whole map, then slope around the town, height above
+    /// water around the town with contours, and buildability and habitability around the town.
     /// </summary>
     private List<(string Name, Action Setup)> FieldViews(Vector3 core)
     {
@@ -219,13 +211,17 @@ public partial class Main : Node3D
         for (int i = 0; i < FieldStyles.All.Count; i++)
         {
             int view = FieldGround(i);
-            views.Add(($"field_{FieldStyles.All[i].Key.Name.Replace("site.", "")}", () => ShowField(view, _camera.TopView)));
+            views.Add(($"field_{ShortName(FieldStyles.All[i].Key)}", () => ShowField(view, _camera.TopView)));
         }
 
-        foreach (var (key, contours) in new[] { (Keys.Slope, false), (Keys.AboveWater, true) })
+        var townViews = new (IKey Key, bool Contours)[]
+        {
+            (Keys.Slope, false), (Keys.AboveWater, true), (Keys.Buildable, false), (Keys.Habitability, true),
+        };
+        foreach (var (key, contours) in townViews)
         {
             int view = FieldGround(FieldStyles.All.ToList().FindIndex(s => s.Key == key));
-            string name = $"field_{key.Name.Replace("site.", "")}_town";
+            string name = $"field_{ShortName(key)}_town";
             views.Add((name, () => ShowField(view, () =>
             {
                 _layers[CityLayer.Contours].Value = contours;
@@ -235,6 +231,8 @@ public partial class Main : Node3D
 
         return views;
     }
+
+    private static string ShortName(IKey key) => key.Name[(key.Name.IndexOf('.') + 1)..];
 
     private void ShowField(int view, Action frame)
     {
@@ -328,15 +326,10 @@ public partial class Main : Node3D
         var parts = new List<string> { $"({hit.X:0}, {hit.Y:0})" };
         foreach (var style in FieldStyles.All)
         {
-            var field = _graph.Get(style.Key);
-            if (field != null)
-                parts.Add($"{field.Label} {style.Describe(field, field.Sample(hit))}");
+            if (style.Value(_graph) is { } field)
+                parts.Add(style.Describe(field, hit));
         }
 
-        var site = _graph.Get(Keys.Site);
-        int cell = site?.CellAt(hit) ?? -1;
-        if (cell >= 0)
-            parts.Add(site!.Block[cell].Label());
         return string.Join("   ", parts);
     }
 }

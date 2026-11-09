@@ -27,19 +27,19 @@ public partial class Main
     private readonly Debounce _debounce = new() { Name = "Debounce" };
 
     /// <summary>
-    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": whether the ground shows a sampled
-    /// field (the one showing, else the first) instead of the landscape, and the city layers to show; all others are
-    /// hidden.
+    /// What each stage shows when selected (with "联动视图") or on "显示到此阶段": which group of ground styles colors
+    /// the ground (the one showing if it is in that group, else the group's first; none for the landscape), and the
+    /// city layers to show; all others are hidden.
     /// </summary>
-    private static readonly Dictionary<string, (bool Field, CityLayer[] Layers)> Views = new()
+    private static readonly Dictionary<string, (string? Fields, CityLayer[] Layers)> Views = new()
     {
-        [TerrainStage] = (false, Array.Empty<CityLayer>()),
-        ["场地采样"] = (true, new[] { CityLayer.Contours }),
-        ["场地"] = (false, new[] { CityLayer.Site }),
-        ["城镇布局"] = (false, new[] { CityLayer.Layout }),
-        ["路网"] = (false, new[] { CityLayer.Layout, CityLayer.Roads }),
-        ["街区与地块"] = (false, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
-        ["建筑"] = (false, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Buildings }),
+        [TerrainStage] = (null, Array.Empty<CityLayer>()),
+        [Sampling.Group] = ("采样", new[] { CityLayer.Contours }),
+        [Evaluation.Group] = ("评价", Array.Empty<CityLayer>()),
+        ["城镇布局"] = (null, new[] { CityLayer.Layout }),
+        ["路网"] = (null, new[] { CityLayer.Layout, CityLayer.Roads }),
+        ["街区与地块"] = (null, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Blocks, CityLayer.Parcels }),
+        ["建筑"] = (null, new[] { CityLayer.Layout, CityLayer.Roads, CityLayer.Buildings }),
     };
 
     private static readonly (CityLayer Layer, string Name)[] LayerNames =
@@ -48,9 +48,9 @@ public partial class Main
         (CityLayer.Blocks, "街区"), (CityLayer.Parcels, "地块"), (CityLayer.Buildings, "建筑"),
     };
 
-    /// <summary>Menu items in <see cref="_ground"/> order: landscape, suitability, then every field.</summary>
+    /// <summary>Menu items in <see cref="_ground"/> order: landscape, then every ground style.</summary>
     private static string[] GroundNames =>
-        new[] { "地表", "地形适宜性" }.Concat(FieldStyles.All.Select(s => "采样 · " + s.Name)).ToArray();
+        new[] { "地表" }.Concat(FieldStyles.All.Select(s => $"{s.Group} · {s.Name}")).ToArray();
 
     private void BuildInterface()
     {
@@ -147,7 +147,9 @@ public partial class Main
     {
         if (!Views.TryGetValue(stage, out var view))
             return;
-        _ground.Value = !view.Field ? LandscapeGround : GroundStyle != null ? _ground.Value : FieldGround(0);
+        _ground.Value = view.Fields == null ? LandscapeGround
+            : ShownStyle?.Group == view.Fields ? _ground.Value
+            : FieldGround(FieldStyles.All.ToList().FindIndex(s => s.Group == view.Fields));
         foreach (var (layer, setting) in _layers)
             setting.Value = view.Layers.Contains(layer);
     }
@@ -161,23 +163,19 @@ public partial class Main
         switch (stage)
         {
             case TerrainStage:
-                SuitabilityToggle(ins);
                 ins.Toggle("森林", _forest);
                 ins.Toggle("河面", _water);
                 ins.Toggle("地被与岩石", _cover);
                 break;
-            case "场地采样":
-                // Item 0 is no coloring, item i + 1 the field FieldStyles.All[i].
-                var fields = new[] { "（不着色）" }.Concat(FieldStyles.All.Select(s => s.Name)).ToArray();
-                ins.Choice("地面着色", fields, () => GroundStyle == null ? 0 : _ground.Value - FieldGround(0) + 1,
-                    i => _ground.Value = i == 0 ? LandscapeGround : FieldGround(i - 1), "把一个采样场的值画在地面上");
-                _ground.Changed += _ => ins.Refresh();
+            case Sampling.Group:
+                FieldChoice(ins, "采样", "把一个采样场的值画在地面上");
                 Layer(CityLayer.Contours);
                 ContourIntervalSlider(ins);
                 break;
-            case "场地":
+            case Evaluation.Group:
+                FieldChoice(ins, "评价", "把可建设判定或一项评分画在地面上");
                 Layer(CityLayer.Site);
-                SuitabilityToggle(ins);
+                Layer(CityLayer.Contours);
                 break;
             case "城镇布局":
                 Layer(CityLayer.Layout);
@@ -201,10 +199,16 @@ public partial class Main
         }
     }
 
-    private void SuitabilityToggle(Inspector ins)
+    /// <summary>
+    /// A ground coloring menu limited to one group of styles: item 0 is no coloring (or a style of another group),
+    /// item i + 1 the group's i-th style.
+    /// </summary>
+    private void FieldChoice(Inspector ins, string group, string tooltip)
     {
-        ins.Toggle("地形适宜性着色", () => _ground.Value == SuitabilityGround,
-            on => _ground.Value = on ? SuitabilityGround : LandscapeGround);
+        var members = Enumerable.Range(0, FieldStyles.All.Count).Where(i => FieldStyles.All[i].Group == group).ToArray();
+        var names = new[] { "（不着色）" }.Concat(members.Select(i => FieldStyles.All[i].Name)).ToArray();
+        ins.Choice("地面着色", names, () => Array.IndexOf(members, _ground.Value - FieldGround(0)) + 1,
+            i => _ground.Value = i == 0 ? LandscapeGround : FieldGround(members[i - 1]), tooltip);
         _ground.Changed += _ => ins.Refresh();
     }
 

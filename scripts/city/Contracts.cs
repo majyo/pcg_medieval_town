@@ -26,6 +26,10 @@ public static class Contracts
         new(Keys.AboveWater, r => FieldRules(r, Keys.AboveWater).Concat(AboveWaterRules(r))),
         new(Keys.Relief, r => FieldRules(r, Keys.Relief).Concat(ReliefRules(r))),
         new(Keys.Forest, r => FieldRules(r, Keys.Forest).Concat(Range(r, Keys.Forest, 0, 1)).Concat(ForestRules(r))),
+        new(Keys.Buildable, BuildableRules),
+        new(Keys.Habitability, r => FieldRules(r, Keys.Habitability).Concat(Range(r, Keys.Habitability, 0, 1))
+            .Concat(HabitabilityRules(r))),
+        new(Keys.TravelCost, r => FieldRules(r, Keys.TravelCost).Concat(TravelCostRules(r))),
         new(Keys.Site, SiteRules),
         new(Keys.Core, CoreRules),
         new(Keys.Plaza, PlazaRules),
@@ -174,9 +178,96 @@ public static class Contracts
         }
     }
 
+    /// <summary>
+    /// On the shared grid with the known reasons; a sensible share is buildable; each reason is a threshold applied in
+    /// order. Water is exactly the cells in the water. A cell is ruled out as flooding only if it lies lower above the
+    /// water than every land cell that got past that test, and as too steep only if it is steeper than every
+    /// buildable cell. These hold for any thresholds and fail for anything that is not a threshold rule.
+    /// </summary>
+    private static IEnumerable<string> BuildableRules(IKeyReader r)
+    {
+        var buildable = r.Get(Keys.Buildable)!;
+        if (!ReferenceEquals(buildable.Grid, r.Get(Keys.Grid)))
+            yield return "没有使用共用的采样网格";
+        if (buildable.Names.Count != SiteBlocks.Names.Count)
+            yield return $"类别数 {buildable.Names.Count} 与 {SiteBlocks.Names.Count} 种原因不符";
+        float open = buildable.Fraction((int)SiteBlock.None);
+        if (open is <= 0.05f or >= 0.95f)
+            yield return $"可建设比例异常 {open:P0}";
+
+        var shore = r.Get(Keys.Shore)!.Values;
+        var above = r.Get(Keys.AboveWater)!.Values;
+        var slope = r.Get(Keys.Slope)!.Values;
+        int wrongWater = 0;
+        float floodTop = float.NegativeInfinity, dryBottom = float.PositiveInfinity;
+        float flatTop = float.NegativeInfinity, steepBottom = float.PositiveInfinity;
+        for (int k = 0; k < shore.Length; k++)
+        {
+            var block = buildable.Block(k);
+            if (block == SiteBlock.Water != shore[k] < 0)
+                wrongWater++;
+            if (block == SiteBlock.Flood)
+                floodTop = Math.Max(floodTop, above[k]);
+            else if (block != SiteBlock.Water)
+                dryBottom = Math.Min(dryBottom, above[k]);
+            if (block == SiteBlock.Slope)
+                steepBottom = Math.Min(steepBottom, slope[k]);
+            else if (block == SiteBlock.None)
+                flatTop = Math.Max(flatTop, slope[k]);
+        }
+
+        if (wrongWater > 0)
+            yield return $"{wrongWater} 格的水域判定与离水距离的正负不一致";
+        if (floodTop >= dryBottom)
+            yield return $"易淹格最高高出水面 {floodTop:0.00} m，不低于其余陆地格的最低值 {dryBottom:0.00} m";
+        if (flatTop >= steepBottom)
+            yield return $"可建设格最大坡度 {flatTop:0.0}°，不小于坡度过大格的最小值 {steepBottom:0.0}°";
+    }
+
+    /// <summary>Only buildable land scores, and some of it scores well.</summary>
+    private static IEnumerable<string> HabitabilityRules(IKeyReader r)
+    {
+        var buildable = r.Get(Keys.Buildable)!;
+        var score = r.Get(Keys.Habitability)!;
+        int scored = 0;
+        for (int k = 0; k < score.Values.Length; k++)
+        {
+            if (!buildable.Buildable(k) && score.Values[k] != 0)
+                scored++;
+        }
+
+        if (scored > 0)
+            yield return $"{scored} 个不可建设格的宜居度不为 0";
+        if (score.Max <= 0.5f)
+            yield return $"最高宜居度只有 {score.Max:0.00}";
+    }
+
+    /// <summary>Crossing a cell never costs less than level open ground; the water cannot be crossed.</summary>
+    private static IEnumerable<string> TravelCostRules(IKeyReader r)
+    {
+        var cost = r.Get(Keys.TravelCost)!;
+        var shore = r.Get(Keys.Shore)!.Values;
+        int cheap = 0, wet = 0;
+        for (int k = 0; k < shore.Length; k++)
+        {
+            float v = cost.Values[k];
+            if (!cost.IsNoData(v) && v < 1)
+                cheap++;
+            if (shore[k] < 0 && !cost.IsNoData(v))
+                wet++;
+        }
+
+        if (cheap > 0)
+            yield return $"{cheap} 格的通行代价小于 1";
+        if (wet > 0)
+            yield return $"{wet} 个水面格可以通行";
+    }
+
     private static IEnumerable<string> SiteRules(IKeyReader r)
     {
         var site = r.Get(Keys.Site)!;
+        if (!ReferenceEquals(site.Grid, r.Get(Keys.Grid)))
+            yield return "没有使用共用的采样网格";
         if (site.BuildableFraction is <= 0.05f or >= 0.95f)
             yield return $"场地可建设比例异常 {site.BuildableFraction:P0}";
     }

@@ -19,7 +19,7 @@ public partial class TerrainRenderer : Node3D
     private Rocks _rocks = null!;
     private GroundCover _cover = null!;
 
-    private enum GroundView { Landscape, Suitability, Colors }
+    private enum GroundView { Landscape, Colors }
 
     private GroundView _view;
 
@@ -51,15 +51,6 @@ public partial class TerrainRenderer : Node3D
             return;
         _view = GroundView.Landscape;
         _ground.SetMasks(GroundMasks);
-    }
-
-    /// <summary>The terrain's own suitability estimate.</summary>
-    public void ShowSuitability()
-    {
-        if (_view == GroundView.Suitability)
-            return;
-        _view = GroundView.Suitability;
-        _ground.Paint(SuitabilityColor);
     }
 
     /// <summary>Colors the ground with <paramref name="color"/> at every height-grid point; always repaints.</summary>
@@ -108,17 +99,6 @@ public partial class TerrainRenderer : Node3D
         var river = d.NearestRiver(p, 120);
         float aboveWater = float.IsPositiveInfinity(river.Distance) ? 1 : Mathf.Clamp((sample.Height - river.WaterHeight) / 3, 0, 1);
         return new Color(sample.Forest, aboveWater, Mathf.InverseLerp(d.MinHeight, d.MaxHeight, sample.Height));
-    }
-
-    /// <summary>Suitability view colors: unsuitable to suitable land, and water.</summary>
-    public static Color SuitabilityRamp(float t) => new Color("ad7860").Lerp(new Color("90bc84"), t);
-
-    public static readonly Color SuitabilityWater = new("315f74");
-
-    private Color SuitabilityColor(Vector2 p)
-    {
-        var sample = _data.Sample(p);
-        return sample.IsWater ? SuitabilityWater : SuitabilityRamp(sample.Suitability);
     }
 
     private void BuildSkirt()

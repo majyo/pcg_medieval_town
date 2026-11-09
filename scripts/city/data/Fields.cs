@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace PcgCitySandbox.City;
 
 /// <summary>
-/// Square cells over the map. The sampled fields all share one instance (centered on the origin), so they combine
-/// cell by cell; <see cref="Site"/> keeps its own coarser one.
+/// Square cells over the map. The sampled fields and everything built from them share one instance (centered on
+/// the origin), so they combine cell by cell.
 /// </summary>
 public sealed class SiteGrid : ISummarized
 {
@@ -110,5 +112,53 @@ public sealed class ScalarField : ISummarized
         float top = Mathf.Lerp(Values[Grid.Index(ix, iz)], Values[Grid.Index(jx, iz)], u);
         float bottom = Mathf.Lerp(Values[Grid.Index(ix, jz)], Values[Grid.Index(jx, jz)], u);
         return Mathf.Lerp(top, bottom, v);
+    }
+}
+
+/// <summary>
+/// One category per grid cell, stored as an index into <see cref="Names"/> (e.g. why a cell cannot be built on).
+/// Shares the sampled fields' grid, so categories and measurements combine cell by cell.
+/// </summary>
+public sealed class CategoryField : ISummarized
+{
+    public CategoryField(SiteGrid grid, byte[] values, string label, IReadOnlyList<string> names)
+    {
+        if (values.Length != grid.Count)
+            throw new ArgumentException($"{label}: 数值个数 {values.Length} 与格数 {grid.Count} 不符");
+        Grid = grid;
+        Values = values;
+        Label = label;
+        Names = names;
+        var counts = new int[names.Count];
+        foreach (byte v in values)
+        {
+            if (v >= counts.Length)
+                throw new ArgumentException($"{label}: 类别 {v} 超出 {names.Count} 个类别");
+            counts[v]++;
+        }
+
+        Counts = counts;
+    }
+
+    public SiteGrid Grid { get; }
+    public byte[] Values { get; }
+    public string Label { get; }
+    public IReadOnlyList<string> Names { get; }
+
+    /// <summary>Number of cells in each category.</summary>
+    public IReadOnlyList<int> Counts { get; }
+
+    public float Fraction(int category) => Values.Length > 0 ? Counts[category] / (float)Values.Length : 0;
+
+    /// <summary>Every category that occurs, largest first, with its share.</summary>
+    public string Summary => string.Join("，", Enumerable.Range(0, Names.Count).Where(c => Counts[c] > 0)
+        .OrderByDescending(c => Counts[c]).Select(c => $"{Names[c]} {Fraction(c):P0}"));
+
+    /// <summary>Category of the cell containing <paramref name="p"/>, clamped to the grid.</summary>
+    public byte Nearest(Vector2 p)
+    {
+        int x = Math.Clamp((int)MathF.Floor((p.X - Grid.Origin.X) / Grid.CellSize), 0, Grid.Nx - 1);
+        int z = Math.Clamp((int)MathF.Floor((p.Y - Grid.Origin.Y) / Grid.CellSize), 0, Grid.Nz - 1);
+        return Values[Grid.Index(x, z)];
     }
 }

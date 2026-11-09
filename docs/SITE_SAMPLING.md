@@ -1,6 +1,6 @@
 # 场地采样 · 第一阶段方案
 
-> 状态：第一阶段已完成（第 1–4 步）。第二阶段见 §7。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）。
+> 状态：第一阶段已完成（第 1–4 步）。第二阶段并入城市规划阶段，判定与评分已由“场地评价”分组完成（见 [CITY_PLANNING.md](CITY_PLANNING.md)）。基于节点图架构（[ARCHITECTURE.md](ARCHITECTURE.md) §2–5）。
 
 ## 1. 目标与范围
 
@@ -117,6 +117,8 @@
 4. ✅ **收尾**：三个种子下各采样视角的截图已核对；坡向改为环形场；截图时同步等高线开关；文档与代码已对齐。
 
 ## 7. 留给第二阶段
+
+> 以下内容已并入 [CITY_PLANNING.md](CITY_PLANNING.md)：可建设判定（`eval.buildable`，替换 `SiteAnalysis`）与宜居度已在其第 1 步完成，城址选择和渡口在第 2 步。
 
 - 用这些场重写 `site` 的判定（`SiteAnalysis` → 读场的 `BuildableLand`），把 `site` 改名为 `site.buildable`；“易淹”直接由高出水面低于某个阈值判定。
 - 适宜性评分与城址选择改为读场：近水（离水距离）但不淹（高出水面 2–6 m 的台地）、地势略高（TPI > 0）、坡度平缓。

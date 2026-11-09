@@ -16,6 +16,9 @@ public static class Keys
     public static readonly Key<ScalarField> AboveWater = new("site.above_water", "高出水面");
     public static readonly Key<ScalarField> Relief = new("site.relief", "地形位置");
     public static readonly Key<ScalarField> Forest = new("site.forest", "林地");
+    public static readonly Key<CategoryField> Buildable = new("eval.buildable", "可建设判定");
+    public static readonly Key<ScalarField> Habitability = new("eval.habitability", "宜居度");
+    public static readonly Key<ScalarField> TravelCost = new("eval.travel_cost", "通行代价");
     public static readonly Key<Site> Site = new("site", "场地");
     public static readonly Key<TownCore> Core = new("town.core", "城址");
     public static readonly Key<Plaza> Plaza = new("town.plaza", "广场");
@@ -30,4 +33,7 @@ public static class Keys
 
     /// <summary>Every sampled field, in sampling order.</summary>
     public static readonly IReadOnlyList<Key<ScalarField>> Fields = [Height, Slope, Aspect, Shore, AboveWater, Relief, Forest];
+
+    /// <summary>Every scalar evaluation of the site.</summary>
+    public static readonly IReadOnlyList<Key<ScalarField>> Scores = [Habitability, TravelCost];
 }

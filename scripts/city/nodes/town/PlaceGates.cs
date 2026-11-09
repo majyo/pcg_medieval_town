@@ -18,6 +18,8 @@ public sealed class PlaceGatesOptions
 /// </summary>
 public sealed class PlaceGates : CityNode<PlaceGatesOptions>
 {
+    private const float OpenStep = 8, OpenReach = 200;
+
     public override string Group => "城镇布局";
     public override string Title => "布置城门";
     public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Core];
@@ -47,11 +49,12 @@ public sealed class PlaceGates : CityNode<PlaceGatesOptions>
                 if (difference > sector * 0.35f || used.Any(u => Math.Min(Math.Abs(u - i), ring.Length - Math.Abs(u - i)) < 3))
                     continue;
 
+                // Open country straight out of the gate, in units of 8 m, up to 200 m.
                 var outward = (ring[i] - core).Normalized();
-                int open = 0;
-                for (int step = 1; step <= 25; step++)
+                float open = 0;
+                for (float step = OpenStep; step <= OpenReach; step += OpenStep)
                 {
-                    int k = site.CellAt(ring[i] + outward * step * site.CellSize);
+                    int k = site.CellAt(ring[i] + outward * step);
                     if (k < 0 || site.Block[k] is SiteBlock.Water || site.Slope[k] > 15)
                         break;
                     open++;

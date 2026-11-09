@@ -56,13 +56,7 @@ public partial class CityView : Node3D
     }
 
     /// <summary>Overlay color of a cell that cannot be built on, for the reason given.</summary>
-    public static Color SiteColor(SiteBlock block) => block switch
-    {
-        SiteBlock.Water => new Color("2f6f9a"),
-        SiteBlock.Bank => new Color("5fa8c8"),
-        SiteBlock.Slope => new Color("c8553d"),
-        _ => new Color("2f6b3a"),
-    };
+    public static Color SiteColor(SiteBlock block) => FieldStyles.Buildability[(int)block];
 
     /// <summary>Center-line color of a road of the given kind.</summary>
     public static Color RoadColor(RoadKind kind) => kind switch
@@ -89,7 +83,7 @@ public partial class CityView : Node3D
             return;
 
         var height = _graph.Get(Keys.Height);
-        var site = _graph.Get(Keys.Site);
+        var buildable = _graph.Get(Keys.Buildable);
         var plaza = _graph.Get(Keys.Plaza);
         var wall = _graph.Get(Keys.Wall);
         var gates = _graph.Get(Keys.Gates);
@@ -98,7 +92,7 @@ public partial class CityView : Node3D
         var parcels = _graph.Get(Keys.Parcels);
         var buildings = _graph.Get(Keys.Buildings);
         Update(CityLayer.Contours, root => BuildContours(root, height!), height);
-        Update(CityLayer.Site, root => BuildSite(root, site!), site);
+        Update(CityLayer.Site, root => BuildSite(root, buildable!), buildable);
         Update(CityLayer.Layout, root => BuildLayout(root, plaza!, wall!, gates!), plaza, wall, gates);
         Update(CityLayer.Roads, root => BuildRoads(root, roads!, plaza), roads);
         Update(CityLayer.Blocks, root => BuildBlocks(root, blocks!), blocks);
@@ -172,16 +166,18 @@ public partial class CityView : Node3D
         Add(root, MeshKit.Indexed(vertices, colors, indices), MeshKit.Material(unshaded: true, alpha: 0.6f), shadows: false);
     }
 
-    private void BuildSite(Node3D root, Site site)
+    /// <summary>A translucent square over every cell that cannot be built on, colored by the reason.</summary>
+    private void BuildSite(Node3D root, CategoryField buildable)
     {
         var kit = new MeshKit();
-        float half = site.CellSize / 2;
-        for (int k = 0; k < site.Count; k++)
+        var grid = buildable.Grid;
+        float half = grid.CellSize / 2;
+        for (int k = 0; k < grid.Count; k++)
         {
-            if (site.Block[k] == SiteBlock.None)
+            if (buildable.Buildable(k))
                 continue;
-            var color = SiteColor(site.Block[k]);
-            var c = site.Center(k);
+            var color = SiteColor(buildable.Block(k));
+            var c = grid.Center(k);
             Vector3 P(float dx, float dz) => new(c.X + dx, Height(new Vector2(c.X + dx, c.Y + dz)) + 0.6f, c.Y + dz);
             kit.Quad(P(-half, -half), P(half, -half), P(half, half), P(-half, half), color, Vector3.Up);
         }
