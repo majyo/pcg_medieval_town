@@ -75,6 +75,20 @@ public sealed class SiteGrid : ISummarized
             visit(k + Nx);
     }
 
+    /// <summary>Calls <paramref name="visit"/> on each of the up to eight neighbors of cell k (sides and corners).</summary>
+    public void ForAround(int k, Action<int> visit)
+    {
+        int x = k % Nx, z = k / Nx;
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if ((dx != 0 || dz != 0) && InGrid(x + dx, z + dz))
+                    visit(Index(x + dx, z + dz));
+            }
+        }
+    }
+
     /// <summary>Whether a cell at most <paramref name="radius"/> steps from k along each axis (k included) passes the test.</summary>
     public bool AnyNear(int k, int radius, Func<int, bool> test)
     {

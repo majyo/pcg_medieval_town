@@ -163,9 +163,12 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             if (part == null || part.Area < o.MinArea || part.Rings.Count != 1)
                 return;
 
+            // The block may start back from the paving (a wall lane running on the unbuilt strip by the wall): the
+            // plot's front is where the plot starts, not the road's edge.
+            float gap = Math.Max(0, part.Rings[0].Min(p => (p - a).Dot(inward)) - 0.5f);
             int id = parcels.Count;
-            var parcel = new Parcel(id, part.Rings[0], a + inward * 0.5f, b + inward * 0.5f, inward, edge.Kind, default,
-                (float)part.Area);
+            var parcel = new Parcel(id, part.Rings[0], a + inward * (0.5f + gap), b + inward * (0.5f + gap), inward, edge.Kind,
+                default, (float)part.Area);
             parcels.Add(parcel with { Use = UseAt(parcel.Probe) });
             shapes.Add(part);
             blockOf.Add(block);

@@ -769,6 +769,16 @@ public static class Contracts
         var growth = r.Get(Keys.Growth)!;
         foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!, r.Get(Keys.Landmarks)!))
             yield return error;
+        var ring = r.Get(Keys.Wall)!.Ring;
+        var body = Region.Lines(new[] { ((IReadOnlyList<Vector2>)ring.Append(ring[0]).ToArray(), WallThickness) });
+        var throughGates = Region.Polygons(gates.Select(g =>
+            Enumerable.Range(0, 16).Select(i => g.Position + Vector2.Right.Rotated(i * MathF.Tau / 16) * GateClearance)));
+        // The through routes came before the wall and may hug it; the streets, lanes and tracks the town built may not.
+        var built = Region.Lines(roads.Edges.Where(e => e.Kind is not (RoadKind.Main or RoadKind.Outer))
+            .Select(e => ((IReadOnlyList<Vector2>)e.Points, e.Width)));
+        var onWall = built.Intersect(body.Subtract(throughGates));
+        if (onWall.Area >= Tolerance)
+            yield return $"街巷铺装压在城墙上（城门以外）{onWall.Area:0.0} m²，在 {onWall.Bounds.GetCenter()} 一带";
         var dead = RoadTrees.DeadEnds(roads.Edges.Select(e => (e.From, e.To, e.Kind is not (RoadKind.Main or RoadKind.Outer))).ToList(),
             n => roads.Nodes[n].Kind is not ("end" or "junction"));
         foreach (var edge in roads.Edges.Where(e => e.Kind == RoadKind.Street && dead.Contains(e.Id)))
@@ -817,6 +827,9 @@ public static class Contracts
             }
         }
     }
+
+    /// <summary>The wall's thickness as drawn, and how far from a gate a road through it may overlap the wall.</summary>
+    private const float WallThickness = 2.6f, GateClearance = 12;
 
     /// <summary>Every connected set of tracks reaches a trade or a landmark out in the country: no track leads nowhere.</summary>
     private static IEnumerable<string> TrackRules(RoadGraph roads, CategoryField land, LandmarkSet landmarks)

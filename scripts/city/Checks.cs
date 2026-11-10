@@ -133,8 +133,8 @@ public static class Checks
 
     /// <summary>
     /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result. Checked on
-    /// nodes at several depths, each with the list of nodes that must stay valid: the road skeleton, the workshops,
-    /// the church, the castle, the wall, the habitability score and the sampled heights.
+    /// nodes at several depths, each with the list of nodes that must stay valid: the road skeleton, the wall lane, the
+    /// workshops, the church, the castle, the wall, the habitability score and the sampled heights.
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
@@ -142,6 +142,9 @@ public static class Checks
         errors.AddRange(await Invalidation<SkeletonLinks>(graph, "骨架道路",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
                 or NodeGroups.Zoning || node is RoadZoning));
+        errors.AddRange(await Invalidation<WallLane>(graph, "墙根巷",
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
+                or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or StreetRanks or ExtractRoads
                 or StreetBlocks or FrontageParcels or GableHouses)));

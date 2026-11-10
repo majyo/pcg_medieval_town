@@ -11,13 +11,15 @@ public sealed class RoadZoningOptions
 }
 
 /// <summary>
-/// Marks which site cells roads may use: dry, not too steep, off the landmarks' plots (with room for a lane's
-/// half-width and its simplification), and on one side of the wall or a gate.
+/// Marks which site cells roads may use: dry, not too steep, off the landmarks' plots (with room for a street's
+/// half-width and its simplification), and on one side of the wall, clear of its body, or a gate.
 /// </summary>
 public sealed class RoadZoning : CityNode<RoadZoningOptions>
 {
     // Half a secondary street's width (5 m) plus the most a simplified street strays from its cells.
     private const float PlotClearance = 4.1f;
+    // Half the wall's thickness (2.6 m) plus half a secondary street's width and most of a cell for simplification.
+    private const float WallClearance = 5.4f;
 
     public override string Group => NodeGroups.Roads;
     public override string Title => "通行区";
@@ -45,7 +47,7 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
             var p = grid.Center(k);
             passable[k] = buildable.Block(k) != SiteBlock.Water && slope.Values[k] <= o.MaxSlope && !plots.Contains(k);
             if (wallBounds.HasPoint(p))
-                nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < grid.CellSize * 0.5f;
+                nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < WallClearance;
         }
 
         c.Set(Keys.RoadZones, new RoadZones(buildable, slope, inside, nearWall, passable, c.Get(Keys.Gates).Cells(grid)));
