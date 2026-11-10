@@ -41,7 +41,7 @@ public static class Keys
     public static readonly Key<Plaza> Plaza = new("town.plaza", "市场",
         "城镇的市场广场：路口处的三角形，或道路加宽成的纺锤形");
     public static readonly Key<LandmarkSet> Landmarks = new("town.landmarks", "地标",
-        "公共建筑的用地，目前是教堂（东西向，祭坛朝东）");
+        "公共建筑的用地：教堂、城堡、市政厅、修道院，城外的麻风院和刑场");
     public static readonly Key<WallRing> Wall = new("town.wall", "城墙",
         "城墙的环线和它围住的城内范围");
     public static readonly Key<GateSet> Gates = new("town.gates", "城门",

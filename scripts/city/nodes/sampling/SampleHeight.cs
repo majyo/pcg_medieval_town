@@ -17,7 +17,7 @@ public sealed class SampleHeightOptions
 /// </summary>
 public sealed class SampleHeight : CityNode<SampleHeightOptions>
 {
-    public override string Group => Sampling.Group;
+    public override string Group => NodeGroups.Sampling;
     public override string Title => "高程";
     public override string Description =>
         "给每格取地面高程：在格内均匀取 k×k 个点求平均，滤掉米级的小起伏。";

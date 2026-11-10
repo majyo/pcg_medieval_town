@@ -49,7 +49,7 @@ public sealed class FrontageParcelsOptions
     {
         LandUse.Core => (CoreFrontageMin, CoreFrontageMax),
         LandUse.Suburb => (SuburbFrontageMin, SuburbFrontageMax),
-        LandUse.WetWorks or LandUse.FireWorks or LandUse.Mill => (TradeFrontageMin, TradeFrontageMax),
+        _ when LandUses.Trades.Contains(use) => (TradeFrontageMin, TradeFrontageMax),
         _ => (HousingFrontageMin, HousingFrontageMax),
     };
 }
@@ -70,7 +70,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
     private const float Step = 2;
     private const float MaxGap = 1500;
 
-    public override string Group => "街区与地块";
+    public override string Group => NodeGroups.Lots;
     public override string Title => "临街地块";
     public override string Description =>
         "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，然后街巷，最后便道），面宽按用途：市场核心窄、城外街区宽、作坊最宽；再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
@@ -234,7 +234,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
                     || probes.Any(p => shape.Bounds.HasPoint(p) && shape.Contains(p)))
                     continue;
                 // A strip along a bend can have its centroid in the river: judge it by the cells it covers.
-                if (!Growth.CellsIn(land.Grid, shape).Any(k => LandUses.Trades.Contains(land.Use(k))))
+                if (!land.Grid.CellsIn(shape).Any(k => LandUses.Trades.Contains(land.Use(k))))
                     continue;
                 var ring = shape.Rings[0];
                 var centroid = ring.Aggregate(Vector2.Zero, (sum, p) => sum + p) / ring.Length;

@@ -28,7 +28,7 @@ public sealed class Countryside : CityNode<CountrysideOptions>
     private const float VineAspectFrom = 135, VineAspectTo = 225, VineSlopeFrom = 4, VineSlopeTo = 15;
     private const float ArableSlope = 6;
 
-    public override string Group => LandZoning.Group;
+    public override string Group => NodeGroups.Zoning;
     public override string Title => "农业带";
     public override string Description =>
         "把剩下的格全部分完：有森林的是林地，河边低地是草场，紧挨城的是菜园果园，南坡是葡萄园，近处的平地是耕地，其余能走到的是牧场，剩下的是荒地。";
@@ -50,8 +50,7 @@ public sealed class Countryside : CityNode<CountrysideOptions>
         var travel = c.Get(Keys.TravelCost);
         var grid = land.Grid;
         var use = land.Edit();
-        var town = Enumerable.Range(0, grid.Count)
-            .Where(k => land.Use(k) is LandUse.Suburb or LandUse.WallStrip);
+        var town = land.CellsOf(LandUse.Suburb).Concat(land.CellsOf(LandUse.WallStrip));
         var nearTown = Proximity.From(grid, town, o.GardenReach);
 
         for (int k = 0; k < grid.Count; k++)

@@ -16,8 +16,15 @@ public static class Contracts
 {
     private const double Tolerance = 0.5;
 
-    /// <summary>The widest wall setback a growth phase can be given (the upper end of its slider).</summary>
+    // The upper ends of node sliders, so a rule holds for any setting.
+    /// <summary>The widest wall setback a growth phase can be given.</summary>
     private const float MaxWallSetback = 30;
+
+    /// <summary>The widest wall strip the town quarters can be given.</summary>
+    private const float MaxStrip = 60;
+
+    /// <summary>The farthest the leper house and the gallows may be set from a route.</summary>
+    private const float MaxLeperReach = 40, MaxCountryReach = 200;
 
     public static readonly IReadOnlyList<Invariant> All = new Invariant[]
     {
@@ -289,7 +296,7 @@ public static class Contracts
             var cells = x.Cells;
             if (cells.Length < 2 || cells[0] != grid.CellAt(x.BankA) || cells[^1] != grid.CellAt(x.BankB))
                 yield return $"{x.Id} 的格子不是从一个桥头到另一个桥头";
-            else if (cells.Zip(cells.Skip(1)).Any(p => Chebyshev(grid, p.First, p.Second) != 1 || Diagonal(grid, p.First, p.Second)))
+            else if (cells.Zip(cells.Skip(1)).Any(p => grid.Chebyshev(p.First, p.Second) != 1 || Diagonal(grid, p.First, p.Second)))
                 yield return $"{x.Id} 的格子不是逐格相邻（只走上下左右）";
             if (shore.Nearest(x.Center) >= 0)
                 yield return $"{x.Id} 的中点不在水面上";
@@ -332,7 +339,7 @@ public static class Contracts
             if (!ends)
                 yield return $"{route.Id} 不是从入口 {route.From} 到入口或更早的道路 {route.To}";
             earlier[route.Id] = route;
-            if (path.Zip(path.Skip(1)).Any(p => Chebyshev(grid, p.First, p.Second) != 1))
+            if (path.Zip(path.Skip(1)).Any(p => grid.Chebyshev(p.First, p.Second) != 1))
                 yield return $"{route.Id} 的格子不相邻";
             var water = route.Crossings.Where(crossings.ContainsKey).SelectMany(id => crossings[id].Cells).ToHashSet();
             int blocked = path.Count(k => cost.IsNoData(cost.Values[k]) && !water.Contains(k));
@@ -371,10 +378,7 @@ public static class Contracts
             yield return "起源点不在过境道路上";
     }
 
-    /// <summary>
-    /// Phases are numbered from 1 with the cell counts they record; every built cell is buildable; and after each
-    /// phase, every group of built cells joined by side neighbors reaches a route cell (or touches one).
-    /// </summary>
+    /// <summary>No negative distances; the inside and the gates are 0; every built cell can be walked to.</summary>
     private static IEnumerable<string> ReachRules(IKeyReader r)
     {
         var reach = r.Get(Keys.Reach)!;
@@ -383,15 +387,19 @@ public static class Contracts
         var growth = r.Get(Keys.Growth)!;
         if (reach.Values.Any(v => !reach.IsNoData(v) && v < 0))
             yield return "有负的路程";
-        if (Growth.CellsIn(grid, wall.Interior).Any(k => reach.Values[k] != 0))
+        if (grid.CellsIn(wall.Interior).Any(k => reach.Values[k] != 0))
             yield return "城内的路程不是 0";
         if (r.Get(Keys.Gates)!.Gates.Any(g => reach.Values[grid.CellAt(g.Position)] != 0))
             yield return "城门格的路程不是 0";
-        int lost = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && reach.IsNoData(reach.Values[k]));
+        int lost = growth.BuiltCells.Count(k => reach.IsNoData(reach.Values[k]));
         if (lost > 0)
             yield return $"有 {lost} 个建成格从城门走不到";
     }
 
+    /// <summary>
+    /// Every cell has a use; water, the built cells and the public cells get exactly theirs; each side of the wall
+    /// only its own uses; and each workshop and farm use stands where its node's rule puts it (for any setting).
+    /// </summary>
     private static IEnumerable<string> LandUseRules(IKeyReader r)
     {
         var land = r.Get(Keys.LandUse)!;
@@ -404,14 +412,12 @@ public static class Contracts
         var buildable = r.Get(Keys.Buildable)!;
         var slope = r.Get(Keys.Slope)!;
         var travel = r.Get(Keys.TravelCost)!;
-        var inside = new bool[grid.Count];
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
-            inside[k] = true;
+        var inside = wall.Inside(grid);
         var toWall = Proximity.ToRing(grid, wall.Ring, 600 + grid.CellSize);
         var level = Workshops.WaterLevel(r.Get(Keys.Height)!, r.Get(Keys.AboveWater)!);
         float townLevel = Workshops.TownWaterLevel(shore, level, toWall);
 
-        var publicCells = Growth.CellsIn(grid, r.Get(Keys.Plaza)!.Area).Concat(r.Get(Keys.Landmarks)!.Cells(grid)).ToHashSet();
+        var publicCells = grid.CellsIn(r.Get(Keys.Plaza)!.Area).Concat(r.Get(Keys.Landmarks)!.Cells()).ToHashSet();
         var wrong = new Dictionary<string, int>();
         void Count(string rule) => wrong[rule] = wrong.GetValueOrDefault(rule) + 1;
         for (int k = 0; k < grid.Count; k++)
@@ -438,7 +444,7 @@ public static class Contracts
             bool ok = use switch
             {
                 LandUse.WetWorks => shore.Values[k] is >= 0 and <= 60 && level[k] < townLevel,
-                LandUse.FireWorks => !NextToBuilt(grid, growth, k),
+                LandUse.FireWorks => !grid.AnyNear(k, 1, growth.Built),
                 LandUse.Mill => shore.Values[k] is >= 0 and <= 12,
                 LandUse.Woodland => buildable.Block(k) == SiteBlock.Forest,
                 LandUse.Meadow => Countryside.IsMeadow(buildable, shore, r.Get(Keys.AboveWater)!, k),
@@ -457,24 +463,11 @@ public static class Contracts
             yield return $"{rule}（{n} 格）";
     }
 
-    /// <summary>The widest wall strip a town quarters node can be given (the upper end of its slider).</summary>
-    private const float MaxStrip = 60;
-
-    private static bool NextToBuilt(SiteGrid grid, GrowthHistory growth, int k)
-    {
-        int x = k % grid.Nx, z = k / grid.Nx;
-        for (int dz = -1; dz <= 1; dz++)
-        {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                if (grid.InGrid(x + dx, z + dz) && growth.Built(grid.Index(x + dx, z + dz)))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
+    /// <summary>
+    /// Phases are numbered from 1 with the cell counts they record; every built cell is buildable; the infill stays
+    /// inside the wall and the suburbs off it (and outside only once the inside is full); and after each phase, every
+    /// group of built cells joined by side neighbors reaches a route cell (or touches one).
+    /// </summary>
     private static IEnumerable<string> GrowthRules(IKeyReader r)
     {
         var growth = r.Get(Keys.Growth)!;
@@ -496,7 +489,7 @@ public static class Contracts
                 yield return $"{growth.Label(n)} 的格数 {counts[n]} 与记录 {growth.Phases[n - 1].Cells} 不符";
         }
 
-        int unbuildable = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && !buildable.Buildable(k));
+        int unbuildable = growth.BuiltCells.Count(k => !buildable.Buildable(k));
         if (unbuildable > 0)
             yield return $"有 {unbuildable} 个建成格不可建设";
         int infill = growth.Phases.ToList().FindIndex(p => p.Name == WalledInfill.PhaseName) + 1;
@@ -519,33 +512,18 @@ public static class Contracts
             // borders a built one (a landmark's plot is not free).
             if (cells.Any(k => !town.Interior.Contains(grid.Center(k))))
             {
-                var plots = r.Get(Keys.Landmarks)!.Cells(grid);
-                int left = Growth.CellsIn(grid, town.Interior.Offset(-MaxWallSetback)).Count(k =>
+                var plots = r.Get(Keys.Landmarks)!.Cells();
+                int left = grid.CellsIn(town.Interior.Offset(-MaxWallSetback)).Count(k =>
                 {
                     if (growth.Built(k) || !buildable.Buildable(k) || plots.Contains(k))
                         return false;
                     bool beside = false;
-                    Growth.ForSides(grid, k, j => beside |= growth.Built(j));
+                    grid.ForSides(k, j => beside |= growth.Built(j));
                     return beside;
                 });
                 if (left > 0)
                     yield return $"{growth.Label(suburbs)} 长到了城外，城内却还有 {left} 格可建设地挨着建成区";
             }
-        }
-
-        bool TouchesRoad(int k)
-        {
-            int x = k % grid.Nx, z = k / grid.Nx;
-            for (int dz = -1; dz <= 1; dz++)
-            {
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (grid.InGrid(x + dx, z + dz) && network.Cells.Contains(grid.Index(x + dx, z + dz)))
-                        return true;
-                }
-            }
-
-            return false;
         }
 
         for (int n = 1; n <= growth.Latest; n++)
@@ -556,7 +534,7 @@ public static class Contracts
             var queue = new Queue<int>();
             for (int k = 0; k < grid.Count; k++)
             {
-                if (Built(k) && TouchesRoad(k))
+                if (Built(k) && grid.AnyNear(k, 1, network.Cells.Contains))
                 {
                     reached[k] = true;
                     queue.Enqueue(k);
@@ -565,7 +543,7 @@ public static class Contracts
 
             while (queue.TryDequeue(out int k))
             {
-                Growth.ForSides(grid, k, j =>
+                grid.ForSides(k, j =>
                 {
                     if (!reached[j] && Built(j))
                     {
@@ -591,13 +569,13 @@ public static class Contracts
         var growth = r.Get(Keys.Growth)!;
         var buildable = r.Get(Keys.Buildable)!;
         var grid = growth.Grid;
-        var cells = Growth.CellsIn(grid, plaza.Area);
+        var cells = grid.CellsIn(plaza.Area);
         if (cells.Count == 0)
             yield return "市场没有覆盖任何格";
         if (!cells.All(buildable.Buildable))
             yield return "市场压在不可建设格上";
         int center = grid.CellAt(plaza.Center);
-        if (center < 0 || !growth.CellsOf(1).Any(k => Chebyshev(grid, k, center) <= 2))
+        if (center < 0 || !growth.CellsOf(1).Any(k => grid.Chebyshev(k, center) <= 2))
             yield return "市场不在一期村落里，也不紧邻它";
         if (r.Get(Keys.Wall) is { } wall && plaza.Area.Subtract(wall.Interior).Area >= 1)
             yield return "市场超出城墙";
@@ -613,22 +591,26 @@ public static class Contracts
         var plaza = r.Get(Keys.Plaza)!;
         foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks)
         {
-            if (landmark.X0 < 0 || landmark.Z0 < 0 || landmark.X0 + landmark.Nx > grid.Nx || landmark.Z0 + landmark.Nz > grid.Nz)
+            if (!ReferenceEquals(landmark.Grid, grid))
+            {
+                yield return $"{landmark.KindLabel}没有使用共用的采样网格";
+                continue;
+            }
+
+            if (!landmark.Rect.InGrid(grid))
             {
                 yield return $"{landmark.KindLabel}用地超出网格";
                 continue;
             }
 
-            var cells = landmark.Cells(grid).ToList();
-            if (Math.Abs(landmark.Plot.Area - cells.Count * grid.CellSize * grid.CellSize) > 1)
-                yield return $"{landmark.KindLabel}用地与它的格不符";
+            var cells = landmark.Cells.ToList();
             if (!cells.All(buildable.Buildable))
                 yield return $"{landmark.KindLabel}用地压在不可建设格上";
             if (cells.Any(routes.Cells.Contains))
                 yield return $"{landmark.KindLabel}用地压在过境道路上";
             if (landmark.Kind == LandmarkKind.TownHall)
             {
-                if (landmark.Plot.Intersect(plaza.Area).Area < landmark.Plot.Area * TownHallOptions.MinInMarket - 1)
+                if (landmark.Plot.Intersect(plaza.Area).Area < landmark.Plot.Area * TownHall.MinInMarket - 1)
                     yield return "市政厅用地在市场里的部分不足";
             }
             else if (landmark.Plot.Intersect(plaza.Area).Area >= 1)
@@ -670,7 +652,7 @@ public static class Contracts
             var toRoute = Proximity.From(grid, routes.Cells, MaxCountryReach + grid.CellSize);
             foreach (var landmark in country)
             {
-                var cells = landmark.Cells(grid).ToList();
+                var cells = landmark.Cells.ToList();
                 if (r.Get(Keys.Wall) is { } town && landmark.Plot.Intersect(town.Interior).Area >= 1)
                     yield return $"{landmark.KindLabel}在城内";
                 if (cells.Any(growth.Built))
@@ -688,12 +670,6 @@ public static class Contracts
                 yield return "刑场离麻风院不足 200 m";
         }
     }
-
-    /// <summary>The farthest the leper house and the gallows may be set from a route (the upper ends of their sliders).</summary>
-    private const float MaxLeperReach = 40, MaxCountryReach = 200;
-
-    private static int Chebyshev(SiteGrid grid, int a, int b) =>
-        Math.Max(Math.Abs(a % grid.Nx - b % grid.Nx), Math.Abs(a / grid.Nx - b / grid.Nx));
 
     private static bool Diagonal(SiteGrid grid, int a, int b) => a % grid.Nx != b % grid.Nx && a / grid.Nx != b / grid.Nx;
 
@@ -780,8 +756,7 @@ public static class Contracts
         var interior = r.Get(Keys.Wall)!.Interior;
         var gates = r.Get(Keys.Gates)!.Gates;
         var roads = r.Get(Keys.Roads)!;
-        var used = r.Get(Keys.Routes)!.UsedCrossings.ToHashSet();
-        var bridges = r.Get(Keys.Crossings)!.Crossings.Where(x => used.Contains(x.Id)).ToList();
+        var bridges = r.Get(Keys.Crossings)!.UsedBy(r.Get(Keys.Routes)!).ToList();
         if (!roads.Edges.All(e => e.From < roads.Nodes.Count && e.To < roads.Nodes.Count))
             yield return "路段引用了不存在的节点";
         if (!roads.Edges.All(e => e.Length > 0.01f))
@@ -798,7 +773,7 @@ public static class Contracts
         {
             if (landmark.Plot.Intersect(roads.Footprint).Area >= Tolerance)
                 yield return $"道路压在{landmark.KindLabel}用地上";
-            if (landmark.Plot.Offset(LandmarkAccessOptions.Reach + grid.CellSize).Intersect(roads.Footprint).Area < Tolerance)
+            if (landmark.Plot.Offset(LandmarkAccess.Reach + grid.CellSize).Intersect(roads.Footprint).Area < Tolerance)
                 yield return $"{landmark.KindLabel}用地旁边没有道路";
         }
         foreach (var edge in roads.Edges)
@@ -830,7 +805,7 @@ public static class Contracts
                     break;
                 }
 
-                if (edge.Kind == RoadKind.Street && !inside && !NearBuilt(growth, k))
+                if (edge.Kind == RoadKind.Street && !inside && !grid.AnyNear(k, 1, growth.Built))
                 {
                     yield return $"城外巷道 {edge.Id} 离开了城外街区 {p}";
                     break;
@@ -856,44 +831,15 @@ public static class Contracts
             foreach (var b in tracks.Where(b => b.Id > a.Id && (b.From == a.From || b.From == a.To || b.To == a.From || b.To == a.To)))
                 group[Root(b.Id)] = Root(a.Id);
 
-        bool NearTrade(Vector2 p)
-        {
-            int k = grid.CellAt(p);
-            if (k < 0)
-                return false;
-            int x = k % grid.Nx, z = k / grid.Nx;
-            for (int dz = -1; dz <= 1; dz++)
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (grid.InGrid(x + dx, z + dz) && LandUses.Trades.Contains(land.Use(grid.Index(x + dx, z + dz))))
-                        return true;
-                }
-
-            return false;
-        }
-
-        var country = landmarks.Landmarks.Where(l => !l.InTown).Select(l => l.Plot.Offset(LandmarkAccessOptions.Reach + grid.CellSize))
+        bool NearTrade(Vector2 p) => grid.CellAt(p) is int k && k >= 0
+            && grid.AnyNear(k, 1, j => LandUses.Trades.Contains(land.Use(j)));
+        var country = landmarks.Landmarks.Where(l => !l.InTown).Select(l => l.Plot.Offset(LandmarkAccess.Reach + grid.CellSize))
             .ToList();
         bool NearLandmark(Vector2 p) => country.Any(plot => plot.Contains(p));
         var reaching = tracks.Where(e => Geometry.Samples(e.Points, 2).Any(p => NearTrade(p) || NearLandmark(p)))
             .Select(e => Root(e.Id)).ToHashSet();
         foreach (var root in tracks.Select(e => Root(e.Id)).Distinct().Where(g => !reaching.Contains(g)))
             yield return $"便道 {root} 一带没有通到任何作坊或城外地标";
-    }
-
-    /// <summary>True if cell k or one of its eight neighbors is built.</summary>
-    private static bool NearBuilt(GrowthHistory growth, int k)
-    {
-        var grid = growth.Grid;
-        int x = k % grid.Nx, z = k / grid.Nx;
-        for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                if (grid.InGrid(x + dx, z + dz) && growth.Built(grid.Index(x + dx, z + dz)))
-                    return true;
-            }
-
-        return false;
     }
 
     private static IEnumerable<string> BlockRules(IKeyReader r)

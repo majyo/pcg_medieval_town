@@ -10,9 +10,10 @@ public static class Proximity
 {
     /// <summary>
     /// Distance from each cell to the nearest of <paramref name="sources"/> (8-neighbor steps, so within about 8% of
-    /// the straight line), computed out to <paramref name="radius"/>; farther cells are infinite.
+    /// the straight line), computed out to <paramref name="radius"/>; farther cells are infinite. With
+    /// <paramref name="passable"/>, the way runs only through cells that pass it (the sources excepted).
     /// </summary>
-    public static float[] From(SiteGrid grid, IEnumerable<int> sources, float radius)
+    public static float[] From(SiteGrid grid, IEnumerable<int> sources, float radius, Func<int, bool>? passable = null)
     {
         var distance = new float[grid.Count];
         Array.Fill(distance, float.PositiveInfinity);
@@ -37,7 +38,7 @@ public static class Proximity
                         continue;
                     int j = grid.Index(x + dx, z + dz);
                     float nd = d + (dx != 0 && dz != 0 ? diagonal : grid.CellSize);
-                    if (nd <= radius && nd < distance[j])
+                    if (nd <= radius && nd < distance[j] && (passable == null || passable(j)))
                     {
                         distance[j] = nd;
                         open.Enqueue(j, nd);
@@ -91,7 +92,7 @@ public static class Proximity
                         if (grid.InGrid(cx + dx, cz + dz))
                         {
                             int k = grid.Index(cx + dx, cz + dz);
-                            Seed(k, Closest(grid.Center(k), a, b));
+                            Seed(k, Geometry.ClosestOnSegment(grid.Center(k), a, b));
                         }
                     }
                 }
@@ -114,12 +115,5 @@ public static class Proximity
         }
 
         return distance;
-    }
-
-    private static Vector2 Closest(Vector2 p, Vector2 a, Vector2 b)
-    {
-        var ab = b - a;
-        float t = ab.LengthSquared() > 0 ? Mathf.Clamp((p - a).Dot(ab) / ab.LengthSquared(), 0, 1) : 0;
-        return a + ab * t;
     }
 }

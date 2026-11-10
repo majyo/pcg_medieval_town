@@ -22,7 +22,7 @@ public sealed class WorkshopLanesOptions
 /// </summary>
 public sealed class WorkshopLanes : CityNode<WorkshopLanesOptions>
 {
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "作坊便道";
     public override string Description =>
         "每片作坊（湿作坊、火作坊、水磨）从片中间修一条便道到走得到的最近道路，片内再从中间通到离那条路最远的一头；片大时再在片内按间距撒点连几条。都是土路。";
@@ -49,18 +49,7 @@ public sealed class WorkshopLanes : CityNode<WorkshopLanesOptions>
                 continue;
             }
 
-            bool Touches(int k)
-            {
-                int x = k % grid.Nx, z = k / grid.Nx;
-                for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        if (grid.InGrid(x + dx, z + dz) && inPatch.Contains(grid.Index(x + dx, z + dz)))
-                            return true;
-                    }
-
-                return false;
-            }
+            bool Touches(int k) => grid.AnyNear(k, 1, inPatch.Contains);
 
             // Out from the middle to the nearest reachable road, then on across the patch away from it.
             var center = open.Aggregate(Godot.Vector2.Zero, (sum, k) => sum + grid.Center(k)) / open.Count;

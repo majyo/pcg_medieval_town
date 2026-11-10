@@ -26,13 +26,6 @@ public static class Growth
     public static float[] AlongRoad(RouteNetwork network, IEnumerable<int> seeds)
     {
         var grid = network.Grid;
-        var neighbors = new Dictionary<int, List<int>>();
-        foreach (var (a, b) in network.Links)
-        {
-            (neighbors.TryGetValue(a, out var la) ? la : neighbors[a] = new List<int>()).Add(b);
-            (neighbors.TryGetValue(b, out var lb) ? lb : neighbors[b] = new List<int>()).Add(a);
-        }
-
         var along = new float[grid.Count];
         Array.Fill(along, float.PositiveInfinity);
         var open = new PriorityQueue<int, float>();
@@ -44,7 +37,7 @@ public static class Growth
 
         while (open.TryDequeue(out int k, out float d))
         {
-            if (d > along[k] || !neighbors.TryGetValue(k, out var next))
+            if (d > along[k] || !network.Neighbors.TryGetValue(k, out var next))
                 continue;
             foreach (int j in next)
             {
@@ -72,7 +65,7 @@ public static class Growth
     {
         var grid = network.Grid;
         bool Open(int k) => !built[k] && buildable.Buildable(k) && (allowed == null || allowed(k));
-        var score = Score(network, buildable, habitability, Growth.AlongRoad(network, seeds), rules, allowed, cancel);
+        var score = Score(network, buildable, habitability, AlongRoad(network, seeds), rules, allowed, cancel);
 
         // Grow from the road and the built area, cheapest frontier cell first.
         var frontier = new PriorityQueue<int, float>();
@@ -91,14 +84,14 @@ public static class Growth
         for (int k = 0; k < grid.Count; k++)
         {
             if (built[k])
-                ForSides(grid, k, Push);
+                grid.ForSides(k, Push);
         }
 
         var picked = new List<int>(count);
         while (picked.Count < count && frontier.TryDequeue(out int k, out _))
         {
             picked.Add(k);
-            ForSides(grid, k, Push);
+            grid.ForSides(k, Push);
         }
 
         return picked;
@@ -167,20 +160,6 @@ public static class Growth
         return score;
     }
 
-    /// <summary>Calls <paramref name="visit"/> on each side neighbor (up, down, left, right) of cell k.</summary>
-    public static void ForSides(SiteGrid grid, int k, Action<int> visit)
-    {
-        int x = k % grid.Nx, z = k / grid.Nx;
-        if (x > 0)
-            visit(k - 1);
-        if (x < grid.Nx - 1)
-            visit(k + 1);
-        if (z > 0)
-            visit(k - grid.Nx);
-        if (z < grid.Nz - 1)
-            visit(k + grid.Nx);
-    }
-
     /// <summary>The network cells nearest to <paramref name="cells"/>: those among them, or else the one closest to their middle.</summary>
     public static List<int> RoadSeeds(RouteNetwork network, IReadOnlyCollection<int> cells)
     {
@@ -192,24 +171,6 @@ public static class Growth
         return new List<int> { network.Cells.MinBy(k => (grid.Center(k).DistanceSquaredTo(middle), k)) };
     }
 
-    /// <summary>The cells whose centers lie in <paramref name="area"/>.</summary>
-    public static List<int> CellsIn(SiteGrid grid, Region area)
-    {
-        var cells = new List<int>();
-        var bounds = area.Bounds;
-        int x0 = Math.Max(0, (int)MathF.Floor((bounds.Position.X - grid.Origin.X) / grid.CellSize));
-        int z0 = Math.Max(0, (int)MathF.Floor((bounds.Position.Y - grid.Origin.Y) / grid.CellSize));
-        int x1 = Math.Min(grid.Nx - 1, (int)MathF.Floor((bounds.End.X - grid.Origin.X) / grid.CellSize));
-        int z1 = Math.Min(grid.Nz - 1, (int)MathF.Floor((bounds.End.Y - grid.Origin.Y) / grid.CellSize));
-        for (int z = z0; z <= z1; z++)
-        {
-            for (int x = x0; x <= x1; x++)
-            {
-                if (area.Contains(grid.Center(x, z)))
-                    cells.Add(grid.Index(x, z));
-            }
-        }
-
-        return cells;
-    }
+    /// <summary>The route cells to grow a phase from at the market: <see cref="RoadSeeds"/> of the market's cells.</summary>
+    public static List<int> MarketSeeds(RouteNetwork network, Plaza plaza) => RoadSeeds(network, network.Grid.CellsIn(plaza.Area));
 }

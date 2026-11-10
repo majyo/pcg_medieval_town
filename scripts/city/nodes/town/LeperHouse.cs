@@ -40,7 +40,7 @@ public sealed class LeperHouse : CityNode<LeperHouseOptions>
     /// <summary>Plot cells keep at least this far from a route's cells, so its paving stays off the plot.</summary>
     public const float RouteClearance = 8;
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "麻风院";
     public override string Description =>
         "城外过境道路边的一块用地：离城墙 300–900 m，离所有房屋有一段距离，紧挨道路但不压路面；离墙越接近合适的距离越好，附近有水的更好。";
@@ -62,33 +62,30 @@ public sealed class LeperHouse : CityNode<LeperHouseOptions>
         var buildable = c.Get(Keys.Buildable);
         var shore = c.Get(Keys.Shore);
         var grid = growth.Grid;
-        int nx = Math.Max(1, (int)MathF.Round(o.Length / grid.CellSize)), nz = Math.Max(1, (int)MathF.Round(o.Width / grid.CellSize));
 
         var toWall = Proximity.ToRing(grid, wall.Ring, MaxWall + grid.CellSize);
-        var toBuilt = Proximity.From(grid, Enumerable.Range(0, grid.Count).Where(growth.Built), o.BuiltClear);
+        var toBuilt = Proximity.From(grid, growth.BuiltCells, o.BuiltClear);
         var toRoute = Proximity.From(grid, network.Cells, Math.Max(o.RoadReach, RouteClearance) + grid.CellSize);
-        var taken = landmarks.Cells(grid);
-        var inside = Growth.CellsIn(grid, wall.Interior).ToHashSet();
+        var taken = landmarks.Cells();
+        var inside = wall.Inside(grid);
         bool Allowed(int k) => toWall[k] >= MinWall && toWall[k] <= MaxWall && buildable.Buildable(k) && !taken.Contains(k)
-            && float.IsPositiveInfinity(toBuilt[k]) && !(toRoute[k] < RouteClearance) && !inside.Contains(k);
-        float Score(Vector2 p)
+            && float.IsPositiveInfinity(toBuilt[k]) && !(toRoute[k] < RouteClearance) && !inside[k];
+        float Score(CellRect rect)
         {
-            int k = grid.CellAt(p);
+            int k = grid.CellAt(rect.Center(grid));
             float s = MathF.Abs(toWall[k] - o.Distance);
             return shore.Values[k] <= WaterReach ? s - WaterBonus : s;
         }
 
-        var found = PlotSearch.Best(grid, nx, nz, Allowed, k => toRoute[k] <= o.RoadReach, Score);
-        if (found is not { } place)
+        var found = PlotSearch.Best(grid, grid.Span(o.Length), grid.Span(o.Width), Allowed, k => toRoute[k] <= o.RoadReach, Score);
+        if (found is not { } rect)
         {
             c.Notice("城外的过境道路边没有合适的麻风院用地");
             c.Set(Keys.Landmarks, landmarks);
             return;
         }
 
-        var (x0, z0) = place;
-        var house = new Landmark("leper_house", LandmarkKind.LeperHouse, PlotSearch.Plot(grid, x0, z0, nx, nz),
-            PlotSearch.Center(grid, x0, z0, nx, nz), Vector2.Right, x0, z0, nx, nz, growth.Latest);
+        var house = new Landmark("leper_house", LandmarkKind.LeperHouse, grid, rect, Vector2.Right, growth.Latest);
         c.Set(Keys.Landmarks, landmarks.With(house));
     }
 }

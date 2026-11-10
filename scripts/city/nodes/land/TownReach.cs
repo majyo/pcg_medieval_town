@@ -4,11 +4,6 @@ using System.Linq;
 
 namespace PcgCitySandbox.City;
 
-public static class LandZoning
-{
-    public const string Group = "用地分区";
-}
-
 /// <summary>
 /// How far each cell lies from the town for someone walking out of a gate: a Dijkstra over the whole map from the
 /// gates, priced like the through routes (travel cost per meter plus the climbing penalty), crossing the river only
@@ -16,12 +11,10 @@ public static class LandZoning
 /// </summary>
 public sealed class TownReach : CityNode<NoOptions>
 {
-    // The through routes' default prices (RegionalRoutes), so "far" means the same to a farmer as to a carter.
-    private const float CrossingCost = 3;
-    private const float FreeGrade = 0.06f;
-    private const float GradePenalty = 1;
+    /// <summary>The value of cells no one can walk to from a gate (water, cliffs, land cut off by the river).</summary>
+    public const float NoData = -1;
 
-    public override string Group => LandZoning.Group;
+    public override string Group => NodeGroups.Zoning;
     public override string Title => "离城路程";
     public override string Description =>
         "从各城门出发，按过境道路的通行代价走到每一格的路程：爬坡、林地都算远，过河只能走在用的渡口；城内为 0。作坊和农业带用它判断“离城多远”。";
@@ -31,15 +24,12 @@ public sealed class TownReach : CityNode<NoOptions>
 
     protected override void Run(NodeContext c, NoOptions o)
     {
-        var network = c.Get(Keys.Routes);
-        var used = network.UsedCrossings.ToHashSet();
-        var costs = new RouteCosts(c.Get(Keys.TravelCost), c.Get(Keys.Height),
-            c.Get(Keys.Crossings).Crossings.Where(x => used.Contains(x.Id)), CrossingCost, FreeGrade, GradePenalty);
+        // Priced as the through routes are by default, so "far" means the same to a farmer as to a carter.
+        var prices = new RegionalRoutesOptions();
+        var costs = new RouteCosts(c.Get(Keys.TravelCost), c.Get(Keys.Height), c.Get(Keys.Crossings).UsedBy(c.Get(Keys.Routes)),
+            prices.CrossingCost, prices.FreeGrade / 100, prices.GradePenalty);
         var grid = costs.Grid;
-        var wall = c.Get(Keys.Wall);
-        var inside = new bool[grid.Count];
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
-            inside[k] = true;
+        var inside = c.Get(Keys.Wall).Inside(grid);
 
         var reach = new float[grid.Count];
         Array.Fill(reach, float.PositiveInfinity);
@@ -92,7 +82,4 @@ public sealed class TownReach : CityNode<NoOptions>
 
         c.Set(Keys.Reach, new ScalarField(grid, reach, "离城路程", "m", NoData));
     }
-
-    /// <summary>The value of cells no one can walk to from a gate (water, cliffs, land cut off by the river).</summary>
-    public const float NoData = -1;
 }

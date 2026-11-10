@@ -22,7 +22,7 @@ public sealed class StreetMeshOptions
 /// </summary>
 public sealed class StreetMesh : CityNode<StreetMeshOptions>
 {
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "街巷网";
     public override string Description =>
         "在城内按间距撒点，最近的点两两相连成树，再加少量不形成锐角的环，得到街巷。";

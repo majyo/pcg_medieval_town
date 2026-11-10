@@ -19,12 +19,13 @@ public sealed class TownQuartersOptions
 
 /// <summary>
 /// Starts the land use with water and the town: the market and every landmark's plot are public; inside the wall the
-/// market core and housing on built cells and gardens on the rest; outside the suburbs on built cells; the strip along the wall on both sides;
-/// the through routes outside. Every other cell is left unassigned for the workshops and the countryside.
+/// market core and housing on built cells and gardens on the rest; outside the suburbs on built cells; the strip along
+/// the wall on both sides; the through routes outside. Every other cell is left unassigned for the workshops and the
+/// countryside.
 /// </summary>
 public sealed class TownQuarters : CityNode<TownQuartersOptions>
 {
-    public override string Group => LandZoning.Group;
+    public override string Group => NodeGroups.Zoning;
     public override string Title => "城镇分区";
     public override string Description =>
         "写出水域和城镇的用途：市场和地标用地是公共用地，城内的市场核心、居住、园地，墙外的城外街区，城墙两侧的空地和城外道路；其余的格留给作坊和农业带。";
@@ -41,23 +42,18 @@ public sealed class TownQuarters : CityNode<TownQuartersOptions>
         var landmarks = c.Get(Keys.Landmarks);
         var grid = growth.Grid;
 
-        var inside = new bool[grid.Count];
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
-            inside[k] = true;
-        var publicCells = Growth.CellsIn(grid, plaza.Area).Concat(landmarks.Landmarks.SelectMany(l => l.Cells(grid)))
-            .ToHashSet();
+        var inside = wall.Inside(grid);
+        var publicCells = grid.CellsIn(plaza.Area).Concat(landmarks.Cells()).ToHashSet();
         // The core gathers round the market and its church (and town hall), not round a castle or a friary.
         var civic = landmarks.Landmarks.Where(l => l.Kind is LandmarkKind.Church or LandmarkKind.TownHall)
             .Aggregate(plaza.Area, (all, l) => all.Union(l.Plot));
-        var core = new HashSet<int>(Growth.CellsIn(grid, civic.Offset(o.CoreRadius)));
+        var core = grid.CellsIn(civic.Offset(o.CoreRadius)).ToHashSet();
         var toWall = Proximity.ToRing(grid, wall.Ring, Math.Max(o.InsideStrip, o.OutsideStrip) + grid.CellSize);
         var routes = c.Get(Keys.Routes).Cells;
 
         var use = new byte[grid.Count];
         for (int k = 0; k < grid.Count; k++)
-        {
             use[k] = (byte)Use(k);
-        }
 
         c.Set(Keys.LandUse, LandUses.Field(grid, use));
 

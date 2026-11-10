@@ -5,9 +5,6 @@ namespace PcgCitySandbox.City;
 
 public sealed class TravelCostOptions
 {
-    /// <summary>Marks cells that cannot be crossed (water, too steep for a road).</summary>
-    public const float Impassable = -1;
-
     [Param("可通行坡度上限 °", 5, 35, 0.5,
         Hint = "坡度超过它的格不可通行（无值）。调小后谷坡可能变成屏障，过境道路只能绕行")]
     public float MaxSlope { get; set; } = 20;
@@ -27,7 +24,10 @@ public sealed class TravelCostOptions
 /// </summary>
 public sealed class TravelCost : CityNode<TravelCostOptions>
 {
-    public override string Group => Evaluation.Group;
+    /// <summary>Marks cells that cannot be crossed (water, too steep for a road).</summary>
+    public const float Impassable = -1;
+
+    public override string Group => NodeGroups.Evaluation;
     public override string Title => "通行代价";
     public override string Description =>
         "算出走过每格有多费劲：走 1 m 相当于平地几米，坡陡、林密更费劲；水面和陡崖不可通行。";
@@ -45,9 +45,9 @@ public sealed class TravelCost : CityNode<TravelCostOptions>
         Parallel.For(0, grid.Count, options, k =>
         {
             float s = slope.Values[k];
-            cost[k] = shore[k] < 0 || s > o.MaxSlope ? TravelCostOptions.Impassable
+            cost[k] = shore[k] < 0 || s > o.MaxSlope ? Impassable
                 : 1 + o.PerDegree * s + o.ForestCost * forest[k];
         });
-        c.Set(Keys.TravelCost, new ScalarField(grid, cost, "通行代价", "×", TravelCostOptions.Impassable));
+        c.Set(Keys.TravelCost, new ScalarField(grid, cost, "通行代价", "×", Impassable));
     }
 }

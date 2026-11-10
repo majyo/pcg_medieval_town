@@ -5,7 +5,7 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-/// <summary>Land left for building inside the walls, and its connected parts.</summary>
+/// <summary>Land left for building (the built cells inside and outside the wall, and the trades), and its connected parts.</summary>
 public sealed record BlockSet(Region Developable, IReadOnlyList<Region> Blocks) : ISummarized
 {
     public string Summary => $"可建区 {Developable.Area / 10000:0.0} ha，{Blocks.Count} 街区";

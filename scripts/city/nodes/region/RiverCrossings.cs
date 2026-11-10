@@ -5,11 +5,6 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-public static class RegionalFrame
-{
-    public const string Group = "区域格局";
-}
-
 public sealed class RiverCrossingsOptions
 {
     [Param("候选间距 m", 8, 80, 2,
@@ -39,7 +34,7 @@ public sealed class RiverCrossings : CityNode<RiverCrossingsOptions>
 {
     private const int Directions = 16;
 
-    public override string Group => RegionalFrame.Group;
+    public override string Group => NodeGroups.Regional;
     public override string Title => "渡口";
     public override string Description =>
         "沿河找出最适合过河的几处：河窄、两岸略高出水面、两岸引道平缓的得分高，彼此隔开。";

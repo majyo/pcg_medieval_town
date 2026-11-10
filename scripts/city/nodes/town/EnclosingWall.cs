@@ -35,7 +35,7 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
     private const float MaxSlope = 15, JunctionReach = 40, JunctionRadius = 20, DetourLength = 120, GrazeLength = 40;
     private const int DetourWidth = 3, MaxPasses = 3;
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "城墙";
     public override string Description =>
         "以市场为中心围出一块紧凑的城内范围（筑墙前的建成面积再加余地），优先围住已建成的格；靠河停在离河线上，陡坡停在坡顶；" +
@@ -53,15 +53,14 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         var grid = growth.Grid;
         bool Enclosable(int k) => shore[k] >= o.RiverSetback && slope[k] <= MaxSlope;
 
-        var required = Growth.CellsIn(grid, c.Get(Keys.Plaza).Area)
-            .Concat(c.Get(Keys.Landmarks).Landmarks.SelectMany(l => l.Cells(grid))).Distinct().ToList();
-        int built = Enumerable.Range(0, grid.Count).Count(growth.Built);
+        var required = grid.CellsIn(c.Get(Keys.Plaza).Area).Concat(c.Get(Keys.Landmarks).Cells()).Distinct().ToList();
+        int built = growth.BuiltCells.Count();
         int target = (int)MathF.Round(built * (1 + o.Margin));
 
         var inside = Compact(grid, required, Enclosable, k => growth.Built(k) ? o.BuiltPreference : 0, target, c);
         bool Dry(int k) => shore[k] >= 0;
         TakeInRoads(grid, network, inside, k => inside[k], Dry);
-        int r = (int)MathF.Round(o.Smoothing / grid.CellSize);
+        int r = grid.Span(o.Smoothing, 0);
         Vector2[] Shape()
         {
             if (r > 0)
@@ -90,7 +89,7 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         }
 
         var wall = new WallRing(ring);
-        int enclosed = Enumerable.Range(0, grid.Count).Count(k => growth.Built(k) && wall.Interior.Contains(grid.Center(k)));
+        int enclosed = growth.BuiltCells.Count(k => wall.Interior.Contains(grid.Center(k)));
         c.Set(Keys.Wall, new WallRing(ring, built > 0 ? enclosed / (float)built : null));
     }
 
@@ -102,38 +101,7 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
     private static bool[] Compact(SiteGrid grid, List<int> required, Func<int, bool> enclosable, Func<int, float> preference,
         int target, NodeContext c)
     {
-        var distance = new float[grid.Count];
-        Array.Fill(distance, float.PositiveInfinity);
-        var open = new PriorityQueue<int, float>();
-        foreach (int k in required)
-        {
-            distance[k] = 0;
-            open.Enqueue(k, 0);
-        }
-
-        float diagonal = grid.CellSize * MathF.Sqrt(2);
-        while (open.TryDequeue(out int k, out float d))
-        {
-            if (d > distance[k])
-                continue;
-            int x = k % grid.Nx, z = k / grid.Nx;
-            for (int dz = -1; dz <= 1; dz++)
-            {
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if ((dx | dz) == 0 || !grid.InGrid(x + dx, z + dz))
-                        continue;
-                    int j = grid.Index(x + dx, z + dz);
-                    float nd = d + (dx != 0 && dz != 0 ? diagonal : grid.CellSize);
-                    if (enclosable(j) && nd < distance[j])
-                    {
-                        distance[j] = nd;
-                        open.Enqueue(j, nd);
-                    }
-                }
-            }
-        }
-
+        var distance = Proximity.From(grid, required, float.PositiveInfinity, enclosable);
         var inside = new bool[grid.Count];
         var frontier = new PriorityQueue<int, float>();
         var queued = new bool[grid.Count];
@@ -149,17 +117,17 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         foreach (int k in required)
             inside[k] = true;
         foreach (int k in required)
-            Growth.ForSides(grid, k, Push);
+            grid.ForSides(k, Push);
         int count = required.Count;
         while (count < target && frontier.TryDequeue(out int k, out _))
         {
             inside[k] = true;
             count++;
-            Growth.ForSides(grid, k, Push);
+            grid.ForSides(k, Push);
         }
 
         if (count < target)
-            c.Notice($"可围的地不足，城内只有 {count * grid.CellSize * grid.CellSize / 10000:0.0} ha");
+            c.Notice($"可围的地不足，城内只有 {grid.Hectares(count):0.0} ha");
         return inside;
     }
 
@@ -193,23 +161,8 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
             }
         }
 
-        bool Near(int center, float radius)
-        {
-            int r = (int)MathF.Ceiling(radius / grid.CellSize);
-            int cx = center % grid.Nx, cz = center / grid.Nx;
-            for (int dz = -r; dz <= r; dz++)
-            {
-                for (int dx = -r; dx <= r; dx++)
-                {
-                    if (grid.InGrid(cx + dx, cz + dz) && inside[grid.Index(cx + dx, cz + dz)])
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        foreach (int j in network.Junctions.Where(j => !isInside(j) && Near(j, JunctionReach)).ToList())
+        int reach = (int)MathF.Ceiling(JunctionReach / grid.CellSize);
+        foreach (int j in network.Junctions.Where(j => !isInside(j) && grid.AnyNear(j, reach, k => inside[k])).ToList())
             Disc(j, JunctionRadius);
 
         foreach (var route in network.Routes)
@@ -243,19 +196,10 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
     /// </summary>
     private static Vector2[] Outline(SiteGrid grid, bool[] inside, float spacing)
     {
-        float h = grid.CellSize / 2;
-        var squares = new List<Vector2[]>();
-        for (int k = 0; k < grid.Count; k++)
-        {
-            if (!inside[k])
-                continue;
-            var p = grid.Center(k);
-            squares.Add(new[] { p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h) });
-        }
-
-        var part = Region.Polygons(squares).Parts().MaxBy(p => p.Area)
+        var part = grid.Squares(Enumerable.Range(0, grid.Count).Where(k => inside[k])).Parts().MaxBy(p => p.Area)
             ?? throw new InvalidOperationException("城内范围为空");
-        var ring = part.Rings.MaxBy(r => MathF.Abs(SignedArea(r)))!;
+        // A part's first ring is its outer one; the rest are holes.
+        var ring = part.Rings[0];
         for (int pass = 0; pass < 3; pass++)
             ring = Chaikin(ring);
         // A tolerance of most of a cell removes the stair steps of the cell edges.
@@ -284,13 +228,5 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         }
 
         return result;
-    }
-
-    private static float SignedArea(Vector2[] ring)
-    {
-        float area = 0;
-        for (int i = 0; i < ring.Length; i++)
-            area += ring[i].Cross(ring[(i + 1) % ring.Length]);
-        return area / 2;
     }
 }

@@ -24,7 +24,7 @@ public sealed class WalledInfill : CityNode<WalledInfillOptions>
     /// <summary>The name of the phase this node adds.</summary>
     public const string PhaseName = "城内填充";
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "三期 城内填充";
     public override string Description =>
         "筑墙之后，城内从市场和各城门沿道路继续生长，直到城内可建设的地建成一定比例（默认填满）；离墙太近的地不建。";
@@ -41,17 +41,17 @@ public sealed class WalledInfill : CityNode<WalledInfillOptions>
         var grid = buildable.Grid;
 
         // Not on the landmarks' plots (a castle, a friary): their land is set aside.
-        var plots = c.Get(Keys.Landmarks).Cells(grid);
+        var plots = c.Get(Keys.Landmarks).Cells();
         var allowed = new bool[grid.Count];
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
+        foreach (int k in grid.CellsIn(wall.Interior))
             allowed[k] = Geometry.DistanceToRing(grid.Center(k), wall.Ring) >= o.WallSetback && !plots.Contains(k);
         int land = Enumerable.Range(0, grid.Count).Count(k => allowed[k] && buildable.Buildable(k));
         int already = Enumerable.Range(0, grid.Count).Count(k => allowed[k] && history.Built(k));
         int target = (int)MathF.Round(o.Fill * land) - already;
 
-        var seeds = Growth.RoadSeeds(network, Growth.CellsIn(grid, c.Get(Keys.Plaza).Area))
-            .Concat(c.Get(Keys.Gates).Gates.Select(g => grid.CellAt(g.Position)).Where(network.Cells.Contains));
-        var built = Array.ConvertAll(history.Phase, p => p != 0);
+        var seeds = Growth.MarketSeeds(network, c.Get(Keys.Plaza))
+            .Concat(c.Get(Keys.Gates).Cells(grid).Where(network.Cells.Contains));
+        var built = history.BuiltMask();
         var cells = target <= 0 ? new List<int>()
             : Growth.Spread(network, buildable, c.Get(Keys.Habitability), built, seeds, target, o.Rules, k => allowed[k],
                 c.Cancellation);

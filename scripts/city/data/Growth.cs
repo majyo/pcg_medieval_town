@@ -35,19 +35,16 @@ public sealed class GrowthHistory : ISummarized
 
     public bool Built(int k) => Phase[k] != 0;
 
+    /// <summary>Every built cell, in index order.</summary>
+    public IEnumerable<int> BuiltCells => Enumerable.Range(0, Phase.Length).Where(Built);
+
+    /// <summary>A fresh flag per cell, set where built, for a phase node to grow on.</summary>
+    public bool[] BuiltMask() => Array.ConvertAll(Phase, p => p != 0);
+
     /// <summary>The built cells as one region (cell squares merged), computed once.</summary>
-    public Region Footprint => _footprint ??= Squares(Enumerable.Range(0, Phase.Length).Where(Built));
+    public Region Footprint => _footprint ??= Grid.Squares(BuiltCells);
 
     private Region? _footprint;
-
-    private Region Squares(IEnumerable<int> cells)
-    {
-        float h = Grid.CellSize / 2;
-        return Region.Polygons(cells.Select(k => Grid.Center(k)).Select(p => new[]
-        {
-            p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h),
-        }));
-    }
 
     /// <summary>Built area after phase <paramref name="n"/>, in m².</summary>
     public float AreaAfter(int n) => Phases.Take(n).Sum(p => p.Area);
@@ -74,7 +71,7 @@ public sealed class GrowthHistory : ISummarized
             phase[k] = n;
         }
 
-        float area = cells.Count * Grid.CellSize * Grid.CellSize;
+        float area = cells.Count * Grid.CellArea;
         return new GrowthHistory(Grid, phase, Phases.Append(new GrowthPhase(name, cells.Count, area)).ToArray());
     }
 
@@ -94,12 +91,23 @@ public sealed class GrowthHistory : ISummarized
 public enum LandmarkKind { Church, Castle, TownHall, Friary, LeperHouse, Gallows }
 
 /// <summary>
-/// A plot set aside for a public building: an axis-aligned rectangle of whole grid cells (cell indices
-/// [X0, X0 + Nx) × [Z0, Z0 + Nz)), its building's facing (a church's altar end), and the phase it belongs to.
+/// A plot set aside for a public building: a rectangle of whole grid cells, its building's facing (a church's altar
+/// end), and the phase it belongs to.
 /// </summary>
-public sealed record Landmark(string Id, LandmarkKind Kind, Region Plot, Vector2 Center, Vector2 Axis, int X0, int Z0, int Nx, int Nz,
-    int Phase)
+public sealed class Landmark(string id, LandmarkKind kind, SiteGrid grid, CellRect rect, Vector2 axis, int phase)
 {
+    public string Id { get; } = id;
+    public LandmarkKind Kind { get; } = kind;
+    public SiteGrid Grid { get; } = grid;
+    public CellRect Rect { get; } = rect;
+    public Vector2 Axis { get; } = axis;
+    public int Phase { get; } = phase;
+    public Region Plot { get; } = rect.Area(grid);
+    public Vector2 Center => Rect.Center(Grid);
+
+    /// <summary>The grid cells of the plot.</summary>
+    public IEnumerable<int> Cells => Rect.Cells(Grid);
+
     public string KindLabel => Kind switch
     {
         LandmarkKind.Castle => "城堡",
@@ -112,16 +120,6 @@ public sealed record Landmark(string Id, LandmarkKind Kind, Region Plot, Vector2
 
     /// <summary>Whether it belongs inside the wall (the leper house and the gallows stand out in the country).</summary>
     public bool InTown => Kind is LandmarkKind.Church or LandmarkKind.Castle or LandmarkKind.TownHall or LandmarkKind.Friary;
-
-    /// <summary>The grid cells of the plot.</summary>
-    public IEnumerable<int> Cells(SiteGrid grid)
-    {
-        for (int z = Z0; z < Z0 + Nz; z++)
-        {
-            for (int x = X0; x < X0 + Nx; x++)
-                yield return grid.Index(x, z);
-        }
-    }
 }
 
 public sealed class LandmarkSet : ISummarized
@@ -134,7 +132,7 @@ public sealed class LandmarkSet : ISummarized
     public Region Plots => Landmarks.Aggregate(Region.Empty, (all, l) => all.Union(l.Plot));
 
     /// <summary>The cells of every plot.</summary>
-    public HashSet<int> Cells(SiteGrid grid) => Landmarks.SelectMany(l => l.Cells(grid)).ToHashSet();
+    public HashSet<int> Cells() => Landmarks.SelectMany(l => l.Cells).ToHashSet();
 
     /// <summary>These landmarks and one more.</summary>
     public LandmarkSet With(Landmark landmark) => new(Landmarks.Append(landmark).ToList());

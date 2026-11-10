@@ -3,11 +3,6 @@ using System.Threading.Tasks;
 
 namespace PcgCitySandbox.City;
 
-public static class Evaluation
-{
-    public const string Group = "场地评价";
-}
-
 public sealed class BuildableLandOptions
 {
     [Param("易淹高度 m", 0, 6, 0.1,
@@ -30,7 +25,7 @@ public sealed class BuildableLandOptions
 /// </summary>
 public sealed class BuildableLand : CityNode<BuildableLandOptions>
 {
-    public override string Group => Evaluation.Group;
+    public override string Group => NodeGroups.Evaluation;
     public override string Title => "可建设判定";
     public override string Description =>
         "判定每格能不能建设，不能时记下第一个原因：水域、易淹、河岸退让、坡度过大、森林。";

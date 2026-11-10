@@ -46,7 +46,7 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
     private const float BridgeRadius = 200;
     private const float BridgeTaken = 40;
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "四期 城外街区";
     public override string Description =>
         "城里满了就往城外长：先填城内剩下的可建设地，再从城门和墙外已有的房子向外长，离墙留出空地；比前几期离路更深，所以在城门口长成一团。离城最近的渡口，对岸桥头另长一小片。";
@@ -62,27 +62,24 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
         var buildable = c.Get(Keys.Buildable);
         var habitability = c.Get(Keys.Habitability);
         var grid = buildable.Grid;
-        float cellArea = grid.CellSize * grid.CellSize;
 
         // Inside cells, and the cells too close to the wall on either side.
-        var inside = new bool[grid.Count];
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
-            inside[k] = true;
+        var inside = wall.Inside(grid);
         var nearWall = new bool[grid.Count];
         float reach = Math.Max(o.InsideSetback, o.OutsideSetback);
-        foreach (int k in Growth.CellsIn(grid, wall.Interior.Offset(reach)))
+        foreach (int k in grid.CellsIn(wall.Interior.Offset(reach)))
         {
             float d = Geometry.DistanceToRing(grid.Center(k), wall.Ring);
             nearWall[k] = d < (inside[k] ? o.InsideSetback : o.OutsideSetback);
         }
 
         // The landmarks' plots count as too near the wall: nothing grows on them.
-        foreach (int k in c.Get(Keys.Landmarks).Cells(grid))
+        foreach (int k in c.Get(Keys.Landmarks).Cells())
             nearWall[k] = true;
 
-        var built = Array.ConvertAll(history.Phase, p => p != 0);
+        var built = history.BuiltMask();
         int target = (int)MathF.Round(o.Share * Enumerable.Range(0, grid.Count).Count(k => built[k] && inside[k]));
-        var gates = c.Get(Keys.Gates).Gates.Select(g => grid.CellAt(g.Position)).Where(network.Cells.Contains).ToList();
+        var gates = c.Get(Keys.Gates).Cells(grid).Where(network.Cells.Contains).ToList();
         var picked = new List<int>();
         List<int> Grow(IEnumerable<int> seeds, int count, Func<int, bool> allowed)
         {
@@ -96,14 +93,13 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
         }
 
         // Inside first, from the market and the gates, as phase three did.
-        var plazaSeeds = Growth.RoadSeeds(network, Growth.CellsIn(grid, c.Get(Keys.Plaza).Area));
-        int filled = Grow(plazaSeeds.Concat(gates), target, k => inside[k] && !nearWall[k]).Count;
+        int filled = Grow(Growth.MarketSeeds(network, c.Get(Keys.Plaza)).Concat(gates), target, k => inside[k] && !nearWall[k]).Count;
 
         // Then out of the gates; the built arms outside join the frontier by themselves.
         bool Outside(int k) => !inside[k] && !nearWall[k];
         int outside = Grow(gates, target - filled, Outside).Count;
         if (filled + outside < target)
-            c.Notice($"可建设地不足，这一期只长了 {(filled + outside) * cellArea / 10000:0.0} ha");
+            c.Notice($"可建设地不足，这一期只长了 {grid.Hectares(filled + outside):0.0} ha");
 
         if (filled < target)
             Bridgehead(c, o, wall, network, buildable, grid, built, Grow, Outside);
@@ -118,12 +114,11 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
         CategoryField buildable, SiteGrid grid, bool[] built, Func<IEnumerable<int>, int, Func<int, bool>, List<int>> grow,
         Func<int, bool> outside)
     {
-        int count = (int)MathF.Round(o.BridgeArea * 10000 / (grid.CellSize * grid.CellSize));
+        int count = grid.CellCount(o.BridgeArea);
         if (count == 0)
             return;
 
-        var used = network.UsedCrossings.ToHashSet();
-        var best = c.Get(Keys.Crossings).Crossings.Where(x => used.Contains(x.Id))
+        var best = c.Get(Keys.Crossings).UsedBy(network)
             .Select(x =>
             {
                 float a = Geometry.DistanceToRing(x.BankA, wall.Ring), b = Geometry.DistanceToRing(x.BankB, wall.Ring);
@@ -136,13 +131,9 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
         if (best is not { } bank)
             return;
 
-        bool Taken(int k) => built[k] && grid.Center(k).DistanceTo(bank.Far) <= BridgeTaken;
-        var near = Growth.CellsIn(grid, Region.Polygon(new[]
-        {
-            bank.Far + new Vector2(-BridgeTaken, -BridgeTaken), bank.Far + new Vector2(BridgeTaken, -BridgeTaken),
-            bank.Far + new Vector2(BridgeTaken, BridgeTaken), bank.Far + new Vector2(-BridgeTaken, BridgeTaken),
-        }));
-        if (near.Any(Taken))
+        int around = grid.CellAt(bank.Far);
+        if (around >= 0 && grid.AnyNear(around, grid.Span(BridgeTaken, 0) + 1,
+                k => built[k] && grid.Center(k).DistanceTo(bank.Far) <= BridgeTaken))
             return;
 
         var seed = network.Cells.Where(buildable.Buildable)
@@ -158,6 +149,6 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
             return;
         var cells = grow(new[] { seed }, count, FarSide);
         if (cells.Count < count)
-            c.Notice($"对岸桥头可建设地不足，只长了 {cells.Count * grid.CellSize * grid.CellSize / 10000:0.0} ha");
+            c.Notice($"对岸桥头可建设地不足，只长了 {grid.Hectares(cells.Count):0.0} ha");
     }
 }

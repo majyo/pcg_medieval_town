@@ -19,7 +19,7 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
     // Half a lane's width plus the most a simplified lane strays from its cells.
     private const float PlotClearance = 3.6f;
 
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "通行区";
     public override string Description =>
         "标出哪些格可以修路：不是水、坡不太陡、不在地标用地上（留出半条街的宽度），分城内和城外；只能在城门处穿过城墙。";
@@ -33,25 +33,21 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
         var slope = c.Get(Keys.Slope);
         var grid = buildable.Grid;
         var wall = c.Get(Keys.Wall);
-        var gates = c.Get(Keys.Gates).Gates;
-        var inside = new bool[grid.Count];
+        var inside = wall.Inside(grid);
         var nearWall = new bool[grid.Count];
         var passable = new bool[grid.Count];
         var wallBounds = wall.Interior.Bounds.Grow(grid.CellSize * 2);
         var routes = c.Get(Keys.Routes).Cells;
-        var plots = Growth.CellsIn(grid, c.Get(Keys.Landmarks).Plots.Offset(PlotClearance))
+        var plots = grid.CellsIn(c.Get(Keys.Landmarks).Plots.Offset(PlotClearance))
             .Where(k => !routes.Contains(k)).ToHashSet();
         for (int k = 0; k < grid.Count; k++)
         {
             var p = grid.Center(k);
             passable[k] = buildable.Block(k) != SiteBlock.Water && slope.Values[k] <= o.MaxSlope && !plots.Contains(k);
-            if (!wallBounds.HasPoint(p))
-                continue;
-            inside[k] = wall.Interior.Contains(p);
-            nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < grid.CellSize * 0.5f;
+            if (wallBounds.HasPoint(p))
+                nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < grid.CellSize * 0.5f;
         }
 
-        c.Set(Keys.RoadZones, new RoadZones(buildable, slope, inside, nearWall, passable,
-            gates.Select(g => grid.CellAt(g.Position))));
+        c.Set(Keys.RoadZones, new RoadZones(buildable, slope, inside, nearWall, passable, c.Get(Keys.Gates).Cells(grid)));
     }
 }

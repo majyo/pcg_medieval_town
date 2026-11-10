@@ -71,14 +71,14 @@ public sealed class GableHousesOptions
         Hint = "只影响房屋的进深、层数、颜色和小巷的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
     public int Seed { get; set; } = 1;
 
-    /// <summary>The house rules for plots cut for <paramref name="use"/>.</summary>
     private const float TradePitch = 0.3f;
 
+    /// <summary>The house rules for plots cut for <paramref name="use"/>.</summary>
     public HouseSpec Spec(LandUse use) => use switch
     {
         LandUse.Core => new(CoreFloorsMin, CoreFloorsMax, CoreDepthMin, CoreDepthMax, CoreAlleyChance),
         LandUse.Suburb => new(SuburbFloorsMin, SuburbFloorsMax, SuburbDepthMin, SuburbDepthMax, SuburbAlleyChance),
-        LandUse.WetWorks or LandUse.FireWorks or LandUse.Mill =>
+        _ when LandUses.Trades.Contains(use) =>
             new(TradeFloorsMin, TradeFloorsMax, TradeDepthMin, TradeDepthMax, 0, TradeLengthMax, TradePitch),
         _ => new(HousingFloorsMin, HousingFloorsMax, HousingDepthMin, HousingDepthMax, HousingAlleyChance),
     };
@@ -104,7 +104,7 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
     private static readonly (float Left, float Right)[] Trims =
         [(0, 0), (1.5f, 0), (0, 1.5f), (1.5f, 1.5f), (3, 0), (0, 3), (3, 3), (5, 0), (0, 5), (5, 5)];
 
-    public override string Group => "建筑";
+    public override string Group => NodeGroups.Buildings;
     public override string Title => "临街双坡房屋";
     public override string Description =>
         "在每个地块临街处放一栋矩形双坡顶房屋，进深和层数随机，主街上多一层；窄长的房屋山墙朝街。层数、进深和留小巷的概率按地块的用途：市场核心高而深、连排，城外街区矮而疏；作坊是屋顶较平的棚屋，旁边留出院子。";

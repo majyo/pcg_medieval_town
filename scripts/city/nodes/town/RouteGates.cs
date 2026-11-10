@@ -12,7 +12,7 @@ namespace PcgCitySandbox.City;
 /// </summary>
 public sealed class RouteGates : CityNode<NoOptions>
 {
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "城门";
     public override string Description =>
         "过境道路每穿过城墙一次就开一座城门：门点是穿墙处城外一侧的道路格，插进墙线；城门通向沿道路往外最先到达的图边入口。";
@@ -26,8 +26,8 @@ public sealed class RouteGates : CityNode<NoOptions>
         var shore = c.Get(Keys.Shore).Values;
         var wall = c.Get(Keys.Wall);
         var grid = network.Grid;
-        var inside = new Dictionary<int, bool>();
-        bool Inside(int k) => inside.TryGetValue(k, out bool v) ? v : inside[k] = wall.Interior.Contains(grid.Center(k));
+        var inside = wall.Inside(grid);
+        bool Inside(int k) => inside[k];
 
         // Each crossing: the outer cell (or the inner one where the outer is water) and the way out.
         var crossings = new List<(int Cell, Vector2 Outward)>();
@@ -40,7 +40,7 @@ public sealed class RouteGates : CityNode<NoOptions>
                     continue;
                 int inner = Inside(a) ? a : b, outer = Inside(a) ? b : a;
                 int cell = shore[outer] < 0 ? inner : outer;
-                if (crossings.All(x => Chebyshev(grid, x.Cell, cell) > 1))
+                if (crossings.All(x => grid.Chebyshev(x.Cell, cell) > 1))
                     crossings.Add((cell, (grid.Center(outer) - grid.Center(inner)).Normalized()));
             }
         }
@@ -68,9 +68,6 @@ public sealed class RouteGates : CityNode<NoOptions>
         c.Set(Keys.Gates, new GateSet(gates));
     }
 
-    private static int Chebyshev(SiteGrid grid, int a, int b) =>
-        Math.Max(Math.Abs(a % grid.Nx - b % grid.Nx), Math.Abs(a / grid.Nx - b / grid.Nx));
-
     /// <summary>Puts <paramref name="p"/> into the ring on its nearest edge, dropping ring points closer than a cell to it.</summary>
     private static void Insert(List<Vector2> ring, Vector2 p, float cell)
     {
@@ -87,13 +84,6 @@ public sealed class RouteGates : CityNode<NoOptions>
     /// <summary>The map-edge entry reached first by following route links outward from a gate cell, never into the town.</summary>
     private static Vector2 Entry(RouteNetwork network, int start, Func<int, bool> inside)
     {
-        var neighbors = new Dictionary<int, List<int>>();
-        foreach (var (a, b) in network.Links)
-        {
-            (neighbors.TryGetValue(a, out var la) ? la : neighbors[a] = new List<int>()).Add(b);
-            (neighbors.TryGetValue(b, out var lb) ? lb : neighbors[b] = new List<int>()).Add(a);
-        }
-
         var entries = network.Entries.ToDictionary(e => e.Cell);
         var seen = new HashSet<int> { start };
         var queue = new Queue<int>();
@@ -102,7 +92,7 @@ public sealed class RouteGates : CityNode<NoOptions>
         {
             if (entries.TryGetValue(k, out var entry))
                 return entry.Position;
-            foreach (int j in neighbors.GetValueOrDefault(k, new List<int>()))
+            foreach (int j in network.Neighbors.GetValueOrDefault(k, Array.Empty<int>()))
             {
                 if (!inside(j) && seen.Add(j))
                     queue.Enqueue(j);

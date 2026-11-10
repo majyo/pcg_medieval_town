@@ -314,7 +314,7 @@ public partial class Main : Node3D
         void Focus(int node)
         {
             _focus.Value = new GraphFocus(StageOf(node), node);
-            if (_graph.Nodes[node].Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group)
+            if (_graph.Nodes[node].Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional)
                 _camera.TopView();
             else
                 _camera.Frame(core, 0.75f, -0.5f, 900);

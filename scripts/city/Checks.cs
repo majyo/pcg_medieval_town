@@ -100,7 +100,6 @@ public static class Checks
         }
     }
 
-    /// <summary>The graph rejects a missing input and a second fresh writer of a key.</summary>
     /// <summary>Everything the interface names explains itself: every node, node parameter and key has a description.</summary>
     private static IEnumerable<string> Documentation(CityGraph graph)
     {
@@ -123,6 +122,7 @@ public static class Checks
         }
     }
 
+    /// <summary>The graph rejects a missing input and a second fresh writer of a key.</summary>
     private static IEnumerable<string> Wiring(ITerrain terrain)
     {
         if (!Throws(() => new CityGraph(terrain, new ChooseOrigin())))
@@ -132,34 +132,30 @@ public static class Checks
     }
 
     /// <summary>
-    /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result.
-    /// Checked on the outer roads node (sampling, evaluation, regional frame, town growth, zoning and main streets
-    /// stay valid), on the church (the first phase, the market and the transitional core stay valid; the second
-    /// phase, the wall and all after go stale), on the wall (the first two phases and their market and church stay
-    /// valid), on the habitability score (the sampled fields, the other evaluations, the crossings and the
-    /// routes stay valid; the origin and the town go stale) and on the sampled heights (only the grid and the forest,
-    /// which do not depend on them, stay valid).
+    /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result. Checked on
+    /// nodes at several depths, each with the list of nodes that must stay valid: the road skeleton, the workshops,
+    /// the church, the castle, the wall, the habitability score and the sampled heights.
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
         var errors = new List<string>();
         errors.AddRange(await Invalidation<SkeletonLinks>(graph, "骨架道路",
-            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group or TownGrowth.Group
-                or LandZoning.Group || node is RoadZoning));
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
+                or NodeGroups.Zoning || node is RoadZoning));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or ExtractRoads or StreetBlocks
                 or FrontageParcels or GableHouses)));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
-            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace));
         errors.AddRange(await Invalidation<CastleSite>(graph, "城堡",
-            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace or ChurchSite or MarketGrowth or EnclosingWall));
         errors.AddRange(await Invalidation<EnclosingWall>(graph, "城墙",
-            node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace or ChurchSite or MarketGrowth));
         errors.AddRange(await Invalidation<Habitability>(graph, "宜居度",
-            node => node.Group == Sampling.Group || node is BuildableLand or TravelCost or RiverCrossings or RegionalRoutes));
+            node => node.Group == NodeGroups.Sampling || node is BuildableLand or TravelCost or RiverCrossings or RegionalRoutes));
         errors.AddRange(await Invalidation<SampleHeight>(graph, "高程", node => node is SampleGrid or SampleForest));
         return errors;
     }

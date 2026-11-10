@@ -7,9 +7,6 @@ namespace PcgCitySandbox.City;
 
 public sealed class TownHallOptions
 {
-    /// <summary>The least share of the plot standing in the market; the rest takes the houses beside it.</summary>
-    public const float MinInMarket = 0.25f;
-
     [Param("市政厅", 0, 1,
         Hint = "1 时在市场里建一座市政厅（筑墙后取得特许状）；0 表示没有")]
     public int Count { get; set; } = 1;
@@ -32,7 +29,10 @@ public sealed class TownHallOptions
 /// </summary>
 public sealed class TownHall : CityNode<TownHallOptions>
 {
-    public override string Group => TownGrowth.Group;
+    /// <summary>The least share of the plot standing in the market; the rest takes the houses beside it.</summary>
+    public const float MinInMarket = 0.25f;
+
+    public override string Group => NodeGroups.Town;
     public override string Title => "市政厅";
     public override string Description =>
         "筑墙之后，在市场里放一座市政厅：长边顺着市场较长的方向，不压过境道路和教堂。纺锤形的市场大半是路，所以市政厅可以站在市场边上、占掉旁边的房子（至少四分之一在市场里）。" +
@@ -54,47 +54,41 @@ public sealed class TownHall : CityNode<TownHallOptions>
         var growth = c.Get(Keys.Growth);
         var buildable = c.Get(Keys.Buildable);
         var grid = growth.Grid;
-        var taken = landmarks.Cells(grid);
+        var taken = landmarks.Cells();
         float cell = grid.CellSize;
         var bounds = plaza.Area.Bounds;
         bool alongX = bounds.Size.X >= bounds.Size.Y;
-        int length = Math.Max(1, (int)MathF.Round(o.Length / cell)), width = Math.Max(1, (int)MathF.Round(o.Width / cell));
+        int length = grid.Span(o.Length), width = grid.Span(o.Width);
         int nx = alongX ? length : width, nz = alongX ? width : length;
-        var routeLines = network.Routes.Select(r => r.Points).ToList();
-        float Clearance(Vector2 p) => routeLines.Min(points => Distance(p, points));
+        float Clearance(Vector2 p) => network.Routes.Min(r => Geometry.DistanceToLine(p, r.Points));
 
         int x0Min = (int)MathF.Floor((bounds.Position.X - grid.Origin.X) / cell) - nx;
         int z0Min = (int)MathF.Floor((bounds.Position.Y - grid.Origin.Y) / cell) - nz;
         int x0Max = (int)MathF.Ceiling((bounds.End.X - grid.Origin.X) / cell);
         int z0Max = (int)MathF.Ceiling((bounds.End.Y - grid.Origin.Y) / cell);
-        (int X0, int Z0, Region Plot)? best = null;
+        CellRect? best = null;
         float bestShare = 0, bestClear = float.NegativeInfinity, bestCenter = float.PositiveInfinity;
         for (int z0 = Math.Max(0, z0Min); z0 <= Math.Min(grid.Nz - nz, z0Max); z0++)
         {
             for (int x0 = Math.Max(0, x0Min); x0 <= Math.Min(grid.Nx - nx, x0Max); x0++)
             {
-                var corner = grid.Origin + new Vector2(x0, z0) * cell;
-                var size = new Vector2(nx, nz) * cell;
-                var ring = new[] { corner, corner + new Vector2(size.X, 0), corner + size, corner + new Vector2(0, size.Y) };
-                var plot = Region.Polygon(ring);
+                var rect = new CellRect(x0, z0, nx, nz);
+                var plot = rect.Area(grid);
                 // Its share in the market, in tenths, so a little more market does not outweigh the rest.
                 float share = MathF.Floor((float)(plot.Intersect(plaza.Area).Area / plot.Area) * 10) / 10;
-                if (share < TownHallOptions.MinInMarket || share < bestShare)
+                if (share < MinInMarket || share < bestShare)
                     continue;
-                bool free = true;
-                for (int z = z0; z < z0 + nz && free; z++)
-                    for (int x = x0; x < x0 + nx && free; x++)
-                        free = buildable.Buildable(grid.Index(x, z)) && !taken.Contains(grid.Index(x, z));
-                if (!free)
+                if (!rect.Cells(grid).All(k => buildable.Buildable(k) && !taken.Contains(k)))
                     continue;
                 // The plot's nearest approach to a route's center line, from its corners and edge midpoints.
+                var ring = plot.Rings[0];
                 var probes = ring.Concat(ring.Select((p, i) => (p + ring[(i + 1) % 4]) / 2)).ToList();
                 if (probes.Any(p => network.Cells.Contains(grid.CellAt(p))))
                     continue;
                 float clear = probes.Min(Clearance);
                 if (clear < o.RoadSetback)
                     continue;
-                float center = (corner + size / 2).DistanceTo(plaza.Center);
+                float center = rect.Center(grid).DistanceTo(plaza.Center);
                 bool better = share > bestShare
                     || clear > bestClear + 0.01f || MathF.Abs(clear - bestClear) <= 0.01f && center < bestCenter;
                 if (better)
@@ -102,7 +96,7 @@ public sealed class TownHall : CityNode<TownHallOptions>
                     bestShare = share;
                     bestClear = clear;
                     bestCenter = center;
-                    best = (x0, z0, plot);
+                    best = rect;
                 }
             }
         }
@@ -114,17 +108,8 @@ public sealed class TownHall : CityNode<TownHallOptions>
             return;
         }
 
-        var middle = grid.Origin + new Vector2(found.X0 + nx / 2f, found.Z0 + nz / 2f) * cell;
-        var hall = new Landmark("town_hall", LandmarkKind.TownHall, found.Plot, middle, alongX ? Vector2.Right : Vector2.Down,
-            found.X0, found.Z0, nx, nz, growth.Latest + 1);
+        var hall = new Landmark("town_hall", LandmarkKind.TownHall, grid, found, alongX ? Vector2.Right : Vector2.Down,
+            growth.Latest + 1);
         c.Set(Keys.Landmarks, landmarks.With(hall));
-    }
-
-    private static float Distance(Vector2 p, Vector2[] points)
-    {
-        float best = float.PositiveInfinity;
-        for (int i = 1; i < points.Length; i++)
-            best = MathF.Min(best, Geometry.DistanceToSegment(p, points[i - 1], points[i]));
-        return best;
     }
 }

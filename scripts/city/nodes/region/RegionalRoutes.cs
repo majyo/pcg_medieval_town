@@ -44,7 +44,7 @@ public sealed class RegionalRoutes : CityNode<RegionalRoutesOptions>
 
     private static readonly string[] EdgeNames = { "北", "南", "西", "东" };
 
-    public override string Group => RegionalFrame.Group;
+    public override string Group => NodeGroups.Regional;
     public override string Title => "过境道路";
     public override string Description =>
         "在图边选出入口，按通行代价修出连接它们的过境道路：先修相距最远的两个入口之间的干线，其余入口再接到路网上。";

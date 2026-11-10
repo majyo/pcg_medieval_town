@@ -30,7 +30,7 @@ public sealed class Gallows : CityNode<GallowsOptions>
 {
     private const float MinWall = 300, MaxWall = 800, LeperClear = 200;
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "刑场";
     public override string Description =>
         "城外过境道路附近的高处，让路人远远看见：离城墙 300–800 m（从城里看得见），离所有房屋和麻风院有一段距离，不压路面；取最高的地方（比市场高多少加地形位置）。";
@@ -54,30 +54,32 @@ public sealed class Gallows : CityNode<GallowsOptions>
         var height = c.Get(Keys.Height);
         var relief = c.Get(Keys.Relief);
         var grid = growth.Grid;
-        int n = Math.Max(1, (int)MathF.Round(o.Size / grid.CellSize));
+        int n = grid.Span(o.Size);
         float plazaHeight = height.Sample(c.Get(Keys.Plaza).Center);
 
         var toWall = Proximity.ToRing(grid, wall.Ring, MaxWall + grid.CellSize);
-        var toBuilt = Proximity.From(grid, Enumerable.Range(0, grid.Count).Where(growth.Built), o.BuiltClear);
+        var toBuilt = Proximity.From(grid, growth.BuiltCells, o.BuiltClear);
         var toRoute = Proximity.From(grid, network.Cells, Math.Max(o.RoadReach, LeperHouse.RouteClearance) + grid.CellSize);
-        var taken = landmarks.Cells(grid);
-        var inside = Growth.CellsIn(grid, wall.Interior).ToHashSet();
+        var taken = landmarks.Cells();
+        var inside = wall.Inside(grid);
         var lepers = landmarks.Landmarks.Where(l => l.Kind == LandmarkKind.LeperHouse).Select(l => l.Center).ToList();
         bool Allowed(int k) => toWall[k] >= MinWall && toWall[k] <= MaxWall && buildable.Buildable(k) && !taken.Contains(k)
-            && float.IsPositiveInfinity(toBuilt[k]) && !(toRoute[k] < LeperHouse.RouteClearance) && !inside.Contains(k)
+            && float.IsPositiveInfinity(toBuilt[k]) && !(toRoute[k] < LeperHouse.RouteClearance) && !inside[k]
             && lepers.All(l => l.DistanceTo(grid.Center(k)) >= LeperClear);
-        float Score(Vector2 p) => -(height.Sample(p) - plazaHeight + relief.Sample(p));
+        float Score(CellRect rect)
+        {
+            var p = rect.Center(grid);
+            return -(height.Sample(p) - plazaHeight + relief.Sample(p));
+        }
 
-        if (PlotSearch.Best(grid, n, n, Allowed, k => toRoute[k] <= o.RoadReach, Score) is not { } place)
+        if (PlotSearch.Best(grid, n, n, Allowed, k => toRoute[k] <= o.RoadReach, Score) is not { } rect)
         {
             c.Notice("城外路边没有合适的刑场用地");
             c.Set(Keys.Landmarks, landmarks);
             return;
         }
 
-        var (x0, z0) = place;
-        var gallows = new Landmark("gallows", LandmarkKind.Gallows, PlotSearch.Plot(grid, x0, z0, n, n),
-            PlotSearch.Center(grid, x0, z0, n, n), Vector2.Right, x0, z0, n, n, growth.Latest);
+        var gallows = new Landmark("gallows", LandmarkKind.Gallows, grid, rect, Vector2.Right, growth.Latest);
         c.Set(Keys.Landmarks, landmarks.With(gallows));
     }
 }

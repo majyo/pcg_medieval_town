@@ -39,6 +39,123 @@ public sealed class SiteGrid : ISummarized
         int z = (int)MathF.Floor((p.Y - Origin.Y) / CellSize);
         return InGrid(x, z) ? Index(x, z) : -1;
     }
+
+    /// <summary>The cell containing <paramref name="p"/>, or the nearest one when it lies off the grid.</summary>
+    public int ClampedCellAt(Vector2 p)
+    {
+        int x = Math.Clamp((int)MathF.Floor((p.X - Origin.X) / CellSize), 0, Nx - 1);
+        int z = Math.Clamp((int)MathF.Floor((p.Y - Origin.Y) / CellSize), 0, Nz - 1);
+        return Index(x, z);
+    }
+
+    public float CellArea => CellSize * CellSize;
+
+    /// <summary>How many cells span <paramref name="meters"/>, rounded, and at least <paramref name="min"/>.</summary>
+    public int Span(float meters, int min = 1) => Math.Max(min, (int)MathF.Round(meters / CellSize));
+
+    /// <summary>How many cells make up <paramref name="hectares"/>, rounded.</summary>
+    public int CellCount(float hectares) => (int)MathF.Round(hectares * 10000 / CellArea);
+
+    public float Hectares(int cells) => cells * CellArea / 10000;
+
+    /// <summary>Steps between two cells when diagonal steps count as one.</summary>
+    public int Chebyshev(int a, int b) => Math.Max(Math.Abs(a % Nx - b % Nx), Math.Abs(a / Nx - b / Nx));
+
+    /// <summary>Calls <paramref name="visit"/> on each side neighbor (up, down, left, right) of cell k.</summary>
+    public void ForSides(int k, Action<int> visit)
+    {
+        int x = k % Nx, z = k / Nx;
+        if (x > 0)
+            visit(k - 1);
+        if (x < Nx - 1)
+            visit(k + 1);
+        if (z > 0)
+            visit(k - Nx);
+        if (z < Nz - 1)
+            visit(k + Nx);
+    }
+
+    /// <summary>Whether a cell at most <paramref name="radius"/> steps from k along each axis (k included) passes the test.</summary>
+    public bool AnyNear(int k, int radius, Func<int, bool> test)
+    {
+        int x = k % Nx, z = k / Nx;
+        for (int dz = -radius; dz <= radius; dz++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                if (InGrid(x + dx, z + dz) && test(Index(x + dx, z + dz)))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The cells whose centers lie in <paramref name="area"/>.</summary>
+    public List<int> CellsIn(Region area)
+    {
+        var cells = new List<int>();
+        var bounds = area.Bounds;
+        int x0 = Math.Max(0, (int)MathF.Floor((bounds.Position.X - Origin.X) / CellSize));
+        int z0 = Math.Max(0, (int)MathF.Floor((bounds.Position.Y - Origin.Y) / CellSize));
+        int x1 = Math.Min(Nx - 1, (int)MathF.Floor((bounds.End.X - Origin.X) / CellSize));
+        int z1 = Math.Min(Nz - 1, (int)MathF.Floor((bounds.End.Y - Origin.Y) / CellSize));
+        for (int z = z0; z <= z1; z++)
+        {
+            for (int x = x0; x <= x1; x++)
+            {
+                if (area.Contains(Center(x, z)))
+                    cells.Add(Index(x, z));
+            }
+        }
+
+        return cells;
+    }
+
+    /// <summary>One flag per cell, set for <paramref name="cells"/>.</summary>
+    public bool[] Mask(IEnumerable<int> cells)
+    {
+        var mask = new bool[Count];
+        foreach (int k in cells)
+            mask[k] = true;
+        return mask;
+    }
+
+    /// <summary>The square of cell k, counter-clockwise from its lowest corner.</summary>
+    public Vector2[] Square(int k)
+    {
+        var p = Center(k);
+        float h = CellSize / 2;
+        return [p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h)];
+    }
+
+    /// <summary>The squares of <paramref name="cells"/> merged into one region.</summary>
+    public Region Squares(IEnumerable<int> cells) => Region.Polygons(cells.Select(Square));
+}
+
+/// <summary>A rectangle of whole grid cells: columns [X0, X0 + Nx) and rows [Z0, Z0 + Nz).</summary>
+public readonly record struct CellRect(int X0, int Z0, int Nx, int Nz)
+{
+    public bool InGrid(SiteGrid grid) => X0 >= 0 && Z0 >= 0 && X0 + Nx <= grid.Nx && Z0 + Nz <= grid.Nz;
+
+    public Vector2 Center(SiteGrid grid) => grid.Origin + new Vector2(X0 + Nx / 2f, Z0 + Nz / 2f) * grid.CellSize;
+
+    /// <summary>The rectangle as a region, counter-clockwise from its lowest corner.</summary>
+    public Region Area(SiteGrid grid)
+    {
+        var corner = grid.Origin + new Vector2(X0, Z0) * grid.CellSize;
+        var size = new Vector2(Nx, Nz) * grid.CellSize;
+        return Region.Polygon([corner, corner + new Vector2(size.X, 0), corner + size, corner + new Vector2(0, size.Y)]);
+    }
+
+    public IEnumerable<int> Cells(SiteGrid grid)
+    {
+        for (int z = Z0; z < Z0 + Nz; z++)
+        {
+            for (int x = X0; x < X0 + Nx; x++)
+                yield return grid.Index(x, z);
+        }
+    }
 }
 
 /// <summary>
@@ -89,12 +206,7 @@ public sealed class ScalarField : ISummarized
     public string Format(float v) => IsNoData(v) ? "—" : $"{v:0.0}{(Unit is "°" or "" ? "" : " ")}{Unit}";
 
     /// <summary>Value of the cell containing <paramref name="p"/>, clamped to the grid.</summary>
-    public float Nearest(Vector2 p)
-    {
-        int x = Math.Clamp((int)MathF.Floor((p.X - Grid.Origin.X) / Grid.CellSize), 0, Grid.Nx - 1);
-        int z = Math.Clamp((int)MathF.Floor((p.Y - Grid.Origin.Y) / Grid.CellSize), 0, Grid.Nz - 1);
-        return Values[Grid.Index(x, z)];
-    }
+    public float Nearest(Vector2 p) => Values[Grid.ClampedCellAt(p)];
 
     /// <summary>
     /// Bilinear interpolation between cell centers, clamped to the grid. Fields with no-data cells and circular
@@ -155,10 +267,5 @@ public sealed class CategoryField : ISummarized
         .OrderByDescending(c => Counts[c]).Select(c => $"{Names[c]} {(Fraction(c) >= 0.1f ? $"{Fraction(c):P0}" : $"{Fraction(c):P1}")}"));
 
     /// <summary>Category of the cell containing <paramref name="p"/>, clamped to the grid.</summary>
-    public byte Nearest(Vector2 p)
-    {
-        int x = Math.Clamp((int)MathF.Floor((p.X - Grid.Origin.X) / Grid.CellSize), 0, Grid.Nx - 1);
-        int z = Math.Clamp((int)MathF.Floor((p.Y - Grid.Origin.Y) / Grid.CellSize), 0, Grid.Nz - 1);
-        return Values[Grid.Index(x, z)];
-    }
+    public byte Nearest(Vector2 p) => Values[Grid.ClampedCellAt(p)];
 }

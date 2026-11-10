@@ -20,7 +20,7 @@ public sealed class SlopeAspect : CityNode<SlopeAspectOptions>
     /// <summary>Aspect value of cells flatter than the threshold.</summary>
     public const float NoAspect = -1;
 
-    public override string Group => Sampling.Group;
+    public override string Group => NodeGroups.Sampling;
     public override string Title => "坡度坡向";
     public override string Description =>
         "由高程算出每格的坡度和坡向（坡面朝哪个方向）。";

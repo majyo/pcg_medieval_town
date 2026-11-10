@@ -35,7 +35,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
     private const float MillShore = 12, MillFrom = 100, MillTo = 500, MillCrossing = 80, MillGap = 150, MillArea = 0.1f;
     private const float FlatSlope = 8;
 
-    public override string Group => LandZoning.Group;
+    public override string Group => NodeGroups.Zoning;
     public override string Title => "作坊";
     public override string Description =>
         "把被挤出城的作坊放到城外：湿作坊在城下游的河边，火作坊离房屋远、靠过境道路，水磨在离渡口远的河岸；都从离城最近的合适地块开始取。";
@@ -58,12 +58,11 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
         var grid = land.Grid;
         var use = land.Edit();
         var toWall = Proximity.ToRing(grid, c.Get(Keys.Wall).Ring, FireTo + grid.CellSize);
-        int Cells(float ha) => (int)MathF.Round(ha * 10000 / (grid.CellSize * grid.CellSize));
         bool Free(int k) => use[k] == (byte)LandUse.Unassigned && !reach.IsNoData(reach.Values[k]);
         bool Flat(int k) => slope.Values[k] <= FlatSlope;
 
         // Wet trades: below the town's water level, by the river, clear of the wall.
-        if (Cells(o.WetArea) > 0)
+        if (grid.CellCount(o.WetArea) > 0)
         {
             var level = WaterLevel(c.Get(Keys.Height), c.Get(Keys.AboveWater));
             float townLevel = TownWaterLevel(shore, level, toWall);
@@ -71,14 +70,14 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
             bool Wet(int k) => Free(k) && Flat(k) && shore.Values[k] >= 0 && shore.Values[k] <= WetShore
                 && level[k] <= townLevel - WetDrop && toWall[k] >= WetFrom && toWall[k] <= WetTo
                 && (buildable.Buildable(k) || buildable.Block(k) is SiteBlock.Flood or SiteBlock.Bank);
-            if (!found || Take(Wet, Wet, Cells(o.WetArea), LandUse.WetWorks).Count == 0)
+            if (!found || Take(Wet, Wet, grid.CellCount(o.WetArea), LandUse.WetWorks).Count == 0)
                 c.Notice("城的下游河边没有合适的地，没有设湿作坊");
         }
 
         // Fire trades: away from every house, near a road for the fuel and clay, not too far out.
-        if (o.FireCount > 0 && Cells(o.FireArea) > 0)
+        if (o.FireCount > 0 && grid.CellCount(o.FireArea) > 0)
         {
-            var nearHouses = Proximity.From(grid, Enumerable.Range(0, grid.Count).Where(growth.Built), o.FireClear);
+            var nearHouses = Proximity.From(grid, growth.BuiltCells, o.FireClear);
             var nearRoad = Proximity.From(grid, network.Cells, FireRoad);
             var blocked = new bool[grid.Count];
             int placed = 0;
@@ -86,7 +85,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
             {
                 bool Fire(int k) => Free(k) && Flat(k) && buildable.Buildable(k) && !blocked[k]
                     && float.IsPositiveInfinity(nearHouses[k]) && toWall[k] <= FireTo;
-                var patch = Take(k => Fire(k) && float.IsFinite(nearRoad[k]), Fire, Cells(o.FireArea), LandUse.FireWorks);
+                var patch = Take(k => Fire(k) && float.IsFinite(nearRoad[k]), Fire, grid.CellCount(o.FireArea), LandUse.FireWorks);
                 if (patch.Count == 0)
                     break;
                 placed++;
@@ -102,8 +101,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
         // Mills: on the bank, clear of the wall and of the crossings in use.
         if (o.MillCount > 0)
         {
-            var used = network.UsedCrossings.ToHashSet();
-            var crossings = c.Get(Keys.Crossings).Crossings.Where(x => used.Contains(x.Id)).ToList();
+            var crossings = c.Get(Keys.Crossings).UsedBy(network).ToList();
             var blocked = new bool[grid.Count];
             int placed = 0;
             for (int i = 0; i < o.MillCount; i++)
@@ -111,7 +109,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
                 bool Mill(int k) => Free(k) && !blocked[k] && shore.Values[k] >= 0 && shore.Values[k] <= MillShore
                     && toWall[k] >= MillFrom && toWall[k] <= MillTo
                     && crossings.All(x => x.Center.DistanceTo(grid.Center(k)) >= MillCrossing);
-                var patch = Take(Mill, Mill, Math.Max(1, Cells(MillArea)), LandUse.Mill);
+                var patch = Take(Mill, Mill, Math.Max(1, grid.CellCount(MillArea)), LandUse.Mill);
                 if (patch.Count == 0)
                     break;
                 placed++;
@@ -160,7 +158,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
             {
                 patch.Add(k);
                 use[k] = (byte)what;
-                Growth.ForSides(grid, k, j =>
+                grid.ForSides(k, j =>
                 {
                     if (queued.Add(j) && candidate(j))
                         open.Enqueue(j, reach.Values[j]);
@@ -179,7 +177,7 @@ public sealed class Workshops : CityNode<WorkshopsOptions>
                 while (stack.TryPop(out int k))
                 {
                     n++;
-                    Growth.ForSides(grid, k, j =>
+                    grid.ForSides(k, j =>
                     {
                         if (part[j] == 0 && candidate(j))
                         {

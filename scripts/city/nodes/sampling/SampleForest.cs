@@ -6,7 +6,7 @@ namespace PcgCitySandbox.City;
 /// <summary>Forest cover (0 open, 1 closed woodland) at each cell center, as the terrain reports it.</summary>
 public sealed class SampleForest : CityNode<NoOptions>
 {
-    public override string Group => Sampling.Group;
+    public override string Group => NodeGroups.Sampling;
     public override string Title => "林地";
     public override string Description =>
         "取每格格心的林地覆盖（0 空地 – 1 密林），直接来自地形。";

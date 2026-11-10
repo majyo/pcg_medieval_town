@@ -34,7 +34,7 @@ public sealed class FriaryOptions
 /// </summary>
 public sealed class Friary : CityNode<FriaryOptions>
 {
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "修道院";
     public override string Description =>
         "托钵修会来得晚，只能在城墙里侧还没建房的空地上落脚：一块东西向的矩形用地，离墙、离过境道路和别的地标都有一段距离，坡度平缓；" +
@@ -59,61 +59,28 @@ public sealed class Friary : CityNode<FriaryOptions>
         var slope = c.Get(Keys.Slope);
         var buildable = c.Get(Keys.Buildable);
         var grid = growth.Grid;
-        float cell = grid.CellSize;
-        int nx = Math.Max(1, (int)MathF.Round(o.Length / cell)), nz = Math.Max(1, (int)MathF.Round(o.Width / cell));
 
-        var roads = o.RoadSetback > 0
-            ? Region.Lines(network.Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, 2 * o.RoadSetback)))
-            : Region.Empty;
-        var taken = landmarks.Cells(grid);
-        var blocked = new float[grid.Count];
-        Array.Fill(blocked, 1);
-        foreach (int k in Growth.CellsIn(grid, wall.Interior))
-        {
-            var p = grid.Center(k);
-            bool ok = !growth.Built(k) && buildable.Buildable(k) && slope.Values[k] <= o.MaxSlope && !taken.Contains(k)
-                && Geometry.DistanceToRing(p, wall.Ring) >= o.WallSetback && !roads.Contains(p);
-            blocked[k] = ok ? 0 : 1;
-        }
-
-        var sums = new SummedArea(grid, blocked);
+        var roads = network.Band(o.RoadSetback);
+        var taken = landmarks.Cells();
+        var open = grid.Mask(grid.CellsIn(wall.Interior).Where(k => !growth.Built(k) && buildable.Buildable(k)
+            && slope.Values[k] <= o.MaxSlope && !taken.Contains(k)
+            && Geometry.DistanceToRing(grid.Center(k), wall.Ring) >= o.WallSetback && !roads.Contains(grid.Center(k))));
         var gatePoints = gates.Select(g => g.Position).ToList();
-        (int X0, int Z0)? best = null;
-        float bestScore = float.PositiveInfinity;
-        var box = wall.Interior.Bounds;
-        int x0Min = Math.Max(0, (int)MathF.Floor((box.Position.X - grid.Origin.X) / cell));
-        int z0Min = Math.Max(0, (int)MathF.Floor((box.Position.Y - grid.Origin.Y) / cell));
-        int x0Max = Math.Min(grid.Nx - nx, (int)MathF.Ceiling((box.End.X - grid.Origin.X) / cell));
-        int z0Max = Math.Min(grid.Nz - nz, (int)MathF.Ceiling((box.End.Y - grid.Origin.Y) / cell));
-        for (int z0 = z0Min; z0 <= z0Max; z0++)
+        float Score(CellRect rect)
         {
-            for (int x0 = x0Min; x0 <= x0Max; x0++)
-            {
-                if (sums.Total(x0, z0, x0 + nx, z0 + nz) > 0)
-                    continue;
-                var center = grid.Origin + new Vector2(x0 + nx / 2f, z0 + nz / 2f) * cell;
-                float toGate = gatePoints.Count == 0 ? 0 : gatePoints.Min(g => g.DistanceTo(center));
-                float score = toGate + 0.5f * Geometry.DistanceToRing(center, wall.Ring);
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    best = (x0, z0);
-                }
-            }
+            var center = rect.Center(grid);
+            float toGate = gatePoints.Count == 0 ? 0 : gatePoints.Min(g => g.DistanceTo(center));
+            return toGate + 0.5f * Geometry.DistanceToRing(center, wall.Ring);
         }
 
-        if (best is not { } found)
+        var found = PlotSearch.Best(grid, grid.Span(o.Length), grid.Span(o.Width), k => open[k], _ => true, Score);
+        if (found is not { } rect)
         {
             c.Notice("城墙里侧没有放得下修道院的空地");
             c.Set(Keys.Landmarks, landmarks);
             return;
         }
 
-        var corner = grid.Origin + new Vector2(found.X0, found.Z0) * cell;
-        var size = new Vector2(nx, nz) * cell;
-        var plot = Region.Polygon(new[] { corner, corner + new Vector2(size.X, 0), corner + size, corner + new Vector2(0, size.Y) });
-        var friary = new Landmark("friary", LandmarkKind.Friary, plot, corner + size / 2, Vector2.Right, found.X0, found.Z0, nx, nz,
-            growth.Latest + 1);
-        c.Set(Keys.Landmarks, landmarks.With(friary));
+        c.Set(Keys.Landmarks, landmarks.With(new Landmark("friary", LandmarkKind.Friary, grid, rect, Vector2.Right, growth.Latest + 1)));
     }
 }

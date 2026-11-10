@@ -17,7 +17,7 @@ public sealed class SkeletonLinksOptions
 /// </summary>
 public sealed class SkeletonLinks : CityNode<SkeletonLinksOptions>
 {
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "骨架道路";
     public override string Description =>
         "把过境道路抄成道路连线：城内的段是主街，城外的段是城外道路，一直到图边，过河处走渡口；市场、城门、图边入口是锚点。";
@@ -30,8 +30,7 @@ public sealed class SkeletonLinks : CityNode<SkeletonLinksOptions>
         var wall = c.Get(Keys.Wall);
         var plaza = c.Get(Keys.Plaza);
         var grid = network.Grid;
-        var inside = new Dictionary<int, bool>();
-        bool Inside(int k) => inside.TryGetValue(k, out bool v) ? v : inside[k] = wall.Interior.Contains(grid.Center(k));
+        var inside = wall.Inside(grid);
 
         var links = new RoadLinks
         {
@@ -40,13 +39,13 @@ public sealed class SkeletonLinks : CityNode<SkeletonLinksOptions>
         links.Anchor(links.CoreCell, "core");
         foreach (var (a, b) in network.Links.OrderBy(l => l))
         {
-            bool main = Inside(a) && Inside(b);
+            bool main = inside[a] && inside[b];
             if (main || o.Outside)
                 links.Mark(new[] { a, b }, main ? RoadKind.Main : RoadKind.Outer);
         }
 
-        foreach (var gate in c.Get(Keys.Gates).Gates)
-            links.Anchor(grid.CellAt(gate.Position), "gate");
+        foreach (int gate in c.Get(Keys.Gates).Cells(grid))
+            links.Anchor(gate, "gate");
         if (o.Outside)
         {
             foreach (var entry in network.Entries)

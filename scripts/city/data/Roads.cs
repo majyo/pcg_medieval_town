@@ -6,7 +6,7 @@ namespace PcgCitySandbox.City;
 
 /// <summary>
 /// Road classes, most important first: where two classes share a grid link, the smaller one wins. Tracks are the
-/// dirt roads out to the workshops.
+/// dirt roads out to the workshops and the landmarks in the country.
 /// </summary>
 public enum RoadKind { Main, Outer, Street, Track }
 
@@ -115,11 +115,9 @@ public sealed class RoadGraph : ISummarized
     {
         get
         {
-            float main = Edges.Where(e => e.Kind == RoadKind.Main).Sum(e => e.Length);
-            float street = Edges.Where(e => e.Kind == RoadKind.Street).Sum(e => e.Length);
-            float outer = Edges.Where(e => e.Kind == RoadKind.Outer).Sum(e => e.Length);
-            float track = Edges.Where(e => e.Kind == RoadKind.Track).Sum(e => e.Length);
-            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {main:0} m，街巷 {street:0} m，城外 {outer:0} m，便道 {track:0} m";
+            float Length(RoadKind kind) => Edges.Where(e => e.Kind == kind).Sum(e => e.Length);
+            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {Length(RoadKind.Main):0} m，街巷 {Length(RoadKind.Street):0} m，"
+                + $"城外 {Length(RoadKind.Outer):0} m，便道 {Length(RoadKind.Track):0} m";
         }
     }
 }

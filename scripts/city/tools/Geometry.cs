@@ -8,11 +8,23 @@ namespace PcgCitySandbox.City;
 /// <summary>Small planar helpers shared by nodes and checks.</summary>
 public static class Geometry
 {
-    public static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+    /// <summary>The point of segment ab nearest <paramref name="p"/>.</summary>
+    public static Vector2 ClosestOnSegment(Vector2 p, Vector2 a, Vector2 b)
     {
         var ab = b - a;
         float t = ab.LengthSquared() < 1e-8f ? 0 : Math.Clamp((p - a).Dot(ab) / ab.LengthSquared(), 0, 1);
-        return p.DistanceTo(a + ab * t);
+        return a + ab * t;
+    }
+
+    public static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b) => p.DistanceTo(ClosestOnSegment(p, a, b));
+
+    /// <summary>Distance to an open polyline.</summary>
+    public static float DistanceToLine(Vector2 p, IReadOnlyList<Vector2> line)
+    {
+        float best = float.PositiveInfinity;
+        for (int i = 1; i < line.Count; i++)
+            best = Math.Min(best, DistanceToSegment(p, line[i - 1], line[i]));
+        return best;
     }
 
     public static float DistanceToRing(Vector2 p, Vector2[] ring)

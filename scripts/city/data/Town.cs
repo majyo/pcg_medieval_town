@@ -28,6 +28,9 @@ public sealed class WallRing : ISummarized
     public float? BuiltShare { get; }
     public float Length => Ring.Select((p, i) => p.DistanceTo(Ring[(i + 1) % Ring.Length])).Sum();
 
+    /// <summary>One flag per cell of <paramref name="grid"/>: whether its center lies inside the wall.</summary>
+    public bool[] Inside(SiteGrid grid) => grid.Mask(grid.CellsIn(Interior));
+
     /// <summary>The same wall along a new ring (e.g. with gate points inserted).</summary>
     public WallRing With(Vector2[] ring) => new(ring, BuiltShare);
 
@@ -40,6 +43,9 @@ public sealed record Gate(string Id, Vector2 Position, Vector2 Outward, Vector2 
 
 public sealed record GateSet(IReadOnlyList<Gate> Gates) : ISummarized
 {
+    /// <summary>The grid cell of each gate.</summary>
+    public IEnumerable<int> Cells(SiteGrid grid) => Gates.Select(g => grid.CellAt(g.Position));
+
     /// <summary>Distance between the two closest gates (infinite with fewer than two).</summary>
     public float MinSpacing => Gates.SelectMany((g, i) => Gates.Skip(i + 1).Select(h => g.Position.DistanceTo(h.Position)))
         .DefaultIfEmpty(float.PositiveInfinity).Min();

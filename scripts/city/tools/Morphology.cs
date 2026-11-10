@@ -75,7 +75,7 @@ public static class Morphology
 
         while (queue.TryDequeue(out int k))
         {
-            Growth.ForSides(grid, k, j =>
+            grid.ForSides(k, j =>
             {
                 int x = j % grid.Nx, z = j / grid.Nx;
                 if (x >= x0 && x <= x1 && z >= z0 && z <= z1 && !mask[j] && !outside[j])
@@ -112,7 +112,7 @@ public static class Morphology
 
         while (queue.TryDequeue(out int k))
         {
-            Growth.ForSides(grid, k, j =>
+            grid.ForSides(k, j =>
             {
                 if (mask[j] && !reached[j])
                 {

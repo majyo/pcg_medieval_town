@@ -115,7 +115,7 @@ public static class LandUses
             while (stack.TryPop(out int k))
             {
                 patch.Add(k);
-                Growth.ForSides(grid, k, j =>
+                grid.ForSides(k, j =>
                 {
                     if (!seen[j] && land.Values[j] == use)
                     {
@@ -133,17 +133,8 @@ public static class LandUses
     }
 
     /// <summary>The cells holding any of <paramref name="uses"/> as one region (cell squares merged).</summary>
-    public static Region Area(this CategoryField land, IReadOnlySet<LandUse> uses)
-    {
-        var grid = land.Grid;
-        float h = grid.CellSize / 2;
-        var squares = Enumerable.Range(0, grid.Count).Where(k => uses.Contains(land.Use(k))).Select(k => grid.Center(k))
-            .Select(p => new[]
-            {
-                p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h),
-            }).ToList();
-        return squares.Count == 0 ? Region.Empty : Region.Polygons(squares);
-    }
+    public static Region Area(this CategoryField land, IReadOnlySet<LandUse> uses) =>
+        land.Grid.Squares(Enumerable.Range(0, land.Values.Length).Where(k => uses.Contains(land.Use(k))));
 
     /// <summary>A copy of <paramref name="land"/>'s values for an editing node to change.</summary>
     public static byte[] Edit(this CategoryField land) => (byte[])land.Values.Clone();

@@ -4,12 +4,6 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-/// <summary>Panel group of the nodes that measure the site: physical quantities only, no scores or thresholds.</summary>
-public static class Sampling
-{
-    public const string Group = "场地采样";
-}
-
 public sealed class SampleGridOptions
 {
     [Param("格距 m", 2, 16, 1,
@@ -20,7 +14,7 @@ public sealed class SampleGridOptions
 /// <summary>Chooses the grid every site field is sampled on: square cells covering the map, centered on the origin.</summary>
 public sealed class SampleGrid : CityNode<SampleGridOptions>
 {
-    public override string Group => Sampling.Group;
+    public override string Group => NodeGroups.Sampling;
     public override string Title => "采样网格";
     public override string Description =>
         "确定所有采样场共用的方格网：格距越小越精细，但所有下游节点都会变慢。";

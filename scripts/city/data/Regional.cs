@@ -22,6 +22,13 @@ public sealed class CrossingSet : ISummarized
 
     public IReadOnlyList<Crossing> Crossings { get; }
 
+    /// <summary>The crossings some route of <paramref name="network"/> uses.</summary>
+    public IEnumerable<Crossing> UsedBy(RouteNetwork network)
+    {
+        var used = network.UsedCrossings.ToHashSet();
+        return Crossings.Where(x => used.Contains(x.Id));
+    }
+
     public string Summary => Crossings.Count == 0 ? "没有渡口"
         : $"{Crossings.Count} 处，最窄 {Crossings.Min(c => c.Width):0} m，最宽 {Crossings.Max(c => c.Width):0} m";
 }
@@ -57,15 +64,16 @@ public sealed class RouteNetwork : ISummarized
         }
 
         Links = links;
-        var degree = new Dictionary<int, int>();
+        var neighbors = new Dictionary<int, List<int>>();
         foreach (var (a, b) in links)
         {
-            degree[a] = degree.GetValueOrDefault(a) + 1;
-            degree[b] = degree.GetValueOrDefault(b) + 1;
+            (neighbors.TryGetValue(a, out var la) ? la : neighbors[a] = new List<int>()).Add(b);
+            (neighbors.TryGetValue(b, out var lb) ? lb : neighbors[b] = new List<int>()).Add(a);
         }
 
-        Cells = degree.Keys.ToHashSet();
-        Junctions = degree.Where(d => d.Value >= 3).Select(d => d.Key).OrderBy(k => k).ToArray();
+        Neighbors = neighbors.ToDictionary(n => n.Key, n => (IReadOnlyList<int>)n.Value);
+        Cells = neighbors.Keys.ToHashSet();
+        Junctions = neighbors.Where(n => n.Value.Count >= 3).Select(n => n.Key).OrderBy(k => k).ToArray();
         Length = links.Sum(l => grid.Center(l.Item1).DistanceTo(grid.Center(l.Item2)));
     }
 
@@ -79,12 +87,20 @@ public sealed class RouteNetwork : ISummarized
     /// <summary>Every cell some route passes through.</summary>
     public IReadOnlySet<int> Cells { get; }
 
+    /// <summary>The cells each route cell is linked to.</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<int>> Neighbors { get; }
+
     public IReadOnlyList<int> Junctions { get; }
 
     /// <summary>Total length of road, shared stretches counted once (along grid links, so a little longer than the lines).</summary>
     public float Length { get; }
 
     public IEnumerable<string> UsedCrossings => Routes.SelectMany(r => r.Crossings).Distinct();
+
+    /// <summary>The band within <paramref name="halfWidth"/> of every route's line (empty for none).</summary>
+    public Region Band(float halfWidth) => halfWidth > 0
+        ? Region.Lines(Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, 2 * halfWidth)))
+        : Region.Empty;
 
     public string Summary =>
         $"{Entries.Count} 个入口，{Routes.Count} 条道路，共 {Length / 1000:0.0} km，过河 {UsedCrossings.Count()} 处，路口 {Junctions.Count} 个";

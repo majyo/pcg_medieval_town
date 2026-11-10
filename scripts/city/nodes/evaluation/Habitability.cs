@@ -28,7 +28,7 @@ public sealed class HabitabilityOptions
 /// </summary>
 public sealed class Habitability : CityNode<HabitabilityOptions>
 {
-    public override string Group => Evaluation.Group;
+    public override string Group => NodeGroups.Evaluation;
     public override string Title => "宜居度";
     public override string Description =>
         "给每块可建设的格打 0–1 分：坡缓、离水近、地势高不怕淹、略高于周围、不朝北、林少，几项相乘。";

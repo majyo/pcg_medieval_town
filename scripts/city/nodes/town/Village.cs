@@ -4,11 +4,6 @@ using System.Linq;
 
 namespace PcgCitySandbox.City;
 
-public static class TownGrowth
-{
-    public const string Group = "城镇生长";
-}
-
 /// <summary>Options shared by the growth phases: how far a phase reaches and how it spreads along the roads.</summary>
 public class GrowthOptions : SpreadOptions
 {
@@ -16,8 +11,6 @@ public class GrowthOptions : SpreadOptions
         Hint = "这一期结束时城镇建成区的总面积（含之前各期）")]
     public float Area { get; set; } = 2;
 
-    /// <summary>How many cells of <paramref name="grid"/> make up <see cref="Area"/>.</summary>
-    public int Cells(SiteGrid grid) => (int)MathF.Round(Area * 10000 / (grid.CellSize * grid.CellSize));
 }
 
 /// <summary>How a growth phase spreads along the roads (<see cref="GrowthRules"/>), as node parameters.</summary>
@@ -43,7 +36,7 @@ public sealed class VillageOptions : GrowthOptions
 /// <summary>Phase one: a village strung along the through routes from the origin.</summary>
 public sealed class Village : CityNode<VillageOptions>
 {
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "一期 村落";
     public override string Description =>
         "从起源点沿过境道路长出约 2 ha 的村落：先占临路的地，沿路越远、离路越深越晚收入，宜居度高的地优先。";
@@ -57,11 +50,11 @@ public sealed class Village : CityNode<VillageOptions>
         var buildable = c.Get(Keys.Buildable);
         var grid = buildable.Grid;
         var history = GrowthHistory.Empty(grid);
-        int target = o.Cells(grid);
+        int target = grid.CellCount(o.Area);
         var cells = Growth.Spread(network, buildable, c.Get(Keys.Habitability), new bool[grid.Count], new[] { origin.Cell },
             target, o.Rules, null, c.Cancellation);
         if (cells.Count < target)
-            c.Notice($"可建设地不足，村落只有 {cells.Count * grid.CellSize * grid.CellSize / 10000:0.0} ha");
+            c.Notice($"可建设地不足，村落只有 {grid.Hectares(cells.Count):0.0} ha");
         c.Set(Keys.Growth, history.Add("村落", cells));
     }
 }

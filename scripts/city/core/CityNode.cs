@@ -14,7 +14,7 @@ public abstract class CityNode
 {
     private static readonly IKey[] None = Array.Empty<IKey>();
 
-    /// <summary>Panel group heading, e.g. "路网".</summary>
+    /// <summary>Panel group heading, one of <see cref="NodeGroups"/>.</summary>
     public abstract string Group { get; }
     public abstract string Title { get; }
 
@@ -108,4 +108,18 @@ public sealed class NodeContext
 /// <summary>Options type for nodes without tunable parameters.</summary>
 public sealed class NoOptions
 {
+}
+
+/// <summary>The panel groups, in pipeline order; each becomes a stage of the interface.</summary>
+public static class NodeGroups
+{
+    /// <summary>Nodes that measure the site: physical quantities only, no scores or thresholds.</summary>
+    public const string Sampling = "场地采样";
+    public const string Evaluation = "场地评价";
+    public const string Regional = "区域格局";
+    public const string Town = "城镇生长";
+    public const string Zoning = "用地分区";
+    public const string Roads = "路网";
+    public const string Lots = "街区与地块";
+    public const string Buildings = "建筑";
 }

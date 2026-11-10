@@ -18,7 +18,7 @@ public sealed class LandformPositionOptions
 /// </summary>
 public sealed class LandformPosition : CityNode<LandformPositionOptions>
 {
-    public override string Group => Sampling.Group;
+    public override string Group => NodeGroups.Sampling;
     public override string Title => "地形位置";
     public override string Description =>
         "比较每格与周围的平均高程：高出为岗地、台地边缘，低于为谷地。";
@@ -31,7 +31,7 @@ public sealed class LandformPosition : CityNode<LandformPositionOptions>
         var grid = height.Grid;
         var sums = new SummedArea(grid, height.Values);
         c.Cancellation.ThrowIfCancellationRequested();
-        int r = Math.Max(1, (int)MathF.Round(o.Radius / grid.CellSize));
+        int r = grid.Span(o.Radius);
         var relief = new float[grid.Count];
         var options = new ParallelOptions { CancellationToken = c.Cancellation };
         Parallel.For(0, grid.Nz, options, z =>

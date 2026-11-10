@@ -27,7 +27,7 @@ public sealed class SuburbLanesOptions
 /// </summary>
 public sealed class SuburbLanes : CityNode<SuburbLanesOptions>
 {
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "城外巷道";
     public override string Description =>
         "在城外长厚了的街区里按间距撒点，从穿过它的城外道路岔出巷道，连成以尽头巷和后巷为主的小路；只沿路一两排深的地方不铺。";
@@ -43,26 +43,13 @@ public sealed class SuburbLanes : CityNode<SuburbLanesOptions>
         var links = c.Get(Keys.RoadLinks).Copy();
 
         // The suburbs: built cells outside the wall, clear of it.
-        var nearWall = new HashSet<int>(Growth.CellsIn(grid, wall.Interior.Offset(o.WallSetback)));
+        var nearWall = grid.Mask(grid.CellsIn(wall.Interior.Offset(o.WallSetback)));
         var area = new bool[grid.Count];
         for (int k = 0; k < grid.Count; k++)
-            area[k] = growth.Built(k) && !zones.Inside(k) && !nearWall.Contains(k) && zones.Allowed(k, RoadZone.Outside);
+            area[k] = growth.Built(k) && !zones.Inside(k) && !nearWall[k] && zones.Allowed(k, RoadZone.Outside);
 
         var roads = links.Cells.ToHashSet();
-        bool Touches(int k)
-        {
-            int x = k % grid.Nx, z = k / grid.Nx;
-            for (int dz = -1; dz <= 1; dz++)
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (grid.InGrid(x + dx, z + dz) && area[grid.Index(x + dx, z + dz)])
-                        return true;
-                }
-
-            return false;
-        }
-
-        int failed = StreetWeave.Weave(zones, links, RoadZone.Outside, k => !zones.Inside(k) && Touches(k),
+        int failed = StreetWeave.Weave(zones, links, RoadZone.Outside, k => !zones.Inside(k) && grid.AnyNear(k, 1, j => area[j]),
             k => area[k] && !zones.IsGate(k), k => area[k] || roads.Contains(k), o.Spacing, o.LoopChance,
             new Random(o.Seed), c.Cancellation);
         if (failed > 0)

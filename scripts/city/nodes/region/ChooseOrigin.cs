@@ -39,7 +39,7 @@ public sealed class ChooseOriginOptions
 /// </summary>
 public sealed class ChooseOrigin : CityNode<ChooseOriginOptions>
 {
-    public override string Group => RegionalFrame.Group;
+    public override string Group => NodeGroups.Regional;
     public override string Title => "起源点";
     public override string Description =>
         "在过境道路上选出城镇最早出现的地点：周围宜居度高，靠近渡口桥头或路口更好，离图心不太远。";
@@ -52,11 +52,10 @@ public sealed class ChooseOrigin : CityNode<ChooseOriginOptions>
         var habitability = c.Get(Keys.Habitability);
         var buildable = c.Get(Keys.Buildable);
         var grid = habitability.Grid;
-        var used = network.UsedCrossings.ToHashSet();
-        var bridges = c.Get(Keys.Crossings).Crossings.Where(x => used.Contains(x.Id)).Select(x => x.Center).ToList();
+        var bridges = c.Get(Keys.Crossings).UsedBy(network).Select(x => x.Center).ToList();
         var junctions = network.Junctions.Select(k => grid.Center(k)).ToList();
         var sums = new SummedArea(grid, habitability.Values);
-        int r = Math.Max(1, (int)MathF.Round(o.Radius / grid.CellSize));
+        int r = grid.Span(o.Radius);
         float half = c.Terrain.Half;
 
         int best = -1;

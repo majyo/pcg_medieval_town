@@ -16,7 +16,7 @@ public sealed class ExtractRoadsOptions
         Hint = "城外道路的路面宽度")]
     public float OuterWidth { get; set; } = 5;
     [Param("便道宽 m", 2, 6, 0.5,
-        Hint = "通往作坊的土路的路面宽度")]
+        Hint = "通往作坊和城外地标的土路的路面宽度")]
     public float TrackWidth { get; set; } = 3;
 
     public float Width(RoadKind kind) => kind switch
@@ -35,7 +35,7 @@ public sealed class ExtractRoadsOptions
 /// </summary>
 public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
 {
-    public override string Group => "路网";
+    public override string Group => NodeGroups.Roads;
     public override string Title => "提取路网";
     public override string Description =>
         "把格子之间的连线整理成路网：连续的格子变成折线，路口、端点和等级变化处成为节点；再按路宽铺出路面。";

@@ -70,7 +70,7 @@ public partial class CityView : Node3D
                 LinksLegend, Context: [Keys.Grid]),
             [Keys.Roads] = new((root, s, other) => BuildRoads(root, (RoadGraph)s.Value, other(Keys.Plaza) as Plaza),
                 _ => Categories("道路", (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Street), "街巷"),
-                    (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Track), "便道（通往作坊的土路）")),
+                    (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Track), "便道（通往作坊和城外地标的土路）")),
                 Uses: [Keys.Plaza]),
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
@@ -246,11 +246,9 @@ public partial class CityView : Node3D
             bool inUse = used == null || used.Contains(crossing.Id);
             if (!inUse && !detail)
                 continue;
-            var along = (crossing.BankB - crossing.BankA).Normalized();
-            var side = along.Orthogonal() * (inUse ? deckWidth : 1.5f) / 2;
             float deck = Math.Max(Height(crossing.BankA), Height(crossing.BankB)) + 0.4f;
-            var corners = new[] { crossing.BankA + side, crossing.BankB + side, crossing.BankB - side, crossing.BankA - side };
-            solids.Prism(corners, deck - 0.8f, deck, CrossingColor, CrossingColor.Lightened(0.2f));
+            solids.Prism(Band(crossing.BankA, crossing.BankB, (inUse ? deckWidth : 1.5f) / 2), deck - 0.8f, deck, CrossingColor,
+                CrossingColor.Lightened(0.2f));
         }
 
         Add(root, solids, MeshKit.Material());
@@ -261,8 +259,7 @@ public partial class CityView : Node3D
     {
         const float width = 7;
         var ribbons = new MeshKit();
-        ribbons.Drape(Region.Lines(network.Routes.Select(r => ((IReadOnlyList<Vector2>)r.Points, width))).Triangulate(),
-            Height, 0.6f, RouteColor, maxEdge: 4);
+        ribbons.Drape(network.Band(width / 2).Triangulate(), Height, 0.6f, RouteColor, maxEdge: 4);
         Add(root, ribbons, MeshKit.Material(unshaded: true), shadows: false);
         var posts = new MeshKit();
         foreach (var entry in network.Entries)
@@ -291,8 +288,7 @@ public partial class CityView : Node3D
 
     private void Mast(MeshKit kit, Vector2 at, float size, float height, Color color)
     {
-        float h = size / 2;
-        var corners = new[] { at + new Vector2(-h, -h), at + new Vector2(h, -h), at + new Vector2(h, h), at + new Vector2(-h, h) };
+        var corners = Box(at, Vector2.Right, size, size);
         float ground = corners.Min(Height);
         kit.Prism(corners, ground - 1, ground + height, color, color.Lightened(0.25f));
     }
@@ -351,36 +347,49 @@ public partial class CityView : Node3D
     /// </summary>
     private void Church(MeshKit church, Vector2 nave, Vector2 u, float length, float width, float tower)
     {
-        var v = u.Orthogonal();
-        var corners = new[]
-        {
-            nave - u * length / 2 - v * width / 2, nave + u * length / 2 - v * width / 2,
-            nave + u * length / 2 + v * width / 2, nave - u * length / 2 + v * width / 2,
-        };
+        var corners = Box(nave, u, length, width);
         float ground = corners.Min(Height), eaves = corners.Max(Height) + 10, ridge = eaves + width * 0.6f;
         church.Prism(corners, ground - 1, eaves, ChurchWall, ChurchWall);
-        Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
-        Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
-        Vector2 west = nave - u * length / 2, east = nave + u * length / 2;
-        church.Quad(E(corners[0]), E(corners[1]), R(east), R(west), ChurchRoof, Vector3.Up);
-        church.Quad(E(corners[2]), E(corners[3]), R(west), R(east), ChurchRoof, Vector3.Up);
-        church.Triangle(E(corners[1]), E(corners[2]), R(east), ChurchWall, new Vector3(u.X, 0, u.Y));
-        church.Triangle(E(corners[3]), E(corners[0]), R(west), ChurchWall, new Vector3(-u.X, 0, -u.Y));
+        GableRoof(church, corners, eaves, ridge, ChurchWall, ChurchRoof);
         if (tower <= 0)
         {
-            var turret = nave + u * length * 0.1f;
-            church.Prism(new[] { turret - u - v, turret + u - v, turret + u + v, turret - u + v }, ridge - 1, ridge + 6,
-                ChurchRoof, ChurchRoof);
+            church.Prism(Box(nave + u * length * 0.1f, u, 2, 2), ridge - 1, ridge + 6, ChurchRoof, ChurchRoof);
             return;
         }
 
-        var foot = west - u * (tower / 2 - 1);
-        var towerCorners = new[]
-        {
-            foot - u * tower / 2 - v * tower / 2, foot + u * tower / 2 - v * tower / 2,
-            foot + u * tower / 2 + v * tower / 2, foot - u * tower / 2 + v * tower / 2,
-        };
+        var towerCorners = Box(nave - u * (length / 2 + tower / 2 - 1), u, tower, tower);
         church.Prism(towerCorners, towerCorners.Min(Height) - 1, ridge + 12, Stone, ChurchRoof);
+    }
+
+    /// <summary>The corners of a rectangle <paramref name="length"/> along <paramref name="u"/>, <paramref name="width"/> across.</summary>
+    private static Vector2[] Box(Vector2 center, Vector2 u, float length, float width)
+    {
+        var a = u.Normalized() * length / 2;
+        var b = u.Normalized().Orthogonal() * width / 2;
+        return [center - a - b, center + a - b, center + a + b, center - a + b];
+    }
+
+    /// <summary>The corners of a strip <paramref name="halfWidth"/> to each side of the segment from a to b.</summary>
+    private static Vector2[] Band(Vector2 a, Vector2 b, float halfWidth)
+    {
+        var side = (b - a).Normalized().Orthogonal() * halfWidth;
+        return [a + side, b + side, b - side, a - side];
+    }
+
+    /// <summary>
+    /// A gable roof over a box from <paramref name="eaves"/> to <paramref name="ridge"/>: the ridge runs from the middle
+    /// of side 3–0 to the middle of side 1–2, with gable walls at both ends.
+    /// </summary>
+    private static void GableRoof(MeshKit kit, Vector2[] c, float eaves, float ridge, Color wall, Color roof)
+    {
+        Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
+        Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
+        Vector3 Out(Vector2 p) => new(p.X - (c[0].X + c[2].X) / 2, 0, p.Y - (c[0].Y + c[2].Y) / 2);
+        Vector2 start = (c[3] + c[0]) / 2, end = (c[1] + c[2]) / 2;
+        kit.Quad(E(c[0]), E(c[1]), R(end), R(start), roof, Vector3.Up);
+        kit.Quad(E(c[2]), E(c[3]), R(start), R(end), roof, Vector3.Up);
+        kit.Triangle(E(c[1]), E(c[2]), R(end), wall, Out(end));
+        kit.Triangle(E(c[3]), E(c[0]), R(start), wall, Out(start));
     }
 
     /// <summary>A leper house: a small chapel and three huts inside a low hedge round the plot.</summary>
@@ -392,9 +401,7 @@ public partial class CityView : Node3D
         {
             var a = ring[i];
             var b = ring[(i + 1) % ring.Length];
-            var side = (b - a).Normalized().Orthogonal() * 0.4f;
-            kit.Prism(new[] { a + side, b + side, b - side, a - side }, MathF.Min(Height(a), Height(b)) - 0.5f,
-                MathF.Max(Height(a), Height(b)) + 1.2f, Hedge, Hedge);
+            kit.Prism(Band(a, b, 0.4f), MathF.Min(Height(a), Height(b)) - 0.5f, MathF.Max(Height(a), Height(b)) + 1.2f, Hedge, Hedge);
         }
 
         var u = house.Axis.Normalized();
@@ -404,7 +411,7 @@ public partial class CityView : Node3D
         for (int i = 0; i < 3; i++)
         {
             var hut = house.Center - u * size.X * 0.28f + v * size.Y * (0.28f - 0.22f * i) + u * (i % 2) * 3;
-            var corners = new[] { hut - u * 2.5f - v * 2, hut + u * 2.5f - v * 2, hut + u * 2.5f + v * 2, hut - u * 2.5f + v * 2 };
+            var corners = Box(hut, u, 5, 4);
             kit.Prism(corners, corners.Min(Height) - 0.5f, corners.Max(Height) + 3, ChurchWall, ChurchRoof);
         }
     }
@@ -414,47 +421,27 @@ public partial class CityView : Node3D
     {
         var c = gallows.Center;
         var u = gallows.Axis.Normalized();
-        var v = u.Orthogonal();
-        float r = gallows.Plot.Bounds.Size.X * 0.35f;
-        var mound = new[] { c - u * r - v * r, c + u * r - v * r, c + u * r + v * r, c - u * r + v * r };
+        float side = gallows.Plot.Bounds.Size.X * 0.7f;
+        var mound = Box(c, u, side, side);
         float top = mound.Max(Height) + 1.2f;
         kit.Prism(mound, mound.Min(Height) - 0.5f, top, Mound, Mound);
-        foreach (float side in new[] { -1.6f, 1.6f })
-        {
-            var post = c + u * side;
-            kit.Prism(new[] { post - u * 0.2f - v * 0.2f, post + u * 0.2f - v * 0.2f, post + u * 0.2f + v * 0.2f, post - u * 0.2f + v * 0.2f },
-                top, top + 4.5f, Timber, Timber);
-        }
-
-        kit.Prism(new[] { c - u * 2.1f - v * 0.2f, c + u * 2.1f - v * 0.2f, c + u * 2.1f + v * 0.2f, c - u * 2.1f + v * 0.2f },
-            top + 4.1f, top + 4.5f, Timber, Timber);
+        foreach (float at in new[] { -1.6f, 1.6f })
+            kit.Prism(Box(c + u * at, u, 0.4f, 0.4f), top, top + 4.5f, Timber, Timber);
+        kit.Prism(Box(c, u, 4.2f, 0.4f), top + 4.1f, top + 4.5f, Timber, Timber);
     }
 
     /// <summary>A two-storey hall filling its plot, with a steep gable roof along its long side and a belfry.</summary>
     private void BuildTownHall(MeshKit kit, Landmark hall)
     {
         var u = hall.Axis.Normalized();
-        var v = u.Orthogonal();
         var size = hall.Plot.Bounds.Size;
         bool alongX = MathF.Abs(u.X) >= MathF.Abs(u.Y);
         float length = (alongX ? size.X : size.Y) - 1, width = (alongX ? size.Y : size.X) - 1;
-        var c = hall.Center;
-        var corners = new[]
-        {
-            c - u * length / 2 - v * width / 2, c + u * length / 2 - v * width / 2,
-            c + u * length / 2 + v * width / 2, c - u * length / 2 + v * width / 2,
-        };
+        var corners = Box(hall.Center, u, length, width);
         float ground = corners.Min(Height), eaves = corners.Max(Height) + 8.5f, ridge = eaves + width * 0.7f;
         kit.Prism(corners, ground - 1, eaves, HallWall, HallWall);
-        Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
-        Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
-        Vector2 a = c - u * length / 2, b = c + u * length / 2;
-        kit.Quad(E(corners[0]), E(corners[1]), R(b), R(a), ChurchRoof, Vector3.Up);
-        kit.Quad(E(corners[2]), E(corners[3]), R(a), R(b), ChurchRoof, Vector3.Up);
-        kit.Triangle(E(corners[1]), E(corners[2]), R(b), HallWall, new Vector3(u.X, 0, u.Y));
-        kit.Triangle(E(corners[3]), E(corners[0]), R(a), HallWall, new Vector3(-u.X, 0, -u.Y));
-        kit.Prism(new[] { c - u * 1.5f - v * 1.5f, c + u * 1.5f - v * 1.5f, c + u * 1.5f + v * 1.5f, c - u * 1.5f + v * 1.5f },
-            ridge - 2, ridge + 6, HallWall, ChurchRoof);
+        GableRoof(kit, corners, eaves, ridge, HallWall, ChurchRoof);
+        kit.Prism(Box(hall.Center, u, 3, 3), ridge - 2, ridge + 6, HallWall, ChurchRoof);
     }
 
     /// <summary>
@@ -479,12 +466,7 @@ public partial class CityView : Node3D
         {
             var dir = i % 2 == 0 ? u : v;
             var normal = i % 2 == 0 ? v : u;
-            var mid = garth + normal * (i < 2 ? 1 : -1) * (side / 2 - range / 2);
-            var corners = new[]
-            {
-                mid - dir * side / 2 - normal * range / 2, mid + dir * side / 2 - normal * range / 2,
-                mid + dir * side / 2 + normal * range / 2, mid - dir * side / 2 + normal * range / 2,
-            };
+            var corners = Box(garth + normal * (i < 2 ? 1 : -1) * (side / 2 - range / 2), dir, side, range);
             kit.Prism(corners, corners.Min(Height) - 1, corners.Max(Height) + 6, ChurchWall, ChurchRoof);
         }
     }
@@ -522,15 +504,8 @@ public partial class CityView : Node3D
             var b = ring[(i + 1) % ring.Length];
             float length = a.DistanceTo(b);
             var along = (b - a) / length;
-            var side = along.Orthogonal() * thickness / 2;
             for (float t = 0; t < length - 0.01f; t += 6)
-            {
-                var p = a + along * t;
-                var q = a + along * Math.Min(length, t + 6);
-                float bottom = Math.Min(Height(p), Height(q)) - 1;
-                float top = Math.Max(Height(p), Height(q)) + height;
-                kit.Prism(new[] { p + side, q + side, q - side, p - side }, bottom, top, Stone, StoneTop);
-            }
+                WallPiece(kit, a + along * t, a + along * Math.Min(length, t + 6), thickness, height);
 
             Tower(kit, a, along, towerSize, towerHeight);
         }
@@ -560,16 +535,12 @@ public partial class CityView : Node3D
             float start = gates.Contains(a) ? gap : 0;
             float end = length - (gates.Contains(b) ? gap : 0);
             var along = (b - a) / length;
-            var side = along.Orthogonal() * thickness / 2;
             for (float t = start; t < end - 0.01f; t += 6)
             {
                 var p = a + along * t;
                 var q = a + along * Math.Min(end, t + 6);
-                if (ByCastle((p + q) / 2))
-                    continue;
-                float bottom = Math.Min(Height(p), Height(q)) - 1;
-                float top = Math.Max(Height(p), Height(q)) + height;
-                wall.Prism(new[] { p + side, q + side, q - side, p - side }, bottom, top, Stone, StoneTop);
+                if (!ByCastle((p + q) / 2))
+                    WallPiece(wall, p, q, thickness, height);
             }
 
             if (i % 4 == 0 && !gates.Contains(a) && !ByCastle(a))
@@ -605,12 +576,14 @@ public partial class CityView : Node3D
 
     private void Tower(MeshKit kit, Vector2 center, Vector2 facing, float size, float height)
     {
-        var u = facing.Normalized() * size / 2;
-        var v = u.Orthogonal();
-        var corners = new[] { center + u + v, center - u + v, center - u - v, center + u - v };
-        float ground = corners.Min(Height);
-        kit.Prism(corners, ground - 1, corners.Max(Height) + height, Stone.Darkened(0.05f), StoneTop);
+        var corners = Box(center, facing, size, size);
+        kit.Prism(corners, corners.Min(Height) - 1, corners.Max(Height) + height, Stone.Darkened(0.05f), StoneTop);
     }
+
+    /// <summary>A stretch of stone wall from p to q, a meter into the ground at its low end.</summary>
+    private void WallPiece(MeshKit kit, Vector2 p, Vector2 q, float thickness, float height) =>
+        kit.Prism(Band(p, q, thickness / 2), Math.Min(Height(p), Height(q)) - 1, Math.Max(Height(p), Height(q)) + height, Stone,
+            StoneTop);
 
     /// <summary>
     /// Each grid link as a short ribbon between cell centers, colored by road class. When the value is an edit of
@@ -726,28 +699,8 @@ public partial class CityView : Node3D
                     wall, new Vector3(outward.X, 0, outward.Y));
             }
 
-            Vector3 E(Vector2 p) => new(p.X, b.Eaves, p.Y);
-            Vector3 R(Vector2 p) => new(p.X, b.Ridge, p.Y);
-            Vector3 Out(Vector2 p) => new(p.X - (c[0].X + c[2].X) / 2, 0, p.Y - (c[0].Y + c[2].Y) / 2);
-            // Corners: 0 front-left, 1 front-right, 2 back-right, 3 back-left.
-            if (b.RidgeToStreet)
-            {
-                var front = (c[0] + c[1]) / 2;
-                var back = (c[2] + c[3]) / 2;
-                walls.Quad(E(c[0]), R(front), R(back), E(c[3]), roof, Vector3.Up);
-                walls.Quad(E(c[1]), E(c[2]), R(back), R(front), roof, Vector3.Up);
-                walls.Triangle(E(c[0]), E(c[1]), R(front), wall, Out(front));
-                walls.Triangle(E(c[3]), E(c[2]), R(back), wall, Out(back));
-            }
-            else
-            {
-                var left = (c[0] + c[3]) / 2;
-                var right = (c[1] + c[2]) / 2;
-                walls.Quad(E(c[0]), E(c[1]), R(right), R(left), roof, Vector3.Up);
-                walls.Quad(E(c[3]), R(left), R(right), E(c[2]), roof, Vector3.Up);
-                walls.Triangle(E(c[0]), E(c[3]), R(left), wall, Out(left));
-                walls.Triangle(E(c[1]), E(c[2]), R(right), wall, Out(right));
-            }
+            // Corners: 0 front-left, 1 front-right, 2 back-right, 3 back-left. Turned a quarter, the ridge runs front to back.
+            GableRoof(walls, b.RidgeToStreet ? [c[1], c[2], c[3], c[0]] : c, b.Eaves, b.Ridge, wall, roof);
         }
 
         Add(root, walls, MeshKit.Material());

@@ -27,7 +27,7 @@ public sealed class MarketPlace : CityNode<MarketPlaceOptions>
 {
     private const float MinScale = 0.5f, Shrink = 0.9f;
 
-    public override string Group => TownGrowth.Group;
+    public override string Group => NodeGroups.Town;
     public override string Title => "市场";
     public override string Description =>
         "在村落里最靠近道路交汇处的平地上开出市场：在路口是几条路之间的三角形，不在路口时是道路加宽成的纺锤形；地形不允许时缩小。";
@@ -44,12 +44,8 @@ public sealed class MarketPlace : CityNode<MarketPlaceOptions>
         var grid = buildable.Grid;
 
         // A junction counts as in the village when a built cell lies within two cells of it.
-        bool NearVillage(int k) => Enumerable.Range(-2, 5).Any(dz => Enumerable.Range(-2, 5).Any(dx =>
-        {
-            int x = k % grid.Nx + dx, z = k / grid.Nx + dz;
-            return grid.InGrid(x, z) && growth.Built(grid.Index(x, z));
-        }));
-        int junction = network.Junctions.Where(NearVillage).OrderBy(k => grid.Center(k).DistanceTo(origin.Position))
+        int junction = network.Junctions.Where(k => grid.AnyNear(k, 2, growth.Built))
+            .OrderBy(k => grid.Center(k).DistanceTo(origin.Position))
             .DefaultIfEmpty(-1).First();
         var target = junction >= 0 ? grid.Center(junction) : origin.Position;
 
@@ -58,7 +54,7 @@ public sealed class MarketPlace : CityNode<MarketPlaceOptions>
             for (float s = 1; s >= MinScale; s *= Shrink)
             {
                 var scaled = ring.Select(p => center + (p - center) * s).ToArray();
-                var cells = Growth.CellsIn(grid, Region.Polygon(scaled));
+                var cells = grid.CellsIn(Region.Polygon(scaled));
                 if (cells.Count > 0 && cells.All(buildable.Buildable))
                     return (scaled, s);
             }
@@ -94,7 +90,7 @@ public sealed class MarketPlace : CityNode<MarketPlaceOptions>
                 continue;
             if (Fit(spindle.Ring, spindle.Center) is not { } fitted)
                 continue;
-            var cells = Growth.CellsIn(grid, Region.Polygon(fitted.Ring));
+            var cells = grid.CellsIn(Region.Polygon(fitted.Ring));
             float score = distance + 4 * cells.Average(j => slope.Values[j]) + 100 * (1 - fitted.Scale);
             if (score < bestScore)
             {
@@ -111,9 +107,7 @@ public sealed class MarketPlace : CityNode<MarketPlaceOptions>
 
         // Nothing fits: one cell at the origin, which is buildable.
         c.Notice("村落里没有能放下市场的平地，市场只占起源点一格");
-        float h = grid.CellSize / 2;
-        var p0 = grid.Center(origin.Cell);
-        Set(c, new[] { p0 + new Vector2(-h, -h), p0 + new Vector2(h, -h), p0 + new Vector2(h, h), p0 + new Vector2(-h, h) }, p0, o.Area);
+        Set(c, grid.Square(origin.Cell), grid.Center(origin.Cell), o.Area);
     }
 
     private static void Set(NodeContext c, Vector2[] ring, Vector2 center, float target)
