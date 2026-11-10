@@ -19,7 +19,8 @@ public sealed class StreetBlocksOptions
 
 /// <summary>
 /// Developable land = the built cells, kept clear of the wall on both sides, minus the paved area, landmark plots and
-/// unbuildable cells; blocks are its parts. Unbuilt land (gardens, steep ground) stays open.
+/// unbuildable cells, plus the trades' cells (far from the wall, and the wet trades stand on flood land and banks on
+/// purpose) minus the paved area; blocks are its parts. Unbuilt land (gardens, steep ground) stays open.
 /// </summary>
 public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
 {
@@ -29,8 +30,9 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
     public override string Group => "街区与地块";
     public override string Title => "街区";
     public override string Description =>
-        "城内外已建成的地在城墙两侧各留出空地，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区；没建成的地（陡坡、菜园）不建房。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth];
+        "城内外已建成的地在城墙两侧各留出空地，去掉路面、地标用地和不可建设地，再加上作坊用地（去掉路面），连通部分就是街区；没建成的地（陡坡、菜园）不建房。";
+    public override IReadOnlyList<IKey> Reads =>
+        [Keys.Buildable, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth, Keys.LandUse];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 
     protected override void Run(NodeContext c, StreetBlocksOptions o)
@@ -44,7 +46,9 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
             .Union(built.Subtract(wall.Interior.Offset(o.OutsideSetback)))
             .Subtract(roads.Footprint.Offset(PavingClearance))
             .Subtract(c.Get(Keys.Landmarks).Plots)
-            .Subtract(Unbuildable(buildable, growth));
+            .Subtract(Unbuildable(buildable, growth))
+            .Union(c.Get(Keys.LandUse).Area(LandUses.Trades).Rounded(buildable.Grid.CellSize)
+                .Subtract(roads.Footprint.Offset(PavingClearance)));
         var blocks = developable.Parts().Where(b => b.Area >= o.MinArea).ToList();
         c.Set(Keys.Blocks, new BlockSet(developable, blocks));
     }

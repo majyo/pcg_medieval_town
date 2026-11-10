@@ -15,11 +15,15 @@ public sealed class ExtractRoadsOptions
     [Param("城外道路宽 m", 3, 10, 0.5,
         Hint = "城外道路的路面宽度")]
     public float OuterWidth { get; set; } = 5;
+    [Param("便道宽 m", 2, 6, 0.5,
+        Hint = "通往作坊的土路的路面宽度")]
+    public float TrackWidth { get; set; } = 3;
 
     public float Width(RoadKind kind) => kind switch
     {
         RoadKind.Main => MainWidth,
         RoadKind.Outer => OuterWidth,
+        RoadKind.Track => TrackWidth,
         _ => StreetWidth,
     };
 }
@@ -110,7 +114,7 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
                 // the ends (a route hugging the wall), keep the tight one.
                 var centers = cells.Select(k => grid.Center(k)).ToList();
                 var points = Geometry.Simplify(centers, grid.CellSize * 0.4f);
-                if (kind != RoadKind.Street)
+                if (kind is RoadKind.Main or RoadKind.Outer)
                 {
                     var loose = Geometry.Simplify(centers, grid.CellSize * 0.75f);
                     bool Dry(Vector2 p) => grid.CellAt(p) is int k && k >= 0 && buildable.Block(k) != SiteBlock.Water;

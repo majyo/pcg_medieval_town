@@ -67,7 +67,8 @@ public partial class CityView : Node3D
                 LinksLegend, Context: [Keys.Grid]),
             [Keys.Roads] = new((root, s, other) => BuildRoads(root, (RoadGraph)s.Value, other(Keys.Plaza) as Plaza),
                 _ => Categories("道路", (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Street), "街巷"),
-                    (RoadColor(RoadKind.Outer), "城外道路")), Uses: [Keys.Plaza]),
+                    (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Track), "便道（通往作坊的土路）")),
+                Uses: [Keys.Plaza]),
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
             [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
@@ -111,6 +112,7 @@ public partial class CityView : Node3D
     {
         RoadKind.Main => new Color("c0392b"),
         RoadKind.Outer => new Color("2e86c1"),
+        RoadKind.Track => new Color("7d7a4e"),
         _ => new Color("8f6a3a"),
     };
 
@@ -437,6 +439,7 @@ public partial class CityView : Node3D
         var categories = new List<(Color, string)>
         {
             (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Street), "街巷"),
+            (RoadColor(RoadKind.Track), "便道"),
         };
         if (shown.Previous != null)
             categories.Add((InheritedColor, "上游已有的连线"));
@@ -446,8 +449,13 @@ public partial class CityView : Node3D
     private void BuildRoads(Node3D root, RoadGraph roads, Plaza? plaza)
     {
         var kit = new MeshKit();
-        kit.Drape(roads.Footprint.Subtract(plaza?.Area ?? Region.Empty).Triangulate(),
-            Height, 0.3f, new Color("a8916c"));
+        // Tracks are dirt, drawn darker; where one meets a paved road the paving wins.
+        Region Bands(Func<RoadEdge, bool> which) =>
+            Region.Lines(roads.Edges.Where(which).Select(e => ((IReadOnlyList<Vector2>)e.Points, e.Width)));
+        var surface = roads.Footprint.Subtract(plaza?.Area ?? Region.Empty);
+        var dirt = surface.Intersect(Bands(e => e.Kind == RoadKind.Track)).Subtract(Bands(e => e.Kind != RoadKind.Track));
+        kit.Drape(surface.Subtract(dirt).Triangulate(), Height, 0.3f, new Color("a8916c"));
+        kit.Drape(dirt.Triangulate(), Height, 0.3f, new Color("8a7b5c"));
         Add(root, kit, MeshKit.Material(), shadows: false);
 
         var lines = new MeshKit(Mesh.PrimitiveType.Lines);

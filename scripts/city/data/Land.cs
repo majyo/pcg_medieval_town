@@ -49,10 +49,16 @@ public static class LandUses
         LandUse.Public, LandUse.Core, LandUse.Housing, LandUse.Suburb,
     };
 
-    /// <summary>Uses cut into street plots.</summary>
+    /// <summary>The trades pushed out of the town.</summary>
+    public static readonly IReadOnlySet<LandUse> Trades = new HashSet<LandUse>
+    {
+        LandUse.WetWorks, LandUse.FireWorks, LandUse.Mill,
+    };
+
+    /// <summary>Uses cut into street plots: the built quarters and the trades.</summary>
     public static readonly IReadOnlySet<LandUse> Plots = new HashSet<LandUse>
     {
-        LandUse.Core, LandUse.Housing, LandUse.Suburb,
+        LandUse.Core, LandUse.Housing, LandUse.Suburb, LandUse.WetWorks, LandUse.FireWorks, LandUse.Mill,
     };
 
     public static LandUse Use(this CategoryField land, int k) => (LandUse)land.Values[k];
@@ -87,6 +93,57 @@ public static class LandUses
     }
 
     public static string Label(this LandUse use) => Names[(int)use];
+
+    /// <summary>
+    /// The side-connected patches of each of <paramref name="uses"/> (a patch holds one use), each as its cells in
+    /// index order; patches in the order of their first cell.
+    /// </summary>
+    public static List<List<int>> Patches(this CategoryField land, IReadOnlySet<LandUse> uses)
+    {
+        var grid = land.Grid;
+        var seen = new bool[grid.Count];
+        var patches = new List<List<int>>();
+        for (int start = 0; start < grid.Count; start++)
+        {
+            if (seen[start] || !uses.Contains(land.Use(start)))
+                continue;
+            byte use = land.Values[start];
+            var patch = new List<int>();
+            var stack = new Stack<int>();
+            stack.Push(start);
+            seen[start] = true;
+            while (stack.TryPop(out int k))
+            {
+                patch.Add(k);
+                Growth.ForSides(grid, k, j =>
+                {
+                    if (!seen[j] && land.Values[j] == use)
+                    {
+                        seen[j] = true;
+                        stack.Push(j);
+                    }
+                });
+            }
+
+            patch.Sort();
+            patches.Add(patch);
+        }
+
+        return patches;
+    }
+
+    /// <summary>The cells holding any of <paramref name="uses"/> as one region (cell squares merged).</summary>
+    public static Region Area(this CategoryField land, IReadOnlySet<LandUse> uses)
+    {
+        var grid = land.Grid;
+        float h = grid.CellSize / 2;
+        var squares = Enumerable.Range(0, grid.Count).Where(k => uses.Contains(land.Use(k))).Select(k => grid.Center(k))
+            .Select(p => new[]
+            {
+                p + new Vector2(-h, -h), p + new Vector2(h, -h), p + new Vector2(h, h), p + new Vector2(-h, h),
+            }).ToList();
+        return squares.Count == 0 ? Region.Empty : Region.Polygons(squares);
+    }
 
     /// <summary>A copy of <paramref name="land"/>'s values for an editing node to change.</summary>
     public static byte[] Edit(this CategoryField land) => (byte[])land.Values.Clone();

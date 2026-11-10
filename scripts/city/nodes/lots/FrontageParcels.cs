@@ -25,6 +25,12 @@ public sealed class FrontageParcelsOptions
     [Param("城外街区 最大面宽 m", 4, 40, 0.5,
         Hint = "城外街区的地块临街面宽的上限；每块在上下限之间随机")]
     public float SuburbFrontageMax { get; set; } = 16;
+    [Param("作坊 最小面宽 m", 6, 40, 0.5,
+        Hint = "作坊（湿作坊、火作坊、水磨）的地块临街面宽的下限。作坊要院子堆料、晾晒，地块最宽")]
+    public float TradeFrontageMin { get; set; } = 18;
+    [Param("作坊 最大面宽 m", 8, 60, 0.5,
+        Hint = "作坊的地块临街面宽的上限；每块在上下限之间随机")]
+    public float TradeFrontageMax { get; set; } = 30;
     [Param("起始进深 m", 10, 60, 1,
         Hint = "先沿街切出这么深的地块（先切的街占住街角），之后各地块一齐向街区深处延伸")]
     public float Depth { get; set; } = 16;
@@ -43,17 +49,20 @@ public sealed class FrontageParcelsOptions
     {
         LandUse.Core => (CoreFrontageMin, CoreFrontageMax),
         LandUse.Suburb => (SuburbFrontageMin, SuburbFrontageMax),
+        LandUse.WetWorks or LandUse.FireWorks or LandUse.Mill => (TradeFrontageMin, TradeFrontageMax),
         _ => (HousingFrontageMin, HousingFrontageMax),
     };
 }
 
 /// <summary>
 /// Cuts plots of random frontage along both sides of every road with blocks beside it (main streets, then outer
-/// roads, then lanes; longer before shorter), to a starting depth. The frontage range follows the land use where
-/// each plot starts (narrow in the market core, wide in the suburbs), and each plot records its use. Then all plots
+/// roads, then lanes, then tracks; longer before shorter), to a starting depth. The frontage range follows the land
+/// use where each plot starts (narrow in the market core, wide in the suburbs, widest for the trades), and each plot
+/// records its use. Then all plots
 /// grow back together in thin strips, so plots from opposite streets meet near the middle of the block, up to a
 /// maximum depth. Gaps left in a block (at bends, corners and
-/// street ends) join the plot they share the longest border with, so the block is covered.
+/// street ends) join the plot they share the longest border with, so the block is covered. A trade's block that no
+/// plot reached becomes one plot.
 /// </summary>
 public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 {
@@ -64,7 +73,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
     public override string Group => "街区与地块";
     public override string Title => "临街地块";
     public override string Description =>
-        "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，后街巷），面宽按用途：市场核心窄、城外街区宽；再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
+        "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，然后街巷，最后便道），面宽按用途：市场核心窄、城外街区宽、作坊最宽；再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
     public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads, Keys.LandUse, Keys.Wall];
     public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 
@@ -85,6 +94,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
         var land = c.Get(Keys.LandUse);
         var interior = c.Get(Keys.Wall).Interior;
         LandUse UseAt(Vector2 p) => land.PlotUse(p, interior.Contains(p));
+        bool InBlock(Vector2 p) => blocks.Any(b => b.Bounds.HasPoint(p) && b.Contains(p));
         var parcels = new List<Parcel>();
         var shapes = new List<Region>();
         var blockOf = new List<int>();
@@ -103,7 +113,9 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
         GrowBack();
         FillGaps();
-        c.Set(Keys.Parcels, new ParcelSet(Settle()));
+        var settled = Settle();
+        Leftovers(settled);
+        c.Set(Keys.Parcels, new ParcelSet(settled));
 
         void Frontage(RoadEdge edge, Vector2 p0, Vector2 p1, int side)
         {
@@ -113,6 +125,10 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             float front = edge.Width / 2;
             for (float t = 0; ;)
             {
+                // Road beside no block (fields, gardens, a landmark) gets no plots: the next one starts where a block
+                // does, so small blocks such as a mill's are not straddled by a plot that starts out in the field.
+                while (length - t >= 1 && !InBlock(p0 + along * (t + 1) + inward * (front + 1.5f)))
+                    t += 1;
                 var (min, max) = o.Frontage(UseAt(p0 + along * Math.Min(t + 2, length) + inward * (front + 1.5f)));
                 if (length - t < min)
                     break;
@@ -206,6 +222,31 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             }
         }
 
+        // A trade's block left without a plot (a mill's strip of bank, whose track bends too often for a full
+        // frontage) becomes one plot. It fronts the side of its smallest bounding rectangle nearest a road.
+        void Leftovers(List<Parcel> result)
+        {
+            var probes = result.Select(p => p.Probe).ToList();
+            for (int block = 0; block < blocks.Count; block++)
+            {
+                var shape = blocks[block];
+                if (shape.Area < o.MinArea || shape.Rings.Count != 1
+                    || probes.Any(p => shape.Bounds.HasPoint(p) && shape.Contains(p)))
+                    continue;
+                // A strip along a bend can have its centroid in the river: judge it by the cells it covers.
+                if (!Growth.CellsIn(land.Grid, shape).Any(k => LandUses.Trades.Contains(land.Use(k))))
+                    continue;
+                var ring = shape.Rings[0];
+                var centroid = ring.Aggregate(Vector2.Zero, (sum, p) => sum + p) / ring.Length;
+
+                var (edge, road) = roads.Edges.SelectMany(e => Geometry.Samples(e.Points, 2).Select(p => (e, p)))
+                    .MinBy(x => x.p.DistanceSquaredTo(centroid));
+                var (a, b, inward) = Facing(ring, road);
+                var parcel = new Parcel(result.Count, ring, a, b, inward, edge.Kind, default, (float)shape.Area);
+                result.Add(parcel with { Use = UseAt(parcel.Probe) });
+            }
+        }
+
         // Strips meeting a diagonal block edge can leave a ring that pinches back on itself; read as one polygon, the
         // pinched loop pokes a sliver into its neighbor. Trim each plot by the plots before it and keep its largest
         // part, so the rings handed on never overlap.
@@ -273,6 +314,44 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
         IEnumerable<int> Nearby(Rect2 bounds) =>
             Buckets(bounds).SelectMany(k => index.TryGetValue(k, out var list) ? list : Enumerable.Empty<int>()).Distinct();
+    }
+
+    /// <summary>
+    /// The side of the smallest rectangle around <paramref name="ring"/> whose middle is nearest <paramref name="road"/>:
+    /// its ends, and the direction into the rectangle.
+    /// </summary>
+    private static (Vector2 A, Vector2 B, Vector2 Inward) Facing(Vector2[] ring, Vector2 road)
+    {
+        (Vector2 Along, float A0, float A1, float N0, float N1) best = default;
+        float bestArea = float.MaxValue;
+        for (int i = 0; i < ring.Length; i++)
+        {
+            var d = ring[(i + 1) % ring.Length] - ring[i];
+            if (d.LengthSquared() < 1e-4f)
+                continue;
+            d = d.Normalized();
+            var n = d.Orthogonal();
+            float a0 = ring.Min(p => p.Dot(d)), a1 = ring.Max(p => p.Dot(d));
+            float n0 = ring.Min(p => p.Dot(n)), n1 = ring.Max(p => p.Dot(n));
+            float area = (a1 - a0) * (n1 - n0);
+            if (area < bestArea)
+            {
+                bestArea = area;
+                best = (d, a0, a1, n0, n1);
+            }
+        }
+
+        var (along, from, to, near, far) = best;
+        var normal = along.Orthogonal();
+        Vector2 P(float a, float n) => along * a + normal * n;
+        var sides = new[]
+        {
+            (A: P(from, near), B: P(to, near), Inward: normal),
+            (A: P(to, far), B: P(from, far), Inward: -normal),
+            (A: P(from, far), B: P(from, near), Inward: along),
+            (A: P(to, near), B: P(to, far), Inward: -along),
+        };
+        return sides.MinBy(s => ((s.A + s.B) / 2).DistanceSquaredTo(road));
     }
 
     private static IEnumerable<(int, int)> Buckets(Rect2 r)

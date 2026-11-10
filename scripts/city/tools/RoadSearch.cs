@@ -14,10 +14,25 @@ public static class RoadSearch
     public static List<int>? Find(RoadZones zones, RoadLinks links, int start, int goal, RoadZone zone, RoadKind kind,
         CancellationToken cancel, Func<int, bool>? within = null)
     {
+        if (goal < 0 || !zones.Allowed(goal, zone) || within != null && !within(goal))
+            return null;
+        var target = zones.Grid.Center(goal);
+        return Search(zones, links, start, k => k == goal, k => zones.Grid.Center(k).DistanceTo(target) * 0.5f, zone, kind,
+            cancel, within);
+    }
+
+    /// <summary>The cheapest road from <paramref name="start"/> to the nearest cell passing <paramref name="isGoal"/>.</summary>
+    public static List<int>? FindNearest(RoadZones zones, RoadLinks links, int start, Func<int, bool> isGoal, RoadZone zone,
+        RoadKind kind, CancellationToken cancel, Func<int, bool>? within = null) =>
+        Search(zones, links, start, isGoal, _ => 0, zone, kind, cancel, within);
+
+    private static List<int>? Search(RoadZones zones, RoadLinks links, int start, Func<int, bool> isGoal,
+        Func<int, float> heuristic, RoadZone zone, RoadKind kind, CancellationToken cancel, Func<int, bool>? within)
+    {
         var grid = zones.Grid;
         var slope = zones.Slope.Values;
         bool Open(int k) => zones.Allowed(k, zone) && (within == null || within(k));
-        if (start < 0 || goal < 0 || !Open(start) || !Open(goal))
+        if (start < 0 || !Open(start))
             return null;
 
         int nx = grid.Nx;
@@ -31,7 +46,7 @@ public static class RoadSearch
         {
             if (!closed.Add(k))
                 continue;
-            if (k == goal)
+            if (isGoal(k))
             {
                 var path = new List<int> { k };
                 while (k != start)
@@ -62,13 +77,13 @@ public static class RoadSearch
                     float step = (dx != 0 && dz != 0 ? 1.4142f : 1) * grid.CellSize;
                     float factor = 1 + slope[j] / 12 + (zones.Buildable.Block(j) is SiteBlock.Forest ? 0.5f : 0);
                     if (links.TryGet(k, j, out var existing))
-                        factor *= kind == RoadKind.Street || existing == kind ? 0.5f : 0.8f;
+                        factor *= kind >= RoadKind.Street || existing == kind ? 0.5f : 0.8f;
                     float next = cost[k] + step * factor;
                     if (cost.TryGetValue(j, out float old) && old <= next)
                         continue;
                     cost[j] = next;
                     from[j] = k;
-                    open.Enqueue(j, next + grid.Center(j).DistanceTo(grid.Center(goal)) * 0.5f);
+                    open.Enqueue(j, next + heuristic(j));
                 }
         }
 

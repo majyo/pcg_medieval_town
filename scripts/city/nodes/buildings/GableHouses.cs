@@ -52,31 +52,54 @@ public sealed class GableHousesOptions
     [Param("城外街区 小巷概率", 0, 1, 0.05,
         Hint = "城外街区房屋一侧留出约 1.5 m 小巷的概率")]
     public float SuburbAlleyChance { get; set; } = 0.5f;
+    [Param("作坊 最少层数", 1, 5,
+        Hint = "作坊房屋层数的下限（主街上再加一层）。作坊是一两层的棚屋、窑房，屋顶比住房平")]
+    public int TradeFloorsMin { get; set; } = 1;
+    [Param("作坊 最多层数", 1, 6,
+        Hint = "作坊房屋层数的上限（主街上再加一层）")]
+    public int TradeFloorsMax { get; set; } = 2;
+    [Param("作坊 最小进深 m", 4, 20, 0.5,
+        Hint = "作坊房屋进深的下限（放不下时会自动缩短）")]
+    public float TradeDepthMin { get; set; } = 8;
+    [Param("作坊 最大进深 m", 5, 25, 0.5,
+        Hint = "作坊房屋进深的上限；每栋在上下限之间随机")]
+    public float TradeDepthMax { get; set; } = 12;
+    [Param("作坊 最长 m", 6, 40, 0.5,
+        Hint = "作坊房屋沿街的长度上限；地块更宽时房屋靠一侧，另一侧留作院子")]
+    public float TradeLengthMax { get; set; } = 16;
     [Param("种子", 0, 99999,
         Hint = "只影响房屋的进深、层数、颜色和小巷的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
     public int Seed { get; set; } = 1;
 
     /// <summary>The house rules for plots cut for <paramref name="use"/>.</summary>
+    private const float TradePitch = 0.3f;
+
     public HouseSpec Spec(LandUse use) => use switch
     {
         LandUse.Core => new(CoreFloorsMin, CoreFloorsMax, CoreDepthMin, CoreDepthMax, CoreAlleyChance),
         LandUse.Suburb => new(SuburbFloorsMin, SuburbFloorsMax, SuburbDepthMin, SuburbDepthMax, SuburbAlleyChance),
+        LandUse.WetWorks or LandUse.FireWorks or LandUse.Mill =>
+            new(TradeFloorsMin, TradeFloorsMax, TradeDepthMin, TradeDepthMax, 0, TradeLengthMax, TradePitch),
         _ => new(HousingFloorsMin, HousingFloorsMax, HousingDepthMin, HousingDepthMax, HousingAlleyChance),
     };
 }
 
-public readonly record struct HouseSpec(int FloorsMin, int FloorsMax, float DepthMin, float DepthMax, float AlleyChance);
+/// <param name="LengthMax">The longest a house may run along the street; a wider plot keeps a yard to one side.</param>
+/// <param name="Pitch">Roof rise over the span: 0.5 is about 45°.</param>
+public readonly record struct HouseSpec(int FloorsMin, int FloorsMax, float DepthMin, float DepthMax, float AlleyChance,
+    float LengthMax = float.PositiveInfinity, float Pitch = 0.5f);
 
 /// <summary>
 /// One rectangular house at the street front of every plot, with random depth and floors (one more on main
 /// streets) and a gable roof; narrow, deep houses turn the gable to the street. Sometimes leaves an alley. Floors,
 /// depth and the alley chance follow the plot's use: tall, deep and unbroken in the market core, low and loose in
-/// the suburbs.
+/// the suburbs; the trades get sheds with flatter roofs, at most so long, leaving a yard beside them.
 /// </summary>
 public sealed class GableHouses : CityNode<GableHousesOptions>
 {
     private const float FloorHeight = 3.2f;
     private const float MinDepth = 4;
+    private const float MaxSetBack = 12;
 
     private static readonly (float Left, float Right)[] Trims =
         [(0, 0), (1.5f, 0), (0, 1.5f), (1.5f, 1.5f), (3, 0), (0, 3), (3, 3), (5, 0), (0, 5), (5, 5)];
@@ -84,7 +107,7 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
     public override string Group => "建筑";
     public override string Title => "临街双坡房屋";
     public override string Description =>
-        "在每个地块临街处放一栋矩形双坡顶房屋，进深和层数随机，主街上多一层；窄长的房屋山墙朝街。层数、进深和留小巷的概率按地块的用途：市场核心高而深、连排，城外街区矮而疏。";
+        "在每个地块临街处放一栋矩形双坡顶房屋，进深和层数随机，主街上多一层；窄长的房屋山墙朝街。层数、进深和留小巷的概率按地块的用途：市场核心高而深、连排，城外街区矮而疏；作坊是屋顶较平的棚屋，旁边留出院子。";
     public override IReadOnlyList<IKey> Reads => [Keys.Parcels];
     public override IReadOnlyList<IKey> Writes => [Keys.Buildings];
 
@@ -115,18 +138,37 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
                     right = 1.5f;
             }
 
+            float extra = Math.Max(0, parcel.Frontage - left - right - spec.LengthMax);
+            bool atRight = extra > 0 && rng.Next(2) == 0;
+
             float depth = spec.DepthMin + rng.NextSingle() * (spec.DepthMax - spec.DepthMin);
             int floors = rng.Next(spec.FloorsMin, spec.FloorsMax + 1) + (parcel.Street == RoadKind.Main ? 1 : 0);
             int palette = rng.Next(4);
             // A plot cut short at a corner by an earlier plot gets a narrower house before a shallower one; a plot
-            // shallow everywhere gets the shallowest house.
-            var corners = Fit(depth, 4) ?? Fit(MinDepth, 1);
-            Vector2[]? Fit(float start, int attempts)
+            // shallow everywhere gets the shallowest house. A plot wider than the longest house keeps a yard: the
+            // house stands at one end, or slides along the front until it fits (a bend in a mill's bank).
+            // A yard's shed may also stand back from the front, where a curved plot's straight front misses it.
+            float maxBack = extra > 0 ? MaxSetBack : 0;
+            var corners = Slide(depth, 4) ?? Slide(MinDepth, 1);
+            Vector2[]? Slide(float start, int attempts)
+            {
+                for (float back = 0; back <= maxBack; back += 2)
+                    for (float s = 0; s <= extra; s = s < extra && s + 2 > extra ? extra : s + 2)
+                    {
+                        float shift = atRight ? extra - s : s;
+                        if (Fit(start, attempts, shift, extra - shift, back) is { } found)
+                            return found;
+                    }
+
+                return null;
+            }
+
+            Vector2[]? Fit(float start, int attempts, float shiftLeft, float shiftRight, float back)
             {
                 foreach (var (trimLeft, trimRight) in Trims)
                 {
-                    var a = parcel.FrontA + along * (left + trimLeft) + parcel.Inward * 0.3f;
-                    var b = parcel.FrontB - along * (right + trimRight) + parcel.Inward * 0.3f;
+                    var a = parcel.FrontA + along * (left + shiftLeft + trimLeft) + parcel.Inward * (0.3f + back);
+                    var b = parcel.FrontB - along * (right + shiftRight + trimRight) + parcel.Inward * (0.3f + back);
                     if (a.DistanceTo(b) < 3 || (b - a).Dot(along) <= 0)
                         continue;
 
@@ -134,6 +176,9 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
                     for (int attempt = 0; attempt < attempts && tryDepth >= MinDepth; attempt++, tryDepth *= 0.75f)
                     {
                         var candidate = new[] { a, b, b + parcel.Inward * tryDepth, a + parcel.Inward * tryDepth };
+                        // Sliding tries many places; most leave a corner outside, which is cheap to see.
+                        if (extra > 0 && !candidate.All(region.Contains))
+                            continue;
                         if (Region.Polygon(candidate).Subtract(region).Area < 0.2)
                             return candidate;
                     }
@@ -154,7 +199,8 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
             float eaves = heights.Max() + floors * FloorHeight;
             bool ridgeToStreet = width <= depth * 1.2f;
             float span = ridgeToStreet ? width : depth;
-            buildings.Add(new Building(parcel.Id, corners, heights.Min() - 0.5f, eaves, eaves + span * 0.5f, ridgeToStreet, palette));
+            buildings.Add(new Building(parcel.Id, corners, heights.Min() - 0.5f, eaves, eaves + span * spec.Pitch, ridgeToStreet,
+                palette));
         }
 
         if (skipped > 0)

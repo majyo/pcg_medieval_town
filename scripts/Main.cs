@@ -91,7 +91,7 @@ public partial class Main : Node3D
                     ("bank", bank.Focus, 0.35f, bank.Yaw, 45),
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
-                }.Concat(LandmarkViews()).Concat(SuburbViews()).ToArray();
+                }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -349,6 +349,20 @@ public partial class Main : Node3D
             return ($"suburb_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.95f,
                 Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 520f);
         });
+
+    /// <summary>Each patch of wet or fire trades from above at an angle, so its tracks, yards and sheds can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> WorkshopViews()
+    {
+        var land = _graph.Get(Keys.LandUse);
+        if (land == null)
+            return Enumerable.Empty<(string, Vector3, float, float, float)>();
+        var trades = new HashSet<LandUse> { LandUse.WetWorks, LandUse.FireWorks };
+        return land.Patches(trades).Select((patch, i) =>
+        {
+            var center = patch.Aggregate(Vector2.Zero, (sum, k) => sum + land.Grid.Center(k)) / patch.Count;
+            return ($"workshop_{i + 1}", new Vector3(center.X, _map.HeightAt(center), center.Y), 0.7f, 2.4f, 200f);
+        });
+    }
 
     private static string ShortName(IKey key) => key.Name[(key.Name.IndexOf('.') + 1)..];
 

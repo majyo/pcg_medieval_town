@@ -147,7 +147,8 @@ public static class Checks
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group or TownGrowth.Group
                 or LandZoning.Group || node is RoadZoning));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
-            node => node is not (Workshops or Countryside or FrontageParcels or GableHouses)));
+            node => node is not (Workshops or Countryside or WorkshopLanes or ExtractRoads or StreetBlocks or FrontageParcels
+                or GableHouses)));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
                 node is Village or MarketPlace));

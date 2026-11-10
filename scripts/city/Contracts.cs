@@ -727,6 +727,8 @@ public static class Contracts
             yield return "路网不连通";
 
         var growth = r.Get(Keys.Growth)!;
+        foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!))
+            yield return error;
         foreach (var edge in roads.Edges)
         {
             bool? streetInside = null;
@@ -747,7 +749,7 @@ public static class Contracts
                 bool expected = edge.Kind switch
                 {
                     RoadKind.Main => true,
-                    RoadKind.Outer => false,
+                    RoadKind.Outer or RoadKind.Track => false,
                     _ => streetInside ??= inside,
                 };
                 if (inside != expected)
@@ -763,6 +765,44 @@ public static class Contracts
                 }
             }
         }
+    }
+
+    /// <summary>Every connected set of tracks reaches a trade: no track leads nowhere.</summary>
+    private static IEnumerable<string> TrackRules(RoadGraph roads, CategoryField land)
+    {
+        var grid = land.Grid;
+        var tracks = roads.Edges.Where(e => e.Kind == RoadKind.Track).ToList();
+        var group = tracks.ToDictionary(e => e.Id, e => e.Id);
+        int Root(int id)
+        {
+            while (group[id] != id)
+                id = group[id] = group[group[id]];
+            return id;
+        }
+
+        foreach (var a in tracks)
+            foreach (var b in tracks.Where(b => b.Id > a.Id && (b.From == a.From || b.From == a.To || b.To == a.From || b.To == a.To)))
+                group[Root(b.Id)] = Root(a.Id);
+
+        bool NearTrade(Vector2 p)
+        {
+            int k = grid.CellAt(p);
+            if (k < 0)
+                return false;
+            int x = k % grid.Nx, z = k / grid.Nx;
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (grid.InGrid(x + dx, z + dz) && LandUses.Trades.Contains(land.Use(grid.Index(x + dx, z + dz))))
+                        return true;
+                }
+
+            return false;
+        }
+
+        var reaching = tracks.Where(e => Geometry.Samples(e.Points, 2).Any(NearTrade)).Select(e => Root(e.Id)).ToHashSet();
+        foreach (var root in tracks.Select(e => Root(e.Id)).Distinct().Where(g => !reaching.Contains(g)))
+            yield return $"便道 {root} 一带没有通到任何作坊";
     }
 
     /// <summary>True if cell k or one of its eight neighbors is built.</summary>
@@ -789,8 +829,9 @@ public static class Contracts
             .Area >= Tolerance)
             yield return "可建区压到城墙";
         var growth = r.Get(Keys.Growth)!;
-        if (blocks.Developable.Subtract(growth.Footprint.Offset(growth.Grid.CellSize)).Area >= Tolerance)
-            yield return "可建区超出建成格一格以上（压到菜园）";
+        var trades = r.Get(Keys.LandUse)!.Area(LandUses.Trades);
+        if (blocks.Developable.Subtract(growth.Footprint.Union(trades).Offset(growth.Grid.CellSize)).Area >= Tolerance)
+            yield return "可建区超出建成格和作坊格一格以上（压到菜园或田地）";
         if (blocks.Developable.Intersect(roads.Footprint).Area >= Tolerance)
             yield return "可建区压到道路";
     }

@@ -38,6 +38,7 @@ public static class TownGraph
         new SkeletonLinks(),
         new StreetMesh(),
         new SuburbLanes(),
+        new WorkshopLanes(),
         new ExtractRoads(),
         new StreetBlocks(),
         new FrontageParcels(),

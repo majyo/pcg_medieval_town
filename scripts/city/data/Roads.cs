@@ -4,8 +4,11 @@ using Godot;
 
 namespace PcgCitySandbox.City;
 
-/// <summary>Road classes, most important first: where two classes share a grid link, the smaller one wins.</summary>
-public enum RoadKind { Main, Outer, Street }
+/// <summary>
+/// Road classes, most important first: where two classes share a grid link, the smaller one wins. Tracks are the
+/// dirt roads out to the workshops.
+/// </summary>
+public enum RoadKind { Main, Outer, Street, Track }
 
 public enum RoadZone { Inside, Outside }
 
@@ -115,7 +118,8 @@ public sealed class RoadGraph : ISummarized
             float main = Edges.Where(e => e.Kind == RoadKind.Main).Sum(e => e.Length);
             float street = Edges.Where(e => e.Kind == RoadKind.Street).Sum(e => e.Length);
             float outer = Edges.Where(e => e.Kind == RoadKind.Outer).Sum(e => e.Length);
-            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {main:0} m，街巷 {street:0} m，城外 {outer:0} m";
+            float track = Edges.Where(e => e.Kind == RoadKind.Track).Sum(e => e.Length);
+            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {main:0} m，街巷 {street:0} m，城外 {outer:0} m，便道 {track:0} m";
         }
     }
 }

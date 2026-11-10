@@ -18,9 +18,11 @@ public static class StreetWeave
     /// <param name="hub">Which existing road cells the new streets may start from.</param>
     /// <param name="scatter">Which cells may hold a point.</param>
     /// <param name="within">Which cells a street may run through (on top of the zone); null for the whole zone.</param>
+    /// <param name="kind">The class of the new roads: lanes, or tracks.</param>
     /// <returns>How many candidate links found no legal path.</returns>
     public static int Weave(RoadZones zones, RoadLinks links, RoadZone zone, Func<int, bool> hub, Func<int, bool> scatter,
-        Func<int, bool>? within, float spacing, float loopChance, Random rng, CancellationToken cancel)
+        Func<int, bool>? within, float spacing, float loopChance, Random rng, CancellationToken cancel,
+        RoadKind kind = RoadKind.Street)
     {
         var grid = zones.Grid;
         float Distance(int a, int b) => grid.Center(a).DistanceTo(grid.Center(b));
@@ -69,14 +71,14 @@ public static class StreetWeave
             if (++attempts > MaxSearches)
                 break;
 
-            var path = RoadSearch.Find(zones, links, points[a], points[b], zone, RoadKind.Street, cancel, within);
+            var path = RoadSearch.Find(zones, links, points[a], points[b], zone, kind, cancel, within);
             if (path == null)
             {
                 failed++;
                 continue;
             }
 
-            links.Mark(path, RoadKind.Street);
+            links.Mark(path, kind);
             parent[Root(b)] = Root(a);
             accepted.Add((a, b));
         }
