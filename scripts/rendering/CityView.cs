@@ -76,6 +76,8 @@ public partial class CityView : Node3D
             [Keys.StreetPlan] = new((root, s, _) => BuildPlan(root, (StreetPlan)s.Value),
                 _ => Categories("规划街巷", (PlanTint, "规划区（三期、四期成片的地）"), (GuideColor, "引导线（过境道路）"),
                     (RoadColor(RoadKind.Street), "平行街"), (CrossColor, "横街"))),
+            [Keys.Squares] = new((root, s, _) => BuildSquares(root, (SquareSet)s.Value),
+                _ => Categories("小广场", (PlazaColor, "门内广场、教堂前庭、城堡门前"))),
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
             [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
@@ -649,6 +651,25 @@ public partial class CityView : Node3D
     }
 
     private static readonly Color PlanTint = new("c9b27c"), GuideColor = new("2e86c1"), CrossColor = new("b5651d");
+
+    /// <summary>The small squares, paved like the market and outlined.</summary>
+    private void BuildSquares(Node3D root, SquareSet set)
+    {
+        var fill = new MeshKit();
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
+        foreach (var square in set.Squares)
+        {
+            fill.Drape(square.Area.Triangulate(), Height, 0.35f, PlazaColor);
+            foreach (var ring in square.Area.Rings)
+            {
+                for (int i = 0; i < ring.Length; i++)
+                    DrapedLine(lines, ring[i], ring[(i + 1) % ring.Length], 0.45f, new Color("6b5a3c"));
+            }
+        }
+
+        Add(root, fill, MeshKit.Material(), shadows: false);
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+    }
 
     /// <summary>The planned areas tinted, each with its guide route and its parallel and cross streets.</summary>
     private void BuildPlan(Node3D root, StreetPlan plan)

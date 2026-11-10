@@ -35,7 +35,8 @@ public sealed class ExtractRoadsOptions
 /// <summary>
 /// Turns grid links into a road graph: chains of degree-2 cells become simplified polylines; anchors, junctions,
 /// dead ends and changes of road class become graph nodes. Since every road was marked on the same grid,
-/// junctions are exact cells and no segment intersection is needed. Also paves the roads and the plaza.
+/// junctions are exact cells and no segment intersection is needed. Also paves the roads, the market and the small
+/// squares.
 /// </summary>
 public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
 {
@@ -43,7 +44,7 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
     public override string Title => "提取路网";
     public override string Description =>
         "把格子之间的连线整理成路网：连续的格子变成折线，路口、端点和等级变化处成为节点；再按路宽铺出路面。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.RoadLinks, Keys.Plaza, Keys.Wall];
+    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.RoadLinks, Keys.Plaza, Keys.Wall, Keys.Squares];
     public override IReadOnlyList<IKey> Writes => [Keys.Roads];
 
     protected override void Run(NodeContext c, ExtractRoadsOptions o)
@@ -132,7 +133,8 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
         }
 
         int core = Id(links.CoreCell);
-        var footprint = Region.Lines(edges.Select(e => ((IReadOnlyList<Vector2>)e.Points, e.Width))).Union(plaza.Area);
+        var footprint = Region.Lines(edges.Select(e => ((IReadOnlyList<Vector2>)e.Points, e.Width))).Union(plaza.Area)
+            .Union(c.Get(Keys.Squares).Area);
         c.Set(Keys.Roads, new RoadGraph { Nodes = nodes, Edges = edges, CoreNode = core, Footprint = footprint });
     }
 }

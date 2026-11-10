@@ -49,6 +49,7 @@ public static class Contracts
         new(Keys.Wall, WallRules),
         new(Keys.Gates, GateRules),
         new(Keys.StreetPlan, PlanRules),
+        new(Keys.Squares, SquareRules),
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
         new(Keys.Parcels, ParcelRules),
@@ -854,6 +855,38 @@ public static class Contracts
                 if (worst > slack)
                     yield return $"规划区 {i} 的{name}偏离等值线 {worst:0.0} m";
             }
+        }
+    }
+
+    /// <summary>
+    /// Small squares stand on buildable cells inside the wall, off the landmark plots and each other, next to a road,
+    /// and paved.
+    /// </summary>
+    private static IEnumerable<string> SquareRules(IKeyReader r)
+    {
+        var squares = r.Get(Keys.Squares)!.Squares;
+        var buildable = r.Get(Keys.Buildable)!;
+        var grid = buildable.Grid;
+        var interior = r.Get(Keys.Wall)!.Interior;
+        var plots = r.Get(Keys.Landmarks)!.Plots;
+        var roads = r.Get(Keys.Roads)!;
+        var lines = Region.Lines(roads.Edges.Select(e => ((IReadOnlyList<Vector2>)e.Points, e.Width)));
+        for (int i = 0; i < squares.Count; i++)
+        {
+            var square = squares[i];
+            string name = $"{square.Label}（{square.Of}）";
+            if (grid.CellsIn(square.Area).Any(k => !buildable.Buildable(k)))
+                yield return $"{name}压在不可建设格上";
+            if (square.Area.Subtract(interior).Area >= Tolerance)
+                yield return $"{name}伸出城墙";
+            if (square.Area.Intersect(plots).Area >= Tolerance)
+                yield return $"{name}压在地标用地上";
+            if (squares.Take(i).Any(other => other.Area.Intersect(square.Area).Area >= Tolerance))
+                yield return $"{name}与别的小广场重叠";
+            if (square.Area.Offset(0.5f).Intersect(lines).Area < Tolerance)
+                yield return $"{name}没有接上道路";
+            if (square.Area.Subtract(roads.Footprint).Area >= Tolerance)
+                yield return $"{name}没有并进铺装区";
         }
     }
 

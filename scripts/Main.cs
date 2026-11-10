@@ -91,7 +91,8 @@ public partial class Main : Node3D
                     ("bank", bank.Focus, 0.35f, bank.Yaw, 45),
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
-                }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).Concat(PlannedViews()).ToArray();
+                }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).Concat(PlannedViews())
+                    .Concat(GateViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -348,6 +349,15 @@ public partial class Main : Node3D
             var focus = g.Position + g.Outward * 110;
             return ($"suburb_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.95f,
                 Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 520f);
+        });
+
+    /// <summary>The inside of each gate, seen from within the town, so its square and the wall lane can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> GateViews() =>
+        (_graph.Get(Keys.Gates)?.Gates ?? Array.Empty<Gate>()).Select(g =>
+        {
+            var focus = g.Position - g.Outward * 20;
+            return ($"gate_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.9f,
+                Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 420f);
         });
 
     /// <summary>Each planned area from high above at an angle, so its parallel and cross streets can be checked.</summary>

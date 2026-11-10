@@ -246,3 +246,26 @@ public sealed class StreetPlan : ISummarized
         }
     }
 }
+
+public enum SquareKind { Gate, Parvis, Forecourt }
+
+/// <summary>A small paved square: inside a gate, before a church's west door, before a castle.</summary>
+public sealed record Square(SquareKind Kind, string Of, Region Area)
+{
+    public string Label => Kind switch
+    {
+        SquareKind.Gate => "门内广场",
+        SquareKind.Parvis => "教堂前庭",
+        _ => "城堡门前",
+    };
+}
+
+public sealed class SquareSet(IReadOnlyList<Square> squares) : ISummarized
+{
+    public IReadOnlyList<Square> Squares { get; } = squares;
+    public Region Area { get; } = squares.Aggregate(Region.Empty, (all, s) => all.Union(s.Area));
+
+    public string Summary => Squares.Count == 0 ? "没有小广场"
+        : string.Join("，", Squares.GroupBy(s => s.Kind).OrderBy(g => g.Key)
+            .Select(g => $"{g.First().Label} {g.Count()} 处 {g.Sum(s => s.Area.Area):0} m²"));
+}

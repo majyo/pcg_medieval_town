@@ -47,6 +47,7 @@ public static class TownGraph
         new SuburbLanes(),
         new WorkshopLanes(),
         new LandmarkAccess(),
+        new Squares(),
         new StreetRanks(),
         new ExtractRoads(),
         new StreetBlocks(),

@@ -60,6 +60,7 @@ public static class Checks
         return failures.Count == 0 ? 0 : 1;
     }
 
+
     /// <summary>Every key contract, plus: no node changed a value it read (summaries still match what was written).</summary>
     public static List<string> Invariants(CityGraph graph)
     {
@@ -146,7 +147,7 @@ public static class Checks
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
                 or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or PlannedStreets or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
-            node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or StreetRanks or ExtractRoads
+            node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or Squares or StreetRanks or ExtractRoads
                 or StreetBlocks or FrontageParcels or GableHouses)));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
