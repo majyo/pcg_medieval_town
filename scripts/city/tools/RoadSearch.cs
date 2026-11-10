@@ -13,11 +13,12 @@ public static class RoadSearch
     public static List<int>? Find(RoadZones zones, RoadLinks links, int start, int goal, RoadZone zone, RoadKind kind,
         CancellationToken cancel)
     {
-        var site = zones.Site;
+        var grid = zones.Grid;
+        var slope = zones.Slope.Values;
         if (start < 0 || goal < 0 || !zones.Allowed(start, zone) || !zones.Allowed(goal, zone))
             return null;
 
-        int nx = site.Nx;
+        int nx = grid.Nx;
         var cost = new Dictionary<int, float> { [start] = 0 };
         var from = new Dictionary<int, int>();
         var closed = new HashSet<int>();
@@ -44,7 +45,7 @@ public static class RoadSearch
             for (int dz = -1; dz <= 1; dz++)
                 for (int dx = -1; dx <= 1; dx++)
                 {
-                    if (dx == 0 && dz == 0 || !site.InGrid(x + dx, z + dz))
+                    if (dx == 0 && dz == 0 || !grid.InGrid(x + dx, z + dz))
                         continue;
                     int j = (z + dz) * nx + x + dx;
                     if (closed.Contains(j) || !zones.Allowed(j, zone))
@@ -56,8 +57,8 @@ public static class RoadSearch
                             continue;
                     }
 
-                    float step = (dx != 0 && dz != 0 ? 1.4142f : 1) * site.CellSize;
-                    float factor = 1 + site.Slope[j] / 12 + (site.Block[j] is SiteBlock.Forest ? 0.5f : 0);
+                    float step = (dx != 0 && dz != 0 ? 1.4142f : 1) * grid.CellSize;
+                    float factor = 1 + slope[j] / 12 + (zones.Buildable.Block(j) is SiteBlock.Forest ? 0.5f : 0);
                     if (links.TryGet(k, j, out var existing))
                         factor *= kind == RoadKind.Street || existing == kind ? 0.5f : 0.8f;
                     float next = cost[k] + step * factor;
@@ -65,7 +66,7 @@ public static class RoadSearch
                         continue;
                     cost[j] = next;
                     from[j] = k;
-                    open.Enqueue(j, next + site.Center(j).DistanceTo(site.Center(goal)) * 0.5f);
+                    open.Enqueue(j, next + grid.Center(j).DistanceTo(grid.Center(goal)) * 0.5f);
                 }
         }
 

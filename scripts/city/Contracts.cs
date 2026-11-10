@@ -33,7 +33,6 @@ public static class Contracts
         new(Keys.Habitability, r => FieldRules(r, Keys.Habitability).Concat(Range(r, Keys.Habitability, 0, 1))
             .Concat(HabitabilityRules(r))),
         new(Keys.TravelCost, r => FieldRules(r, Keys.TravelCost).Concat(TravelCostRules(r))),
-        new(Keys.Site, SiteRules),
         new(Keys.Crossings, CrossingRules),
         new(Keys.Routes, RouteRules),
         new(Keys.Origin, OriginRules),
@@ -633,15 +632,6 @@ public static class Contracts
 
     private static bool Diagonal(SiteGrid grid, int a, int b) => a % grid.Nx != b % grid.Nx && a / grid.Nx != b / grid.Nx;
 
-    private static IEnumerable<string> SiteRules(IKeyReader r)
-    {
-        var site = r.Get(Keys.Site)!;
-        if (!ReferenceEquals(site.Grid, r.Get(Keys.Grid)))
-            yield return "没有使用共用的采样网格";
-        if (site.BuildableFraction is <= 0.05f or >= 0.95f)
-            yield return $"场地可建设比例异常 {site.BuildableFraction:P0}";
-    }
-
     /// <summary>
     /// The wall is a simple polygon that stays out of the water, holds the landmark plots (the market: see its rules), and
     /// encloses at least half of the town built before it.
@@ -720,7 +710,8 @@ public static class Contracts
 
     private static IEnumerable<string> RoadRules(IKeyReader r)
     {
-        var site = r.Get(Keys.Site)!;
+        var buildable = r.Get(Keys.Buildable)!;
+        var grid = buildable.Grid;
         var interior = r.Get(Keys.Wall)!.Interior;
         var gates = r.Get(Keys.Gates)!.Gates;
         var roads = r.Get(Keys.Roads)!;
@@ -739,10 +730,10 @@ public static class Contracts
         {
             foreach (var p in Geometry.Samples(edge.Points, 2))
             {
-                int k = site.CellAt(p);
-                bool nearGate = gates.Any(g => g.Position.DistanceTo(p) < site.CellSize * 1.5f);
-                bool onBridge = bridges.Any(b => Geometry.DistanceToSegment(p, b.BankA, b.BankB) <= site.CellSize);
-                if (k < 0 || site.Block[k] == SiteBlock.Water && !onBridge)
+                int k = grid.CellAt(p);
+                bool nearGate = gates.Any(g => g.Position.DistanceTo(p) < grid.CellSize * 1.5f);
+                bool onBridge = bridges.Any(b => Geometry.DistanceToSegment(p, b.BankA, b.BankB) <= grid.CellSize);
+                if (k < 0 || buildable.Block(k) == SiteBlock.Water && !onBridge)
                 {
                     yield return $"路段 {edge.Id} 在渡口以外穿过水域 {p}";
                     break;

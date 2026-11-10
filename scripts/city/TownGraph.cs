@@ -19,7 +19,6 @@ public static class TownGraph
         new BuildableLand(),
         new Habitability(),
         new TravelCost(),
-        new LegacySite(),
         new RiverCrossings(),
         new RegionalRoutes(),
         new ChooseOrigin(),

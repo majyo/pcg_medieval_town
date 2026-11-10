@@ -35,12 +35,13 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
     public override string Title => "提取路网";
     public override string Description =>
         "把格子之间的连线整理成路网：连续的格子变成折线，路口、端点和等级变化处成为节点；再按路宽铺出路面。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.RoadLinks, Keys.Plaza];
+    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.RoadLinks, Keys.Plaza];
     public override IReadOnlyList<IKey> Writes => [Keys.Roads];
 
     protected override void Run(NodeContext c, ExtractRoadsOptions o)
     {
-        var site = c.Get(Keys.Site);
+        var buildable = c.Get(Keys.Buildable);
+        var grid = buildable.Grid;
         var links = c.Get(Keys.RoadLinks);
         var plaza = c.Get(Keys.Plaza);
         var anchors = links.Anchors;
@@ -71,7 +72,7 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
                 id = ids[k] = nodes.Count;
                 string role = anchors.TryGetValue(k, out var anchor) ? anchor
                     : adjacency.TryGetValue(k, out var next) && next.Count == 1 ? "end" : "junction";
-                nodes.Add(new RoadNode(id, site.Center(k), role));
+                nodes.Add(new RoadNode(id, grid.Center(k), role));
             }
 
             return id;
@@ -105,12 +106,12 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
                 // Main and outer roads follow the straightened through routes, whose cells step around lines at any
                 // angle; simplify them as loosely as the routes were, or they zigzag and their paving nicks the plots.
                 // Where the loose line touches water (a crossing, or a cut river bend), keep the tight one.
-                var centers = cells.Select(site.Center).ToList();
-                var points = Geometry.Simplify(centers, site.CellSize * 0.4f);
+                var centers = cells.Select(k => grid.Center(k)).ToList();
+                var points = Geometry.Simplify(centers, grid.CellSize * 0.4f);
                 if (kind != RoadKind.Street)
                 {
-                    var loose = Geometry.Simplify(centers, site.CellSize * 0.75f);
-                    if (Geometry.Samples(loose, 1).All(p => site.CellAt(p) is int k && k >= 0 && site.Block[k] != SiteBlock.Water))
+                    var loose = Geometry.Simplify(centers, grid.CellSize * 0.75f);
+                    if (Geometry.Samples(loose, 1).All(p => grid.CellAt(p) is int k && k >= 0 && buildable.Block(k) != SiteBlock.Water))
                         points = loose;
                 }
                 edges.Add(new RoadEdge(edges.Count, Id(start), Id(current), points, kind, o.Width(kind)));

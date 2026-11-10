@@ -78,7 +78,7 @@ public enum Emphasis { Focus, Context, Result }    // 聚焦节点的输出 / �
 
 `FieldStyle` / `CategoryStyle` 原样并入，成为 `Kind = Ground` 的 `KeyView`。`CityView` 改为 `KeyLayers`：为每个正在显示的（键, 写入它的节点, 强调方式）保留一个 `Node3D`，按值的引用判断是否需要重建，沿用现在 `Update` 的做法。
 
-**不变量**：`Keys` 里的每个键都有登记的画法（`site` 这类过渡键可登记为“隐藏”）。检查放在 `Main` 的 `--test` 路径里（`city` 不能引用 `rendering`），跟 `TerrainChecks`、`Checks` 一起跑。
+**不变量**：`Keys` 里的每个键都有登记的画法（过渡键可登记为“隐藏”）。检查放在 `Main` 的 `--test` 路径里（`city` 不能引用 `rendering`），跟 `TerrainChecks`、`Checks` 一起跑。
 
 ### 3.2 按节点取值（`CityGraph`）
 
@@ -166,7 +166,6 @@ ViewState
 | `road.links` | 格心之间的线，按道路等级配色；用 `previous` 区分：本节点新加的连线为 Focus，继承的为 Context | 骨架道路、街巷网各自能看出加了什么 |
 | `roads` | 中心线 + 铺装面，等级用色相和线宽两种方式区分 | |
 | `blocks`、`parcels`、`buildings` | 已有，Focus / Result 两种样子 | |
-| `site` | 隐藏 | 过渡键，CITY_PLANNING 第 6 步删除 |
 | `land.reach` | 地面着色（标量）：城门附近浅，越远越深，走不到的格灰色；探针读“离城路程 640 m” | 已实现 |
 | `land.use` | 地面着色（分类）：城内暖色，城墙空地浅灰，作坊深色，农业带浅色系；图例给出各类面积比例（小于 10% 的保留一位小数），不出现的类别不列 | 已实现。作坊、农业带编辑这个键：检视它们时只有本节点改动的格是彩色，其余变灰，图例只列本节点写的类别（`GroundStyle.Painter`、`Legend` 的“上游值”参数） |
 

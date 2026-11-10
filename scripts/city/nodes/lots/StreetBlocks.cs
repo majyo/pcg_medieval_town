@@ -30,38 +30,39 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
     public override string Title => "街区";
     public override string Description =>
         "城内外已建成的地在城墙两侧各留出空地，去掉路面、地标用地和不可建设地，剩下的连通部分就是街区；没建成的地（陡坡、菜园）不建房。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth];
+    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.Wall, Keys.Roads, Keys.Landmarks, Keys.Growth];
     public override IReadOnlyList<IKey> Writes => [Keys.Blocks];
 
     protected override void Run(NodeContext c, StreetBlocksOptions o)
     {
-        var site = c.Get(Keys.Site);
+        var buildable = c.Get(Keys.Buildable);
         var wall = c.Get(Keys.Wall);
         var roads = c.Get(Keys.Roads);
         var growth = c.Get(Keys.Growth);
-        var built = growth.Footprint.Rounded(site.CellSize);
+        var built = growth.Footprint.Rounded(buildable.Grid.CellSize);
         var developable = wall.Interior.Offset(-o.WallSetback).Intersect(built)
             .Union(built.Subtract(wall.Interior.Offset(o.OutsideSetback)))
             .Subtract(roads.Footprint.Offset(PavingClearance))
             .Subtract(c.Get(Keys.Landmarks).Plots)
-            .Subtract(Unbuildable(site, growth));
+            .Subtract(Unbuildable(buildable, growth));
         var blocks = developable.Parts().Where(b => b.Area >= o.MinArea).ToList();
         c.Set(Keys.Blocks, new BlockSet(developable, blocks));
     }
 
     /// <summary>
-    /// Unbuildable cells next to a built cell: the only ones the rounded built area can reach. The site shares the
-    /// growth grid, so cell indices agree.
+    /// Unbuildable cells next to a built cell: the only ones the rounded built area can reach. The evaluation
+    /// shares the growth grid, so cell indices agree.
     /// </summary>
-    private static Region Unbuildable(Site site, GrowthHistory growth)
+    private static Region Unbuildable(CategoryField buildable, GrowthHistory growth)
     {
+        var grid = buildable.Grid;
         var squares = new List<Vector2[]>();
-        float s = site.CellSize;
-        for (int k = 0; k < site.Count; k++)
+        float s = grid.CellSize;
+        for (int k = 0; k < grid.Count; k++)
         {
-            if (site.Buildable(k) || !NextToBuiltCell(growth, k))
+            if (buildable.Buildable(k) || !NextToBuiltCell(growth, k))
                 continue;
-            var p = site.Center(k);
+            var p = grid.Center(k);
             squares.Add(new[]
             {
                 p + new Vector2(-s, -s) / 2, p + new Vector2(s, -s) / 2,

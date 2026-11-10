@@ -17,28 +17,31 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
     public override string Title => "通行区";
     public override string Description =>
         "标出哪些格可以修路：不是水、坡不太陡，分城内和城外；只能在城门处穿过城墙。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Site, Keys.Wall, Keys.Gates];
+    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.Slope, Keys.Wall, Keys.Gates];
     public override IReadOnlyList<IKey> Writes => [Keys.RoadZones];
 
     protected override void Run(NodeContext c, RoadZoningOptions o)
     {
-        var site = c.Get(Keys.Site);
+        var buildable = c.Get(Keys.Buildable);
+        var slope = c.Get(Keys.Slope);
+        var grid = buildable.Grid;
         var wall = c.Get(Keys.Wall);
         var gates = c.Get(Keys.Gates).Gates;
-        var inside = new bool[site.Count];
-        var nearWall = new bool[site.Count];
-        var passable = new bool[site.Count];
-        var wallBounds = wall.Interior.Bounds.Grow(site.CellSize * 2);
-        for (int k = 0; k < site.Count; k++)
+        var inside = new bool[grid.Count];
+        var nearWall = new bool[grid.Count];
+        var passable = new bool[grid.Count];
+        var wallBounds = wall.Interior.Bounds.Grow(grid.CellSize * 2);
+        for (int k = 0; k < grid.Count; k++)
         {
-            var p = site.Center(k);
-            passable[k] = site.Block[k] != SiteBlock.Water && site.Slope[k] <= o.MaxSlope;
+            var p = grid.Center(k);
+            passable[k] = buildable.Block(k) != SiteBlock.Water && slope.Values[k] <= o.MaxSlope;
             if (!wallBounds.HasPoint(p))
                 continue;
             inside[k] = wall.Interior.Contains(p);
-            nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < site.CellSize * 0.5f;
+            nearWall[k] = Geometry.DistanceToRing(p, wall.Ring) < grid.CellSize * 0.5f;
         }
 
-        c.Set(Keys.RoadZones, new RoadZones(site, inside, nearWall, passable, gates.Select(g => site.CellAt(g.Position))));
+        c.Set(Keys.RoadZones, new RoadZones(buildable, slope, inside, nearWall, passable,
+            gates.Select(g => grid.CellAt(g.Position))));
     }
 }

@@ -322,10 +322,6 @@ public static class FieldStyles
             g => new FieldLegend($"采样网格 · {g.Nx}×{g.Nz} 格，每格 {g.CellSize:0.#} m", null, "", "",
                 new[] { (new Color(BlockTones[0]), $"色块边长 {GridBlock * g.CellSize:0} m（{GridBlock} 格）") }),
             (g, p) => $"格 ({(int)MathF.Floor((p.X - g.Origin.X) / g.CellSize)}, {(int)MathF.Floor((p.Y - g.Origin.Y) / g.CellSize)})"),
-        new CellStyle<Site>("过程", Keys.Site, (site, p) => SiteColor(site, p),
-            site => new FieldLegend("场地（过渡用的旧格式）", null, "", "", Enum.GetValues<SiteBlock>()
-                .Select(b => (Buildability[(int)b], $"{b.Label()} {site.Block.Count(x => x == b) / (float)site.Count:P0}")).ToArray()),
-            (site, p) => site.CellAt(p) is int k and >= 0 ? site.Block[k].Label() : ""),
         new CellStyle<RoadZones>("过程", Keys.RoadZones, (zones, p) => ZoneColors[(int)Zone(zones, p)],
             _ => new FieldLegend("通行区", null, "", "",
                 Enum.GetValues<RoadCell>().Select(z => (ZoneColors[(int)z], ZoneNames[(int)z])).ToArray()),
@@ -351,14 +347,11 @@ public static class FieldStyles
     private static Color PhaseColor(GrowthHistory growth, Vector2 p) =>
         growth.Grid.CellAt(p) is int k and >= 0 && growth.Built(k) ? PhaseOf(growth.Phase[k]) : Unbuilt;
 
-    private static Color SiteColor(Site site, Vector2 p) =>
-        site.CellAt(p) is int k and >= 0 ? Buildability[(int)site.Block[k]] : new Color("9a968c");
-
     private enum RoadCell { Blocked, Inside, Outside, NearWall, Gate }
 
     private static RoadCell Zone(RoadZones zones, Vector2 p)
     {
-        int k = zones.Site.CellAt(p);
+        int k = zones.Grid.CellAt(p);
         if (k < 0 || !zones.Passable(k))
             return RoadCell.Blocked;
         if (zones.IsGate(k))

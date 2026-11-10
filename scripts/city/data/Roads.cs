@@ -20,16 +20,20 @@ public sealed class RoadZones : ISummarized
     private readonly bool[] _passable;
     private readonly HashSet<int> _gates;
 
-    public RoadZones(Site site, bool[] inside, bool[] nearWall, bool[] passable, IEnumerable<int> gates)
+    public RoadZones(CategoryField buildable, ScalarField slope, bool[] inside, bool[] nearWall, bool[] passable,
+        IEnumerable<int> gates)
     {
-        Site = site;
+        Buildable = buildable;
+        Slope = slope;
         _inside = inside;
         _nearWall = nearWall;
         _passable = passable;
         _gates = gates.ToHashSet();
     }
 
-    public Site Site { get; }
+    public SiteGrid Grid => Buildable.Grid;
+    public CategoryField Buildable { get; }
+    public ScalarField Slope { get; }
 
     public string Summary => $"可通行 {_passable.Count(p => p) / (float)_passable.Length:P0}，城内 {_inside.Count(i => i)} 格";
 

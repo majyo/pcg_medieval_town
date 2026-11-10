@@ -36,11 +36,11 @@ public sealed class StreetMesh : CityNode<StreetMeshOptions>
     protected override void Run(NodeContext c, StreetMeshOptions o)
     {
         var zones = c.Get(Keys.RoadZones);
-        var site = zones.Site;
+        var grid = zones.Grid;
         var links = c.Get(Keys.RoadLinks).Copy();
         var rng = new Random(o.Seed);
         float spacing = o.Spacing;
-        float Distance(int a, int b) => site.Center(a).DistanceTo(site.Center(b));
+        float Distance(int a, int b) => grid.Center(a).DistanceTo(grid.Center(b));
 
         var roadCells = links.Cells.ToHashSet();
         var hubs = new List<int>();
@@ -51,7 +51,7 @@ public sealed class StreetMesh : CityNode<StreetMeshOptions>
         }
 
         var points = new List<int>(hubs);
-        var candidates = Enumerable.Range(0, site.Count).Where(k => zones.Allowed(k, RoadZone.Inside) && !zones.IsGate(k))
+        var candidates = Enumerable.Range(0, grid.Count).Where(k => zones.Allowed(k, RoadZone.Inside) && !zones.IsGate(k))
             .OrderBy(_ => rng.Next()).ToList();
         foreach (int k in candidates)
         {
@@ -82,7 +82,7 @@ public sealed class StreetMesh : CityNode<StreetMeshOptions>
         int failed = 0, attempts = 0;
         foreach (var (a, b, _) in pairs.OrderBy(p => p.Length))
         {
-            if (Root(a) == Root(b) && (rng.NextSingle() > o.LoopChance || Acute(site, points, accepted, a, b)))
+            if (Root(a) == Root(b) && (rng.NextSingle() > o.LoopChance || Acute(grid, points, accepted, a, b)))
                 continue;
             if (++attempts > MaxSearches)
                 break;
@@ -105,16 +105,16 @@ public sealed class StreetMesh : CityNode<StreetMeshOptions>
     }
 
     /// <summary>True if the new link would leave either end at a sharp angle to an accepted link.</summary>
-    private static bool Acute(Site site, List<int> points, List<(int A, int B)> accepted, int a, int b)
+    private static bool Acute(SiteGrid grid, List<int> points, List<(int A, int B)> accepted, int a, int b)
     {
         bool SharpAt(int pivot, int target)
         {
-            var direction = site.Center(points[target]) - site.Center(points[pivot]);
+            var direction = grid.Center(points[target]) - grid.Center(points[pivot]);
             foreach (var (p, q) in accepted)
             {
                 if (p != pivot && q != pivot)
                     continue;
-                var other = site.Center(points[p == pivot ? q : p]) - site.Center(points[pivot]);
+                var other = grid.Center(points[p == pivot ? q : p]) - grid.Center(points[pivot]);
                 if (MathF.Abs(other.AngleTo(direction)) < 0.6f)
                     return true;
             }

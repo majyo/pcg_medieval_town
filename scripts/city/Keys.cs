@@ -30,8 +30,6 @@ public static class Keys
         "每格适合居住的程度，0–1；不可建设的格为 0");
     public static readonly Key<ScalarField> TravelCost = new("eval.travel_cost", "通行代价",
         "走 1 m 相当于在平地上走几米；水面和陡崖不可通行（无值）");
-    public static readonly Key<Site> Site = new("site", "场地",
-        "过渡用：把评价结果打包成旧格式，供城镇布局、路网、街区节点读取");
     public static readonly Key<CrossingSet> Crossings = new("region.crossings", "渡口",
         "适合过河的地方，每处有两岸的桥头");
     public static readonly Key<RouteNetwork> Routes = new("region.routes", "过境道路",
