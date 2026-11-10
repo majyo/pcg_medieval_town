@@ -71,7 +71,8 @@ public partial class CityView : Node3D
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
             [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
-                _ => Categories("地块", (new Color("98a46c"), "临街地块"))),
+                s => Categories("地块 · 按用途", ((ParcelSet)s.Value).Parcels.Select(p => p.Use).Distinct().OrderBy(u => u)
+                    .Select(u => (FieldStyles.LandColors[(int)u], u.Label())).ToArray())),
             [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
         };
     }
@@ -489,7 +490,7 @@ public partial class CityView : Node3D
         foreach (var parcel in parcels.Parcels)
         {
             var region = Region.Polygon(parcel.Ring);
-            var color = new Color("98a46c").Lerp(new Color("b3aa78"), rng.NextSingle());
+            var color = FieldStyles.LandColors[(int)parcel.Use].Lerp(new Color("f2ecd8"), 0.1f + 0.25f * rng.NextSingle());
             fill.Drape(region.Triangulate(), Height, 0.15f, color);
             for (int i = 0; i < parcel.Ring.Length; i++)
                 DrapedLine(lines, parcel.Ring[i], parcel.Ring[(i + 1) % parcel.Ring.Length], 0.35f, new Color("5c5a3c"));

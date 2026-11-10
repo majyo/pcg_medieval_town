@@ -146,7 +146,8 @@ public static class Checks
         errors.AddRange(await Invalidation<SkeletonLinks>(graph, "骨架道路",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group or TownGrowth.Group
                 or LandZoning.Group || node is RoadZoning));
-        errors.AddRange(await Invalidation<Workshops>(graph, "作坊", node => node is not (Workshops or Countryside)));
+        errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
+            node => node is not (Workshops or Countryside or FrontageParcels or GableHouses)));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is Sampling.Group or Evaluation.Group or RegionalFrame.Group ||
                 node is Village or MarketPlace));
@@ -231,6 +232,7 @@ public static class Checks
             roads.Edges.Sum(e => e.Length).ToString("F2"),
             parcels.Parcels.Count,
             parcels.Parcels.Sum(p => p.Area).ToString("F1"),
+            string.Join(",", parcels.Parcels.GroupBy(p => p.Use).OrderBy(g => g.Key).Select(g => $"{g.Key}:{g.Count()}")),
             buildings.Buildings.Count,
             string.Join(",", graph.Get(Keys.LandUse)?.Counts ?? Array.Empty<int>()));
     }

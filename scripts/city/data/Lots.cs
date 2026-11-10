@@ -11,15 +11,23 @@ public sealed record BlockSet(Region Developable, IReadOnlyList<Region> Blocks) 
     public string Summary => $"可建区 {Developable.Area / 10000:0.0} ha，{Blocks.Count} 街区";
 }
 
-/// <summary>A street-fronting plot. Front runs along the street edge; Inward points away from the street.</summary>
-public sealed record Parcel(int Id, Vector2[] Ring, Vector2 FrontA, Vector2 FrontB, Vector2 Inward, RoadKind Street, float Area)
+/// <summary>
+/// A street-fronting plot. Front runs along the street edge; Inward points away from the street. Use is the land use
+/// the plot was cut for (<see cref="LandUses.PlotUse"/> at <see cref="Probe"/>).
+/// </summary>
+public sealed record Parcel(int Id, Vector2[] Ring, Vector2 FrontA, Vector2 FrontB, Vector2 Inward, RoadKind Street, LandUse Use,
+    float Area)
 {
     public float Frontage => FrontA.DistanceTo(FrontB);
+
+    /// <summary>The point just behind the middle of the front that decides the plot's use.</summary>
+    public Vector2 Probe => (FrontA + FrontB) / 2 + Inward * 1.5f;
 }
 
 public sealed record ParcelSet(IReadOnlyList<Parcel> Parcels) : ISummarized
 {
-    public string Summary => $"{Parcels.Count} 地块，{Parcels.Sum(p => (double)p.Area) / 10000:0.00} ha";
+    public string Summary => $"{Parcels.Count} 地块，{Parcels.Sum(p => (double)p.Area) / 10000:0.00} ha（"
+        + string.Join("、", Parcels.GroupBy(p => p.Use).OrderBy(g => g.Key).Select(g => $"{g.Key.Label()} {g.Count()}")) + "）";
 }
 
 /// <summary>

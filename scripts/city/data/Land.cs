@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Godot;
 
 namespace PcgCitySandbox.City;
 
@@ -48,7 +49,42 @@ public static class LandUses
         LandUse.Public, LandUse.Core, LandUse.Housing, LandUse.Suburb,
     };
 
+    /// <summary>Uses cut into street plots.</summary>
+    public static readonly IReadOnlySet<LandUse> Plots = new HashSet<LandUse>
+    {
+        LandUse.Core, LandUse.Housing, LandUse.Suburb,
+    };
+
     public static LandUse Use(this CategoryField land, int k) => (LandUse)land.Values[k];
+
+    /// <summary>
+    /// The use of a plot whose front is at <paramref name="p"/>: the use of that cell if it is a plot use on the plot's
+    /// side of the wall; else the most common such use within two cells (blocks are rounded off the built cells, so an
+    /// edge can lie on a garden); else housing inside the wall and suburb outside.
+    /// </summary>
+    public static LandUse PlotUse(this CategoryField land, Vector2 p, bool inside)
+    {
+        bool Fits(LandUse use) => Plots.Contains(use) && Inside.Contains(use) == inside;
+        var grid = land.Grid;
+        int k = grid.CellAt(p);
+        if (k >= 0 && Fits(land.Use(k)))
+            return land.Use(k);
+
+        var counts = new int[Names.Count];
+        if (k >= 0)
+        {
+            int x = k % grid.Nx, z = k / grid.Nx;
+            for (int dz = -2; dz <= 2; dz++)
+                for (int dx = -2; dx <= 2; dx++)
+                {
+                    if (grid.InGrid(x + dx, z + dz))
+                        counts[land.Values[grid.Index(x + dx, z + dz)]]++;
+                }
+        }
+
+        var best = Plots.Where(Fits).OrderByDescending(u => counts[(int)u]).ThenBy(u => u).First();
+        return counts[(int)best] > 0 ? best : inside ? LandUse.Housing : LandUse.Suburb;
+    }
 
     public static string Label(this LandUse use) => Names[(int)use];
 

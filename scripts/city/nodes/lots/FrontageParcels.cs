@@ -7,12 +7,24 @@ namespace PcgCitySandbox.City;
 
 public sealed class FrontageParcelsOptions
 {
-    [Param("最小面宽 m", 4, 20, 0.5,
-        Hint = "地块临街面宽的下限")]
-    public float FrontageMin { get; set; } = 7;
-    [Param("最大面宽 m", 5, 30, 0.5,
-        Hint = "地块临街面宽的上限；每块在上下限之间随机")]
-    public float FrontageMax { get; set; } = 12;
+    [Param("市场核心 最小面宽 m", 3, 20, 0.5,
+        Hint = "市场核心的地块临街面宽的下限。市场边的地最值钱，地块窄而深")]
+    public float CoreFrontageMin { get; set; } = 5;
+    [Param("市场核心 最大面宽 m", 4, 30, 0.5,
+        Hint = "市场核心的地块临街面宽的上限；每块在上下限之间随机")]
+    public float CoreFrontageMax { get; set; } = 8;
+    [Param("居住 最小面宽 m", 3, 20, 0.5,
+        Hint = "城内居住区的地块临街面宽的下限")]
+    public float HousingFrontageMin { get; set; } = 7;
+    [Param("居住 最大面宽 m", 4, 30, 0.5,
+        Hint = "城内居住区的地块临街面宽的上限；每块在上下限之间随机")]
+    public float HousingFrontageMax { get; set; } = 12;
+    [Param("城外街区 最小面宽 m", 3, 30, 0.5,
+        Hint = "城外街区的地块临街面宽的下限。城外地便宜，地块更宽")]
+    public float SuburbFrontageMin { get; set; } = 10;
+    [Param("城外街区 最大面宽 m", 4, 40, 0.5,
+        Hint = "城外街区的地块临街面宽的上限；每块在上下限之间随机")]
+    public float SuburbFrontageMax { get; set; } = 16;
     [Param("起始进深 m", 10, 60, 1,
         Hint = "先沿街切出这么深的地块（先切的街占住街角），之后各地块一齐向街区深处延伸")]
     public float Depth { get; set; } = 16;
@@ -25,12 +37,22 @@ public sealed class FrontageParcelsOptions
     [Param("种子", 0, 99999,
         Hint = "只影响各地块的面宽的随机选择：换一个值，按同样的规则得到另一种结果。与地图种子无关")]
     public int Seed { get; set; } = 1;
+
+    /// <summary>The frontage range of plots cut for <paramref name="use"/>.</summary>
+    public (float Min, float Max) Frontage(LandUse use) => use switch
+    {
+        LandUse.Core => (CoreFrontageMin, CoreFrontageMax),
+        LandUse.Suburb => (SuburbFrontageMin, SuburbFrontageMax),
+        _ => (HousingFrontageMin, HousingFrontageMax),
+    };
 }
 
 /// <summary>
 /// Cuts plots of random frontage along both sides of every road with blocks beside it (main streets, then outer
-/// roads, then lanes; longer before shorter), to a starting depth. Then all plots grow back together in thin strips, so plots from opposite
-/// streets meet near the middle of the block, up to a maximum depth. Gaps left in a block (at bends, corners and
+/// roads, then lanes; longer before shorter), to a starting depth. The frontage range follows the land use where
+/// each plot starts (narrow in the market core, wide in the suburbs), and each plot records its use. Then all plots
+/// grow back together in thin strips, so plots from opposite streets meet near the middle of the block, up to a
+/// maximum depth. Gaps left in a block (at bends, corners and
 /// street ends) join the plot they share the longest border with, so the block is covered.
 /// </summary>
 public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
@@ -42,19 +64,27 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
     public override string Group => "街区与地块";
     public override string Title => "临街地块";
     public override string Description =>
-        "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，后街巷），再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads];
+        "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，后街巷），面宽按用途：市场核心窄、城外街区宽；再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
+    public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads, Keys.LandUse, Keys.Wall];
     public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 
     protected override void Run(NodeContext c, FrontageParcelsOptions o)
     {
-        if (o.FrontageMax < o.FrontageMin)
-            throw new ArgumentException("最大面宽不能小于最小面宽");
+        foreach (var use in LandUses.Plots)
+        {
+            var (min, max) = o.Frontage(use);
+            if (max < min)
+                throw new ArgumentException($"{use.Label()}的最大面宽不能小于最小面宽");
+        }
+
         if (o.MaxDepth < o.Depth)
             throw new ArgumentException("最大进深不能小于起始进深");
 
         var blocks = c.Get(Keys.Blocks).Blocks;
         var roads = c.Get(Keys.Roads);
+        var land = c.Get(Keys.LandUse);
+        var interior = c.Get(Keys.Wall).Interior;
+        LandUse UseAt(Vector2 p) => land.PlotUse(p, interior.Contains(p));
         var parcels = new List<Parcel>();
         var shapes = new List<Region>();
         var blockOf = new List<int>();
@@ -81,10 +111,13 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             var along = (p1 - p0) / length;
             var inward = along.Orthogonal() * side;
             float front = edge.Width / 2;
-            for (float t = 0; length - t >= o.FrontageMin;)
+            for (float t = 0; ;)
             {
-                float width = o.FrontageMin + rng.NextSingle() * (o.FrontageMax - o.FrontageMin);
-                if (length - t - width < o.FrontageMin * 0.6f && length - t <= o.FrontageMax * 1.4f)
+                var (min, max) = o.Frontage(UseAt(p0 + along * Math.Min(t + 2, length) + inward * (front + 1.5f)));
+                if (length - t < min)
+                    break;
+                float width = min + rng.NextSingle() * (max - min);
+                if (length - t - width < min * 0.6f && length - t <= max * 1.4f)
                     width = length - t;
                 width = Math.Min(width, length - t);
                 var a = p0 + along * t + inward * (front - 0.5f);
@@ -115,7 +148,9 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
                 return;
 
             int id = parcels.Count;
-            parcels.Add(new Parcel(id, part.Rings[0], a + inward * 0.5f, b + inward * 0.5f, inward, edge.Kind, (float)part.Area));
+            var parcel = new Parcel(id, part.Rings[0], a + inward * 0.5f, b + inward * 0.5f, inward, edge.Kind, default,
+                (float)part.Area);
+            parcels.Add(parcel with { Use = UseAt(parcel.Probe) });
             shapes.Add(part);
             blockOf.Add(block);
             Register(id);

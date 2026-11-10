@@ -799,9 +799,18 @@ public static class Contracts
     {
         var developable = r.Get(Keys.Blocks)!.Developable;
         var footprint = r.Get(Keys.Roads)!.Footprint;
-        var regions = r.Get(Keys.Parcels)!.Parcels.Select(p => Region.Polygon(p.Ring)).ToList();
+        var parcels = r.Get(Keys.Parcels)!.Parcels;
+        var land = r.Get(Keys.LandUse)!;
+        var interior = r.Get(Keys.Wall)!.Interior;
+        var regions = parcels.Select(p => Region.Polygon(p.Ring)).ToList();
         for (int i = 0; i < regions.Count; i++)
         {
+            var parcel = parcels[i];
+            bool inside = interior.Contains(parcel.Probe);
+            if (!LandUses.Plots.Contains(parcel.Use) || LandUses.Inside.Contains(parcel.Use) != inside)
+                yield return $"地块 {i} 在墙{(inside ? "内" : "外")}，用途却是{parcel.Use.Label()}";
+            else if (parcel.Use != land.PlotUse(parcel.Probe, inside))
+                yield return $"地块 {i} 的用途{parcel.Use.Label()}与临街处的用地不符";
             if (regions[i].Subtract(developable).Area >= Tolerance)
                 yield return $"地块 {i} 超出可建区";
             if (regions[i].Intersect(footprint).Area >= Tolerance)
