@@ -29,7 +29,7 @@ public sealed class WalledInfill : CityNode<WalledInfillOptions>
     public override string Description =>
         "筑墙之后，城内从市场和各城门沿道路继续生长，直到城内可建设的地建成一定比例（默认填满）；离墙太近的地不建。";
     public override IReadOnlyList<IKey> Reads =>
-        [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Habitability, Keys.Buildable];
+        [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Habitability, Keys.Buildable, Keys.Landmarks];
     public override IReadOnlyList<IKey> Edits => [Keys.Growth];
 
     protected override void Run(NodeContext c, WalledInfillOptions o)
@@ -40,9 +40,11 @@ public sealed class WalledInfill : CityNode<WalledInfillOptions>
         var buildable = c.Get(Keys.Buildable);
         var grid = buildable.Grid;
 
+        // Not on the landmarks' plots (a castle, a friary): their land is set aside.
+        var plots = c.Get(Keys.Landmarks).Cells(grid);
         var allowed = new bool[grid.Count];
         foreach (int k in Growth.CellsIn(grid, wall.Interior))
-            allowed[k] = Geometry.DistanceToRing(grid.Center(k), wall.Ring) >= o.WallSetback;
+            allowed[k] = Geometry.DistanceToRing(grid.Center(k), wall.Ring) >= o.WallSetback && !plots.Contains(k);
         int land = Enumerable.Range(0, grid.Count).Count(k => allowed[k] && buildable.Buildable(k));
         int already = Enumerable.Range(0, grid.Count).Count(k => allowed[k] && history.Built(k));
         int target = (int)MathF.Round(o.Fill * land) - already;

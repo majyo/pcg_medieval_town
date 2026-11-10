@@ -46,7 +46,10 @@ public sealed class TownQuarters : CityNode<TownQuartersOptions>
             inside[k] = true;
         var publicCells = Growth.CellsIn(grid, plaza.Area).Concat(landmarks.Landmarks.SelectMany(l => l.Cells(grid)))
             .ToHashSet();
-        var core = new HashSet<int>(Growth.CellsIn(grid, plaza.Area.Union(landmarks.Plots).Offset(o.CoreRadius)));
+        // The core gathers round the market and its church (and town hall), not round a castle or a friary.
+        var civic = landmarks.Landmarks.Where(l => l.Kind is LandmarkKind.Church or LandmarkKind.TownHall)
+            .Aggregate(plaza.Area, (all, l) => all.Union(l.Plot));
+        var core = new HashSet<int>(Growth.CellsIn(grid, civic.Offset(o.CoreRadius)));
         var toWall = Proximity.ToRing(grid, wall.Ring, Math.Max(o.InsideStrip, o.OutsideStrip) + grid.CellSize);
         var routes = c.Get(Keys.Routes).Cells;
 

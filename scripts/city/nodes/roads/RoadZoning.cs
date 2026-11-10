@@ -10,14 +10,21 @@ public sealed class RoadZoningOptions
     public float MaxSlope { get; set; } = 12;
 }
 
-/// <summary>Marks which site cells roads may use: dry, not too steep, and on one side of the wall or a gate.</summary>
+/// <summary>
+/// Marks which site cells roads may use: dry, not too steep, off the landmarks' plots (with room for a lane's
+/// half-width and its simplification), and on one side of the wall or a gate.
+/// </summary>
 public sealed class RoadZoning : CityNode<RoadZoningOptions>
 {
+    // Half a lane's width plus the most a simplified lane strays from its cells.
+    private const float PlotClearance = 3.6f;
+
     public override string Group => "路网";
     public override string Title => "通行区";
     public override string Description =>
-        "标出哪些格可以修路：不是水、坡不太陡，分城内和城外；只能在城门处穿过城墙。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.Slope, Keys.Wall, Keys.Gates];
+        "标出哪些格可以修路：不是水、坡不太陡、不在地标用地上（留出半条街的宽度），分城内和城外；只能在城门处穿过城墙。";
+    public override IReadOnlyList<IKey> Reads =>
+        [Keys.Buildable, Keys.Slope, Keys.Wall, Keys.Gates, Keys.Landmarks, Keys.Routes];
     public override IReadOnlyList<IKey> Writes => [Keys.RoadZones];
 
     protected override void Run(NodeContext c, RoadZoningOptions o)
@@ -31,10 +38,13 @@ public sealed class RoadZoning : CityNode<RoadZoningOptions>
         var nearWall = new bool[grid.Count];
         var passable = new bool[grid.Count];
         var wallBounds = wall.Interior.Bounds.Grow(grid.CellSize * 2);
+        var routes = c.Get(Keys.Routes).Cells;
+        var plots = Growth.CellsIn(grid, c.Get(Keys.Landmarks).Plots.Offset(PlotClearance))
+            .Where(k => !routes.Contains(k)).ToHashSet();
         for (int k = 0; k < grid.Count; k++)
         {
             var p = grid.Center(k);
-            passable[k] = buildable.Block(k) != SiteBlock.Water && slope.Values[k] <= o.MaxSlope;
+            passable[k] = buildable.Block(k) != SiteBlock.Water && slope.Values[k] <= o.MaxSlope && !plots.Contains(k);
             if (!wallBounds.HasPoint(p))
                 continue;
             inside[k] = wall.Interior.Contains(p);

@@ -622,8 +622,29 @@ public static class Contracts
                 yield return $"{landmark.KindLabel}用地压在过境道路上";
             if (landmark.Plot.Intersect(plaza.Area).Area >= 1)
                 yield return $"{landmark.KindLabel}用地和市场重叠";
-            if (growth.Latest >= landmark.Phase && !cells.All(growth.Built))
+            if (landmark.Kind == LandmarkKind.Church && growth.Latest >= landmark.Phase && !cells.All(growth.Built))
                 yield return $"{landmark.KindLabel}用地在{GrowthHistory.Ordinal(landmark.Phase)}结束时没有全部建成";
+        }
+
+        var all = r.Get(Keys.Landmarks)!.Landmarks;
+        foreach (var kind in all.GroupBy(l => l.Kind).Where(g => g.Count() > 1))
+            yield return $"有 {kind.Count()} 处{kind.First().KindLabel}";
+        if (all.Select(l => l.Id).Distinct().Count() != all.Count)
+            yield return "地标编号重复";
+        for (int i = 0; i < all.Count; i++)
+        {
+            for (int j = i + 1; j < all.Count; j++)
+            {
+                if (all[i].Plot.Intersect(all[j].Plot).Area >= 1)
+                    yield return $"{all[i].KindLabel}用地和{all[j].KindLabel}用地重叠";
+            }
+        }
+
+        if (r.Get(Keys.Wall) is { } wall && all.FirstOrDefault(l => l.Kind == LandmarkKind.Castle) is { } castle)
+        {
+            var corners = castle.Plot.Rings[0];
+            if (corners.Min(p => Geometry.DistanceToRing(p, wall.Ring)) > grid.CellSize)
+                yield return "城堡不在墙线上";
         }
     }
 
@@ -660,7 +681,7 @@ public static class Contracts
 
         if (Geometry.Samples(ring.Append(ring[0]).ToArray(), 2).Any(p => shore.Nearest(p) < 0))
             yield return "城墙进入水域";
-        foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks)
+        foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks.Where(l => l.InTown))
         {
             if (landmark.Plot.Subtract(wall.Interior).Area >= 1)
                 yield return $"{landmark.KindLabel}用地超出城墙";
@@ -729,6 +750,13 @@ public static class Contracts
         var growth = r.Get(Keys.Growth)!;
         foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!))
             yield return error;
+        foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks.Where(l => l.Kind != LandmarkKind.TownHall))
+        {
+            if (landmark.Plot.Intersect(roads.Footprint).Area >= Tolerance)
+                yield return $"道路压在{landmark.KindLabel}用地上";
+            if (landmark.Plot.Offset(LandmarkAccessOptions.Reach + grid.CellSize).Intersect(roads.Footprint).Area < Tolerance)
+                yield return $"{landmark.KindLabel}用地旁边没有道路";
+        }
         foreach (var edge in roads.Edges)
         {
             bool? streetInside = null;

@@ -95,18 +95,20 @@ camera      city ← ui
 | | `ChurchSite` 教堂 | town.plaza、town.growth、region.routes、site.height、site.relief、eval.buildable → town.landmarks | 市场 160 m 内、紧挨村落的 44 × 28 m 东西向整格用地，全在可建设格上，离过境道路中线 10 m、离市场 6 m 以上；取比市场高、地形位置高、离市场近的一处。教堂祭坛朝东，钟塔在西端 |
 | | `MarketGrowth` 二期 市镇 | town.plaza、town.landmarks、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 市场和教堂用地先算作二期建成，再以市场下的道路格为起点同样生长，到累计 8 ha |
 | | `EnclosingWall` 城墙 | town.growth、town.plaza、town.landmarks、region.routes、site.shore、site.slope → town.wall | 从市场和教堂用地向外，在离水 20 m 以外、坡度 15° 以内的格上按“离市场的路程 − 100 m × 是否已建成”从低到高收入，到筑墙前建成面积的 1.25 倍；收进墙外 40 m 内的路口和出墙不到 120 m 又回来的路段；闭运算（20 m）填凹口、填洞，取外轮廓，切角平滑、简化成墙线。平滑后再按墙线检查道路，仍有短距离出入的路段就再收进来重做，最多三遍。长臂的末端可以留在墙外 |
+| | `CastleSite` 城堡 | town.plaza、region.routes、town.growth、site.height、site.relief、site.slope、site.shore、eval.buildable；编辑 town.wall、town.landmarks | 40 × 40 m 整格方形用地，跨在墙线上、至少一半在城内；全在可建设格上，离水 20 m、离过境道路中线 30 m、离市场边缘 60 m 以上，不压教堂。得分 = 比市场高多少 + 地形位置 + 用地外一圈平均坡度的一半，取最高。用地并进城内，墙线绕过城堡外侧（城堡朝外的墙就是那一段城墙）。“城堡”参数为 0 时不建 |
 | | `RouteGates` 城门 | region.routes、site.shore；编辑 town.wall → town.gates | 过境道路每穿过墙线一次开一座门：门点是穿墙处城外一侧的道路格格心（在水里时取城内一侧），插进墙线（因此编辑城墙）；城门通向沿道路往墙外走最先到达的图边入口 |
-| | `WalledInfill` 三期 城内填充 | town.wall、town.gates、town.plaza、region.routes、eval.habitability、eval.buildable；编辑 town.growth | 只在城内、离墙 8 m 以外，从市场和城门下的道路格同样生长，默认填满城内可建设的地（菜园在各家地块后院）；调小填充比例可以留出成片菜园 |
-| | `Suburbs` 四期 城外街区 | town.wall、town.gates、town.plaza、region.routes、region.crossings、eval.habitability、eval.buildable；编辑 town.growth | 新建面积 = 城内建成面积 × 0.35。先在城内、离墙 8 m 以外填剩下的可建设地（三期默认填满，所以通常没有）；余下的从城门下的道路格往城外长，离墙 15 m 以外，墙外已建成的长臂自动接上；这一期的临路进深 80 m、离路代价 1.5（前几期是 30 m、3），所以在城门口和长臂后面长成一团，而不是接在长臂末端。长到城外时，离城最近、对岸桥头离墙不超过 400 m 的使用中渡口，在对岸桥头 200 m 内另长 0.5 ha（那里已有建成就不长） |
+| | `WalledInfill` 三期 城内填充 | town.wall、town.gates、town.plaza、region.routes、eval.habitability、eval.buildable、town.landmarks；编辑 town.growth | 只在城内、离墙 8 m 以外、不在地标用地上，从市场和城门下的道路格同样生长，默认填满城内可建设的地（菜园在各家地块后院）；调小填充比例可以留出成片菜园 |
+| | `Suburbs` 四期 城外街区 | town.wall、town.gates、town.plaza、region.routes、region.crossings、eval.habitability、eval.buildable、town.landmarks；编辑 town.growth | 新建面积 = 城内建成面积 × 0.35，不长到地标用地上。先在城内、离墙 8 m 以外填剩下的可建设地（三期默认填满，所以通常没有）；余下的从城门下的道路格往城外长，离墙 15 m 以外，墙外已建成的长臂自动接上；这一期的临路进深 80 m、离路代价 1.5（前几期是 30 m、3），所以在城门口和长臂后面长成一团，而不是接在长臂末端。长到城外时，离城最近、对岸桥头离墙不超过 400 m 的使用中渡口，在对岸桥头 200 m 内另长 0.5 ha（那里已有建成就不长） |
 | 用地分区 | `TownReach` 离城路程 | eval.travel_cost、site.height、town.wall、town.gates、region.routes、region.crossings → land.reach | 从各城门出发的全图 Dijkstra，按过境道路的价格（通行代价每米加超坡惩罚，`RouteCosts`），只有使用中的渡口能过河；城内为 0，不能穿城墙抄近路；走不到的格无值 |
-| | `TownQuarters` 城镇分区 | site.shore、town.growth、town.wall、town.plaza、town.landmarks、region.routes → land.use | 水域；城内建成格分公共用地（市场、教堂用地）、市场核心（离它们 60 m 内）、居住；墙外建成格是城外街区；没建成、墙内 8 m 或墙外 15 m 以内是城墙空地；城内其余是城内园地；城外其余过境道路格是城外道路；剩下的“未分配” |
+| | `TownQuarters` 城镇分区 | site.shore、town.growth、town.wall、town.plaza、town.landmarks、region.routes → land.use | 水域；城内建成格分公共用地（市场、地标用地）、市场核心（离市场和教堂用地 60 m 内；城堡不算）、居住；墙外建成格是城外街区；没建成、墙内 8 m 或墙外 15 m 以内是城墙空地；城内其余是城内园地；城外其余过境道路格是城外道路；剩下的“未分配” |
 | | `Workshops` 作坊 | land.use、land.reach、site.shore、site.above_water、site.height、site.slope、eval.buildable、town.wall、town.growth、region.routes、region.crossings；编辑 land.use | 都在未分配的格上，从离城路程最近、连成一片够大的候选格开始按路程往外收：湿作坊 1.5 ha，离水 60 m 内、水位比城低 0.5 m 以上（城的水位取离城墙最近的水格）、离墙 50–400 m、坡度 8° 内，可在河岸退让带上；火作坊每片 1 ha、最多两片、相距 200 m 以上，离任何建成格 80 m 以上、离墙 600 m 内，起点在过境道路 60 m 内；水磨两处各 0.1 ha，离水 12 m 内、离墙 100–500 m、离使用中的渡口 80 m 以上、相距 150 m 以上 |
 | | `Countryside` 农业带 | land.use、land.reach、site.slope、site.aspect、site.shore、site.above_water、eval.buildable、eval.travel_cost；编辑 land.use | 剩下的格依次：森林格是林地；易淹地和离水 30 m 内、高出水面不到 2 m 的低地是草场；离城外街区或城墙空地 120 m 内的可建设格是菜园果园；朝南（135°–225°）、坡度 4°–15°、离城路程 1.2 km 内是葡萄园；坡度 6° 内、离城路程 1.2 km 内是耕地；其余可通行的是牧场；剩下的是荒地 |
-| 路网 | `RoadZoning` 通行区 | eval.buildable、site.slope、town.wall、town.gates → road.zones | 哪些格可以修路：不是水、坡度不超限，城内或城外，只能在城门处穿墙。`road.zones` 带着可建设判定和坡度，街巷寻路 `RoadSearch` 按它们加价（坡度每 12° 加一倍，森林加五成） |
+| 路网 | `RoadZoning` 通行区 | eval.buildable、site.slope、town.wall、town.gates、town.landmarks、region.routes → road.zones | 哪些格可以修路：不是水、坡度不超限，离地标用地 3.6 m 以外（半条街宽加简化时偏离的距离；过境道路格除外），城内或城外，只能在城门处穿墙。`road.zones` 带着可建设判定和坡度，街巷寻路 `RoadSearch` 按它们加价（坡度每 12° 加一倍，森林加五成） |
 | | `SkeletonLinks` 骨架道路 | region.routes、town.wall、town.gates、town.plaza → road.links | 过境道路的格子连线原样抄入：两端都在城内的是主街，其余是城外道路，一直到图边，过河处走渡口；锚点是市场（市场里离中心最近的道路格）、城门、图边入口 |
 | | `StreetMesh` 街巷网 | road.zones；编辑 road.links | 城内按间距（60 m）撒点，最近点对连成树，再加少量不形成锐角的环（`StreetWeave`） |
 | | `SuburbLanes` 城外巷道 | road.zones、town.growth、town.wall；编辑 road.links | 同样的做法，但只在墙外 15 m 以外的建成格里撒点（间距 45 m，离已有道路至少半个间距）、只走这些格和道路格，从穿过它们的城外道路岔出；成环概率 0.2，多是尽头巷和后巷。只有一两排深的路边带撒不下点，不铺巷道 |
 | | `WorkshopLanes` 作坊便道 | road.zones、land.use；编辑 road.links | 每片作坊（湿作坊、火作坊、水磨）从片中间寻路到走得到的最近道路（不穿水，对岸的路走不到），再从中间通到片内（或紧贴片边）离那条路最远的一格；片大时在片内按 40 m 撒点连几条，不成环。都是 3 m 宽的便道（`RoadKind.Track`） |
+| | `LandmarkAccess` 地标通路 | road.zones、town.landmarks、town.plaza；编辑 road.links | 用地 8 m 内没有道路的地标（市政厅除外），从用地旁可修路的格中离市场最近（城内）或离道路最近（城外）的一格寻路到走得到的最近道路：城内修街巷，城外修便道 |
 | | `ExtractRoads` 提取路网 | eval.buildable、road.links、town.plaza、town.wall → roads | 网格连线中度为 2 的链变成折线，锚点、路口、端点和道路等级变化处成为节点；道路加广场成为铺装区。不需要线段求交。街巷和便道按 0.4 格简化；主街和城外道路抄自拉直的过境道路，按 0.75 格简化（否则格子台阶留下小折，铺装会切掉地块的角），碰到水、或离开两端一格半以外跑到城墙另一侧（贴着城墙走的过境道路）的段仍按 0.4 格 |
 | 街区与地块 | `StreetBlocks` 街区 | eval.buildable、town.wall、roads、town.landmarks、town.growth、land.use → blocks | 可建区 = 建成格（格边圆滑 4 m），城墙内侧退让 8 m、外侧退让 15 m，− 铺装区（外扩 5 cm，免得沿路几公里的边界留下舍入细缝）− 地标用地 − 不可建设格，再加上作坊格（格边圆滑，− 铺装区；易淹地和河岸不扣，湿作坊本来就挑这两种地），按连通部分分成街区；没建成的地（陡坡、菜园）不建房 |
 | | `FrontageParcels` 临街地块 | blocks、roads、land.use、town.wall → parcels | 沿每条街和城外道路两侧按面宽切出 16 m 深的地块，面宽按地块起点处的用途（市场核心 5–8 m、居住 7–12 m、城外街区 10–16 m、作坊 18–30 m），每块记下临街点处的用途；先主街、再城外道路、然后街巷、最后便道，后切的扣除已占用部分；路边没有街区的一段（田地、菜园、地标）跳过，下一块从街区开始的地方切；然后所有地块每轮各向后取一条 2 m 的条带，两边街道的地块在街区中间相遇，最深 50 m；街角、弯处剩下的空隙（不超过 1500 m²）并给相邻边界最长的地块；最后每块扣掉排在它前面的地块、只留最大的一块（条带碰上斜的街区边时，个别地块的边界会自己掐回来，单独当多边形读时会伸进邻块）。作坊的街区切完仍没有地块的（水磨那一条弯曲的河岸），整块成一个地块，临街边取包住它的最小矩形里离道路最近的一边 |
@@ -126,10 +128,10 @@ camera      city ← ui
 - 等高线：采样高程按 2 m 间距提取的每个端点，在该处取高程都等于它的高度（误差 1 cm 内）。
   - region.crossings：至少一处；格子从一个桥头逐格（只走上下左右）到另一个桥头；中点在水面上，桥头是可通行的陆地。region.routes：入口离图边不超过 10 m；每条道路从入口出发，到另一个入口或接到更早的道路上，格子 8 邻域相邻，每格可通行或属于它经过的渡口；全部入口连通。town.origin：在可建设格上，在过境道路上。
   - town.growth：使用共用网格；期数从 1 起，每期格数与记录一致且不为 0；建成格都可建设；每一期结束时，由上下左右相邻的建成格连成的每一片都接到过境道路上（含相邻）。四期的格不贴城墙（离墙线一格以上）；四期长到城外时，城内离墙 30 m 以外不再有挨着建成区的可建设空地（先城内、后城外）。
-  - town.plaza：覆盖的格都可建设；中心两格以内有一期建成格；在城墙内。town.landmarks：用地在网格内，与它的格一致，全在可建设格上，不压过境道路格，不和市场重叠，在所属那一期结束时已全部建成。
-  - town.wall：墙线不自相交，不进水域，包住地标用地，围住筑墙前建成区的一半以上。town.growth 另加：三期城内填充的格都在城内。
+  - town.plaza：覆盖的格都可建设；中心两格以内有一期建成格；在城墙内。town.landmarks：用地在网格内，与它的格一致，全在可建设格上，不压过境道路格，不和市场重叠，互不重叠，每种至多一处；教堂用地在所属那一期结束时已全部建成；城堡用地的角离墙线不超过一格。
+  - town.wall：墙线不自相交，不进水域，包住城内地标（教堂、城堡）的用地，围住筑墙前建成区的一半以上。town.growth 另加：三期城内填充的格都在城内。
   - town.gates：至少一座，都在城墙上、在过境道路格上，去向是图边入口；过境道路每一处穿墙 1.5 格内都有城门。
-  - roads：引用有效，没有零长度路段，全部连通，城门全部接入；只在使用中的渡口处进入水域（离桥头连线一格以内）；主街在墙内、城外道路和便道在墙外，街巷每段都在墙的同一侧，都只在城门处穿过城墙；墙外的街巷每个采样点离建成格不超过一格；每一片相连的便道都有采样点离作坊格不超过一格。
+  - roads：引用有效，没有零长度路段，全部连通，城门全部接入；只在使用中的渡口处进入水域（离桥头连线一格以内）；主街在墙内、城外道路和便道在墙外，街巷每段都在墙的同一侧，都只在城门处穿过城墙；墙外的街巷每个采样点离建成格不超过一格；每一片相连的便道都有采样点离作坊格不超过一格。道路（按路宽）不压市政厅以外的地标用地，这些用地 12 m 内都有道路。
   - blocks：可建区不压城墙（墙线两侧各 2 m），不超出建成格和作坊格一格以上（菜园、田地不建房），不压铺装区。
   - parcels：在可建区内，不压道路，互不重叠；用途是市场核心、居住、城外街区、湿作坊、火作坊、水磨之一，墙内只有前两类，与临街点处的用地一致。
   - buildings：在各自地块内，互不重叠，高度有效。
@@ -153,7 +155,7 @@ camera      city ← ui
 
 - 桥只是渡口处的一块桥面板（成果画面的“道路”图层），没有桥墩和引桥；道路在河面上的部分贴着河床，被桥面遮住。
 - 道路贴着原地形，没有纵断面或地形修整。如果以后要做，用“叠加高度场”实现，不复制地形数据。
-- 地块只有临街一种切法（面宽、房屋层数和进深按用途区分），街区深处留作后院；公共建筑只有教堂（街区避开它的用地），没有市政厅。
+- 地块只有临街一种切法（面宽、房屋层数和进深按用途区分），街区深处留作后院；地标只有教堂和城堡（街区、街巷都避开它们的用地），市政厅、修道院、麻风院、刑场在做（[CITY_PLANNING.md](CITY_PLANNING.md) §14）。
 - 地图生成约 0.6 秒，场地采样约 0.15–0.3 秒，场地评价约 0.1 秒，区域格局约 0.2–0.4 秒（大部分是全图寻路），城镇生长约 0.3–0.5 秒，其余节点合计约 0.5 秒（Debug 编译）。
 - 耕地、葡萄园、草场在成果画面上仍是普通地表。地块和房屋按用途区分面宽、层数和进深，作坊有便道、院子和较平的棚屋，但都还是同一种矩形双坡房：没有窑、水车、晒布架（[CITY_PLANNING.md](CITY_PLANNING.md) §9）。
 - 水磨的用地是陡河岸上约 12 m 宽的一条，三个种子的六处水磨只有四处有房子：其余两处和相邻的街区连成一块，被那边的地块分掉，或者碎成几小块放不下房子。

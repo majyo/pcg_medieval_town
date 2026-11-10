@@ -90,7 +90,8 @@ public sealed class GrowthHistory : ISummarized
         : string.Join("，", Enumerable.Range(1, Latest).Select(n => $"{Label(n)} 累计 {AreaAfter(n) / 10000:0.0} ha"));
 }
 
-public enum LandmarkKind { Church }
+/// <summary>The kinds of landmark, in the order the town gets them.</summary>
+public enum LandmarkKind { Church, Castle, TownHall, Friary, LeperHouse, Gallows }
 
 /// <summary>
 /// A plot set aside for a public building: an axis-aligned rectangle of whole grid cells (cell indices
@@ -101,8 +102,16 @@ public sealed record Landmark(string Id, LandmarkKind Kind, Region Plot, Vector2
 {
     public string KindLabel => Kind switch
     {
+        LandmarkKind.Castle => "城堡",
+        LandmarkKind.TownHall => "市政厅",
+        LandmarkKind.Friary => "修道院",
+        LandmarkKind.LeperHouse => "麻风院",
+        LandmarkKind.Gallows => "刑场",
         _ => "教堂",
     };
+
+    /// <summary>Whether it belongs inside the wall (the leper house and the gallows stand out in the country).</summary>
+    public bool InTown => Kind is LandmarkKind.Church or LandmarkKind.Castle or LandmarkKind.TownHall or LandmarkKind.Friary;
 
     /// <summary>The grid cells of the plot.</summary>
     public IEnumerable<int> Cells(SiteGrid grid)
@@ -123,6 +132,12 @@ public sealed class LandmarkSet : ISummarized
 
     /// <summary>Every plot together.</summary>
     public Region Plots => Landmarks.Aggregate(Region.Empty, (all, l) => all.Union(l.Plot));
+
+    /// <summary>The cells of every plot.</summary>
+    public HashSet<int> Cells(SiteGrid grid) => Landmarks.SelectMany(l => l.Cells(grid)).ToHashSet();
+
+    /// <summary>These landmarks and one more.</summary>
+    public LandmarkSet With(Landmark landmark) => new(Landmarks.Append(landmark).ToList());
 
     public string Summary => Landmarks.Count == 0 ? "没有地标"
         : string.Join("，", Landmarks.Select(l =>

@@ -51,7 +51,7 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
     public override string Description =>
         "城里满了就往城外长：先填城内剩下的可建设地，再从城门和墙外已有的房子向外长，离墙留出空地；比前几期离路更深，所以在城门口长成一团。离城最近的渡口，对岸桥头另长一小片。";
     public override IReadOnlyList<IKey> Reads =>
-        [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Crossings, Keys.Habitability, Keys.Buildable];
+        [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Crossings, Keys.Habitability, Keys.Buildable, Keys.Landmarks];
     public override IReadOnlyList<IKey> Edits => [Keys.Growth];
 
     protected override void Run(NodeContext c, SuburbsOptions o)
@@ -75,6 +75,10 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
             float d = Geometry.DistanceToRing(grid.Center(k), wall.Ring);
             nearWall[k] = d < (inside[k] ? o.InsideSetback : o.OutsideSetback);
         }
+
+        // The landmarks' plots count as too near the wall: nothing grows on them.
+        foreach (int k in c.Get(Keys.Landmarks).Cells(grid))
+            nearWall[k] = true;
 
         var built = Array.ConvertAll(history.Phase, p => p != 0);
         int target = (int)MathF.Round(o.Share * Enumerable.Range(0, grid.Count).Count(k => built[k] && inside[k]));

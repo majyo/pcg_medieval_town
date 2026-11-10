@@ -28,6 +28,7 @@ public partial class CityView : Node3D
     private static readonly object DetailMark = new();
     private static readonly Color PlazaColor = new("cdb995"), InheritedColor = new("8d897d");
     private static readonly Color ChurchyardColor = new("a9b98a"), ChurchWall = new("e6dcc6"), ChurchRoof = new("5e5048");
+    private static readonly Color CastleYard = new("b9ad96");
 
     /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
     public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
@@ -58,9 +59,10 @@ public partial class CityView : Node3D
             [Keys.Plaza] = new((root, s, _) => BuildPlaza(root, (Plaza)s.Value),
                 _ => Categories("市场", (PlazaColor, "市场"))),
             [Keys.Landmarks] = new((root, s, _) => BuildLandmarks(root, (LandmarkSet)s.Value),
-                _ => Categories("地标", (ChurchyardColor, "教堂墓园用地"), (ChurchRoof, "教堂（钟塔在西端，祭坛朝东）"))),
-            [Keys.Wall] = new((root, s, other) => BuildWall(root, (WallRing)s.Value, other(Keys.Gates) as GateSet),
-                _ => Categories("城墙", (Stone, "城墙与墙塔")), Uses: [Keys.Gates]),
+                s => LandmarkLegend((LandmarkSet)s.Value)),
+            [Keys.Wall] = new((root, s, other) => BuildWall(root, (WallRing)s.Value, other(Keys.Gates) as GateSet,
+                    other(Keys.Landmarks) as LandmarkSet),
+                _ => Categories("城墙", (Stone, "城墙与墙塔")), Uses: [Keys.Gates, Keys.Landmarks]),
             [Keys.Gates] = new((root, s, _) => BuildGates(root, (GateSet)s.Value, s.Detail),
                 s => s.Detail ? Categories("城门", (EntryColor, "城门，细线连向它的图边入口")) : null),
             [Keys.RoadLinks] = new((root, s, _) => BuildLinks(root, (RoadLinks)s.Value, s.Previous as RoadLinks),
@@ -311,6 +313,12 @@ public partial class CityView : Node3D
         var church = new MeshKit();
         foreach (var landmark in set.Landmarks)
         {
+            if (landmark.Kind == LandmarkKind.Castle)
+            {
+                BuildCastle(yard, church, landmark);
+                continue;
+            }
+
             yard.Drape(landmark.Plot.Triangulate(), Height, 0.3f, ChurchyardColor);
             var size = landmark.Plot.Bounds.Size;
             bool alongX = MathF.Abs(landmark.Axis.X) >= MathF.Abs(landmark.Axis.Y);
@@ -346,11 +354,59 @@ public partial class CityView : Node3D
         Add(root, church, MeshKit.Material());
     }
 
-    /// <summary>The wall with a tower every fourth ring point; where gates are shown too, it leaves a gap at each.</summary>
-    private void BuildWall(Node3D root, WallRing ring, GateSet? gateSet)
+    private static FieldLegend LandmarkLegend(LandmarkSet set)
+    {
+        var categories = new List<(Color, string)>();
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Church))
+            categories.AddRange([(ChurchyardColor, "教堂墓园用地"), (ChurchRoof, "教堂（钟塔在西端，祭坛朝东）")]);
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Castle))
+            categories.AddRange([(CastleYard, "城堡院子"), (Stone, "城堡（围墙、角楼、主塔；朝外的一面就是城墙）")]);
+        return Categories("地标", categories.ToArray());
+    }
+
+    /// <summary>
+    /// A castle: a curtain wall round the plot with a tower at each corner and a keep toward the outer side, over a
+    /// paved yard.
+    /// </summary>
+    private void BuildCastle(MeshKit yard, MeshKit kit, Landmark castle)
+    {
+        const float inset = 1.2f, thickness = 2.6f, height = 10, towerSize = 7, towerHeight = 15;
+        yard.Drape(castle.Plot.Triangulate(), Height, 0.3f, CastleYard);
+        var ring = castle.Plot.Offset(-inset).Rings[0];
+        for (int i = 0; i < ring.Length; i++)
+        {
+            var a = ring[i];
+            var b = ring[(i + 1) % ring.Length];
+            float length = a.DistanceTo(b);
+            var along = (b - a) / length;
+            var side = along.Orthogonal() * thickness / 2;
+            for (float t = 0; t < length - 0.01f; t += 6)
+            {
+                var p = a + along * t;
+                var q = a + along * Math.Min(length, t + 6);
+                float bottom = Math.Min(Height(p), Height(q)) - 1;
+                float top = Math.Max(Height(p), Height(q)) + height;
+                kit.Prism(new[] { p + side, q + side, q - side, p - side }, bottom, top, Stone, StoneTop);
+            }
+
+            Tower(kit, a, along, towerSize, towerHeight);
+        }
+
+        float span = castle.Plot.Bounds.Size.X;
+        var keep = castle.Center + castle.Axis * span * 0.15f;
+        Tower(kit, keep, castle.Axis, span * 0.3f, towerHeight + 9);
+    }
+
+    /// <summary>
+    /// The wall with a tower every fourth ring point; where gates are shown too, it leaves a gap at each. Where the
+    /// ring runs round a castle, the castle's own walls stand in for it.
+    /// </summary>
+    private void BuildWall(Node3D root, WallRing ring, GateSet? gateSet, LandmarkSet? landmarks)
     {
         var wall = new MeshKit();
         var points = ring.Ring;
+        var castle = landmarks?.Landmarks.FirstOrDefault(l => l.Kind == LandmarkKind.Castle)?.Plot.Offset(1.5f);
+        bool ByCastle(Vector2 p) => castle != null && castle.Contains(p);
         var gates = gateSet?.Gates.Select(g => g.Position).ToList() ?? new List<Vector2>();
         const float gap = 6, thickness = 2.4f, height = 7;
         for (int i = 0; i < points.Length; i++)
@@ -366,12 +422,14 @@ public partial class CityView : Node3D
             {
                 var p = a + along * t;
                 var q = a + along * Math.Min(end, t + 6);
+                if (ByCastle((p + q) / 2))
+                    continue;
                 float bottom = Math.Min(Height(p), Height(q)) - 1;
                 float top = Math.Max(Height(p), Height(q)) + height;
                 wall.Prism(new[] { p + side, q + side, q - side, p - side }, bottom, top, Stone, StoneTop);
             }
 
-            if (i % 4 == 0 && !gates.Contains(a))
+            if (i % 4 == 0 && !gates.Contains(a) && !ByCastle(a))
                 Tower(wall, a, along, 5, height + 3);
         }
 
