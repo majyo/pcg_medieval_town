@@ -945,9 +945,37 @@ public static class Contracts
         var land = r.Get(Keys.LandUse)!;
         var interior = r.Get(Keys.Wall)!.Interior;
         var regions = parcels.Select(p => Region.Polygon(p.Ring)).ToList();
+        var edges = r.Get(Keys.Roads)!.Edges.Where(e => e.Kind != RoadKind.Track).ToList();
+        var gates = r.Get(Keys.Gates)!.Gates;
+        var market = r.Get(Keys.Plaza)!.Area.Offset(ParcelKinds.MarketReach + 1);
+        if (parcels.Count(p => p.Kind == ParcelKind.Court) > 2 * gates.Count + 1)
+            yield return "客栈大院比城门内外和市场边的个数还多";
         for (int i = 0; i < regions.Count; i++)
         {
             var parcel = parcels[i];
+            if (parcel.Id != i)
+                yield return $"地块 {i} 的编号是 {parcel.Id}";
+            if (LandUses.Trades.Contains(parcel.Use) != (parcel.Kind == ParcelKind.Trade))
+                yield return $"地块 {i} 的类型{parcel.Kind.Label()}与用途{parcel.Use.Label()}不符";
+            var front = (parcel.FrontB - parcel.FrontA).Normalized();
+            if (parcel.Kind == ParcelKind.Corner)
+            {
+                if (parcel.Side is not { Length: 2 } side
+                    || side.Any(end => !edges.Any(e => ParcelKinds.AlongSide(e, end, front, ParcelKinds.SideReach + 0.3f))))
+                    yield return $"街角地块 {i} 的侧边不在另一条路旁";
+            }
+            else if (parcel.Side != null)
+                yield return $"地块 {i} 不是街角却记了侧边";
+            if (parcel.Kind == ParcelKind.Court)
+            {
+                if (parcel.Street is not (RoadKind.Main or RoadKind.Outer))
+                    yield return $"客栈大院 {i} 不临主街或城外道路";
+                if (!gates.Any(g => g.Position.DistanceTo(parcel.Probe) <= ParcelKinds.MaxCourtReach) && !market.Contains(parcel.Probe))
+                    yield return $"客栈大院 {i} 不在城门或市场附近";
+                if (parcel.Frontage < ParcelKinds.MinCourtFrontage || parcel.Frontage > ParcelKinds.MaxCourtFrontage)
+                    yield return $"客栈大院 {i} 面宽 {parcel.Frontage:0.0} m";
+            }
+
             bool inside = interior.Contains(parcel.Probe);
             if (!LandUses.Plots.Contains(parcel.Use) || LandUses.Inside.Contains(parcel.Use) != inside)
                 yield return $"地块 {i} 在墙{(inside ? "内" : "外")}，用途却是{parcel.Use.Label()}";

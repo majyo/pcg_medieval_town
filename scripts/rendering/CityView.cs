@@ -82,7 +82,10 @@ public partial class CityView : Node3D
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
             [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
                 s => Categories("地块 · 按用途", ((ParcelSet)s.Value).Parcels.Select(p => p.Use).Distinct().OrderBy(u => u)
-                    .Select(u => (FieldStyles.LandColors[(int)u], u.Label())).ToArray())),
+                    .Select(u => (FieldStyles.LandColors[(int)u], u.Label()))
+                    .Concat(((ParcelSet)s.Value).Parcels.Any(p => p.Kind == ParcelKind.Corner)
+                        ? [(CornerColor, "街角地块（侧街边加画一道）"), (CourtColor, "客栈大院")] : Array.Empty<(Color, string)>())
+                    .ToArray())),
             [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
         };
     }
@@ -650,6 +653,7 @@ public partial class CityView : Node3D
         Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
     }
 
+    private static readonly Color CornerColor = new("1f6fb2"), CourtColor = new("c0392b");
     private static readonly Color PlanTint = new("c9b27c"), GuideColor = new("2e86c1"), CrossColor = new("b5651d");
 
     /// <summary>The small squares, paved like the market and outlined.</summary>
@@ -725,8 +729,20 @@ public partial class CityView : Node3D
             var region = Region.Polygon(parcel.Ring);
             var color = FieldStyles.LandColors[(int)parcel.Use].Lerp(new Color("f2ecd8"), 0.1f + 0.25f * rng.NextSingle());
             fill.Drape(region.Triangulate(), Height, 0.15f, color);
+            var edge = parcel.Kind switch
+            {
+                ParcelKind.Corner => CornerColor,
+                ParcelKind.Court => CourtColor,
+                _ => new Color("5c5a3c"),
+            };
             for (int i = 0; i < parcel.Ring.Length; i++)
-                DrapedLine(lines, parcel.Ring[i], parcel.Ring[(i + 1) % parcel.Ring.Length], 0.35f, new Color("5c5a3c"));
+                DrapedLine(lines, parcel.Ring[i], parcel.Ring[(i + 1) % parcel.Ring.Length], 0.35f, edge);
+            if (parcel.Side is { Length: 2 } side)
+            {
+                var inward = (side[1] - side[0]).Orthogonal().Normalized() * 0.4f;
+                foreach (float k in new[] { -1f, 1f })
+                    DrapedLine(lines, side[0] + inward * k, side[1] + inward * k, 0.4f, CornerColor);
+            }
         }
 
         Add(root, fill, MeshKit.Material(), shadows: false);

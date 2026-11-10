@@ -52,5 +52,6 @@ public static class TownGraph
         new ExtractRoads(),
         new StreetBlocks(),
         new FrontageParcels(),
+        new ParcelKinds(),
         new GableHouses());
 }
