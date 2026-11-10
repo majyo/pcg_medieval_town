@@ -87,6 +87,9 @@ public partial class CityView : Node3D
                         ? [(CornerColor, "街角地块（侧街边加画一道）"), (CourtColor, "客栈大院")] : Array.Empty<(Color, string)>())
                     .ToArray())),
             [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
+            [Keys.Yards] = new((root, s, _) => BuildYards(root, (YardSet)s.Value),
+                _ => Categories("院落", (Stone, "院墙（城内）"), (HedgeGreen, "篱笆（城外）"), (ShedWall, "后屋"),
+                    (GardenGreen, "菜园"))),
         };
     }
 
@@ -113,7 +116,7 @@ public partial class CityView : Node3D
         CityLayer.Roads => [Keys.Roads, Keys.Crossings],
         CityLayer.Blocks => [Keys.Blocks],
         CityLayer.Parcels => [Keys.Parcels],
-        _ => [Keys.Buildings],
+        _ => [Keys.Buildings, Keys.Yards],
     };
 
     /// <summary>Whether the key is drawn here (otherwise it can only be painted on the ground, or not shown at all).</summary>
@@ -747,6 +750,33 @@ public partial class CityView : Node3D
 
         Add(root, fill, MeshKit.Material(), shadows: false);
         Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+    }
+
+    private static readonly Color HedgeGreen = new("4f6b34"), ShedWall = new("b7a07a"), ShedRoof = new("7d5b43"),
+        GardenGreen = new("8fae5a");
+
+    /// <summary>Walls and hedges as lines on the ground, back buildings as low boxes, gardens as green ground.</summary>
+    private void BuildYards(Node3D root, YardSet yards)
+    {
+        var ground = new MeshKit();
+        foreach (var garden in yards.Gardens)
+            ground.Drape(garden.Area.Triangulate(), Height, 0.2f, GardenGreen);
+        Add(root, ground, MeshKit.Material(), shadows: false);
+
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
+        foreach (var fence in yards.Fences)
+        {
+            var color = fence.Kind == FenceKind.Wall ? Stone : HedgeGreen;
+            for (int i = 1; i < fence.Points.Length; i++)
+                DrapedLine(lines, fence.Points[i - 1], fence.Points[i], 0.5f, color);
+        }
+
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+
+        var sheds = new MeshKit();
+        foreach (var shed in yards.Outbuildings)
+            sheds.Prism(shed.Corners, shed.Corners.Min(Height) - 0.3f, shed.Corners.Max(Height) + 2.5f, ShedWall, ShedRoof);
+        Add(root, sheds, MeshKit.Material());
     }
 
     private void BuildBuildings(Node3D root, BuildingSet set)

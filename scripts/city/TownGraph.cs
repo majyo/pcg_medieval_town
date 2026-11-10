@@ -53,5 +53,6 @@ public static class TownGraph
         new StreetBlocks(),
         new FrontageParcels(),
         new ParcelKinds(),
-        new GableHouses());
+        new GableHouses(),
+        new Yards());
 }

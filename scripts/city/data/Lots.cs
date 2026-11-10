@@ -73,3 +73,44 @@ public sealed record BuildingSet(IReadOnlyList<Building> Buildings) : ISummarize
 {
     public string Summary => $"{Buildings.Count} 栋，占地 {Buildings.Sum(b => b.Footprint) / 10000:0.00} ha";
 }
+
+public enum FenceKind { Wall, Hedge }
+
+/// <summary>A run of plot boundary off the street: a stone wall inside the town wall, a hedge outside it.</summary>
+public sealed record Fence(Vector2[] Points, FenceKind Kind)
+{
+    public float Length => Points.Zip(Points.Skip(1), (a, b) => a.DistanceTo(b)).Sum();
+}
+
+public enum OutbuildingKind { Store, Workshop, Barn, Stable, Shed }
+
+/// <summary>
+/// A back building at the rear of a plot: Corners run front-left, front-right, back-right, back-left as a house's do.
+/// FacesBack when a road runs behind the plot, so its door opens onto that road.
+/// </summary>
+public sealed record Outbuilding(int ParcelId, Vector2[] Corners, OutbuildingKind Kind, bool FacesBack)
+{
+    public float Footprint => Corners[0].DistanceTo(Corners[1]) * Corners[1].DistanceTo(Corners[2]);
+
+    public string Label => Kind switch
+    {
+        OutbuildingKind.Store => "仓房",
+        OutbuildingKind.Workshop => "作坊间",
+        OutbuildingKind.Barn => "畜棚",
+        OutbuildingKind.Stable => "马厩",
+        _ => "料棚",
+    };
+}
+
+/// <summary>A plot's kitchen garden: what is left behind and beside its buildings.</summary>
+public sealed record Garden(int ParcelId, Region Area);
+
+public sealed record YardSet(IReadOnlyList<Fence> Fences, IReadOnlyList<Outbuilding> Outbuildings, IReadOnlyList<Garden> Gardens)
+    : ISummarized
+{
+    public string Summary => $"院墙 {Fences.Where(f => f.Kind == FenceKind.Wall).Sum(f => f.Length) / 1000:0.0} km，"
+        + $"篱笆 {Fences.Where(f => f.Kind == FenceKind.Hedge).Sum(f => f.Length) / 1000:0.0} km；后屋 {Outbuildings.Count} 间"
+        + (Outbuildings.Count == 0 ? "" : "（" + string.Join("、", Outbuildings.GroupBy(b => b.Kind).OrderBy(g => g.Key)
+            .Select(g => $"{g.First().Label} {g.Count()}")) + "）")
+        + $"；菜园 {Gardens.Count} 块 {Gardens.Sum(g => g.Area.Area) / 10000:0.00} ha";
+}

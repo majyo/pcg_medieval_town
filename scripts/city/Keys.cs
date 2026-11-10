@@ -66,6 +66,8 @@ public static class Keys
         "沿街切出的临街地块");
     public static readonly Key<BuildingSet> Buildings = new("buildings", "建筑",
         "每个地块上的房屋");
+    public static readonly Key<YardSet> Yards = new("yards", "院落",
+        "地块之间的院墙（城内）和篱笆（城外）、深后院尾端的后屋、房屋和后屋之外的菜园");
 
     /// <summary>Every sampled field, in sampling order.</summary>
     public static readonly IReadOnlyList<Key<ScalarField>> Fields = [Height, Slope, Aspect, Shore, AboveWater, Relief, Forest];

@@ -92,7 +92,7 @@ public partial class Main : Node3D
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
                 }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).Concat(PlannedViews())
-                    .Concat(GateViews()).ToArray();
+                    .Concat(GateViews()).Concat(YardViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -350,6 +350,14 @@ public partial class Main : Node3D
             return ($"suburb_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.95f,
                 Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 520f);
         });
+
+    /// <summary>The blocks by the market from steeply above, so the walls, back buildings and gardens can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> YardViews()
+    {
+        if (_graph.Get(Keys.Plaza) is not { } plaza)
+            yield break;
+        yield return ("yards_core", new Vector3(plaza.Center.X, _map.HeightAt(plaza.Center), plaza.Center.Y), 1.2f, 0.3f, 220f);
+    }
 
     /// <summary>The inside of each gate, seen from within the town, so its square and the wall lane can be checked.</summary>
     private IEnumerable<(string, Vector3, float, float, float)> GateViews() =>

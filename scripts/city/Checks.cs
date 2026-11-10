@@ -148,7 +148,7 @@ public static class Checks
                 or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or PlannedStreets or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or Squares or StreetRanks or ExtractRoads
-                or StreetBlocks or FrontageParcels or ParcelKinds or GableHouses)));
+                or StreetBlocks or FrontageParcels or ParcelKinds or GableHouses or Yards)));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace));
@@ -239,6 +239,9 @@ public static class Checks
             string.Join(",", parcels.Parcels.GroupBy(p => p.Use).OrderBy(g => g.Key).Select(g => $"{g.Key}:{g.Count()}")),
             string.Join(",", parcels.Parcels.GroupBy(p => p.Kind).OrderBy(g => g.Key).Select(g => $"{g.Key}:{g.Count()}")),
             buildings.Buildings.Count,
+            graph.Get(Keys.Yards) is { } yards
+                ? $"{yards.Fences.Sum(f => f.Length):F1},{yards.Outbuildings.Count},{yards.Gardens.Sum(g => g.Area.Area):F1}"
+                : "",
             string.Join(",", graph.Get(Keys.LandUse)?.Counts ?? Array.Empty<int>()));
     }
 }

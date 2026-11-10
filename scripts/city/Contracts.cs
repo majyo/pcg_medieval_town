@@ -54,6 +54,7 @@ public static class Contracts
         new(Keys.Blocks, BlockRules),
         new(Keys.Parcels, ParcelRules),
         new(Keys.Buildings, BuildingRules),
+        new(Keys.Yards, YardRules),
         new(Keys.Reach, r => FieldRules(r, Keys.Reach).Concat(ReachRules(r))),
         new(Keys.LandUse, LandUseRules),
     };
@@ -989,6 +990,50 @@ public static class Contracts
 
         foreach (var (a, b) in Overlaps(regions))
             yield return $"地块 {a} 与 {b} 重叠";
+    }
+
+    /// <summary>
+    /// Fences keep off the paving and out of the houses; back buildings and gardens stay in their plots, clear of
+    /// the plot's house and of each other.
+    /// </summary>
+    private static IEnumerable<string> YardRules(IKeyReader r)
+    {
+        var yards = r.Get(Keys.Yards)!;
+        var parcels = r.Get(Keys.Parcels)!.Parcels;
+        var houses = r.Get(Keys.Buildings)!.Buildings.ToDictionary(b => b.ParcelId, b => Region.Polygon(b.Corners));
+        var paving = r.Get(Keys.Roads)!.Footprint.Offset(-0.3f);
+        var inner = houses.Values.Aggregate(Region.Empty, (all, h) => all.Union(h.Offset(-0.1f)));
+        foreach (var (fence, i) in yards.Fences.Select((f, i) => (f, i)))
+        {
+            var samples = Geometry.Samples(fence.Points, 2).ToList();
+            if (samples.Any(paving.Contains))
+                yield return $"院墙 {i} 压在路面上";
+            if (samples.Any(inner.Contains))
+                yield return $"院墙 {i} 穿过房屋";
+        }
+
+        var sheds = new Dictionary<int, Region>();
+        foreach (var shed in yards.Outbuildings)
+        {
+            var area = Region.Polygon(shed.Corners);
+            sheds[shed.ParcelId] = area;
+            if (area.Subtract(Region.Polygon(parcels[shed.ParcelId].Ring)).Area >= Tolerance)
+                yield return $"地块 {shed.ParcelId} 的{shed.Label}超出地块";
+            if (houses.TryGetValue(shed.ParcelId, out var house) && area.Intersect(house).Area >= Tolerance)
+                yield return $"地块 {shed.ParcelId} 的{shed.Label}压到房屋";
+        }
+
+        if (yards.Outbuildings.GroupBy(b => b.ParcelId).Any(g => g.Count() > 1))
+            yield return "有地块不止一间后屋";
+        foreach (var garden in yards.Gardens)
+        {
+            if (garden.Area.Subtract(Region.Polygon(parcels[garden.ParcelId].Ring)).Area >= Tolerance)
+                yield return $"地块 {garden.ParcelId} 的菜园超出地块";
+            if (houses.TryGetValue(garden.ParcelId, out var house) && garden.Area.Intersect(house).Area >= Tolerance)
+                yield return $"地块 {garden.ParcelId} 的菜园压到房屋";
+            if (sheds.TryGetValue(garden.ParcelId, out var shed) && garden.Area.Intersect(shed).Area >= Tolerance)
+                yield return $"地块 {garden.ParcelId} 的菜园压到后屋";
+        }
     }
 
     private static IEnumerable<string> BuildingRules(IKeyReader r)
