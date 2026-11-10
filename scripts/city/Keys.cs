@@ -54,6 +54,8 @@ public static class Keys
         "每格能否修路，在城内还是城外；只能在城门处穿墙");
     public static readonly Key<RoadLinks> RoadLinks = new("road.links", "道路连线",
         "相邻格之间的道路连线（带等级）：骨架道路抄自过境道路（城内为主街、城外为城外道路），街巷网再累加");
+    public static readonly Key<StreetPlan> StreetPlan = new("road.plan", "规划街巷",
+        "三期、四期成片的地上的规划区：每片的引导线（最近的过境道路）、平行街和横街；有机街巷不进这些格");
     public static readonly Key<RoadGraph> Roads = new("roads", "路网",
         "由连线提取出的路网：路口、路段折线、路宽和铺装范围");
     public static readonly Key<BlockSet> Blocks = new("blocks", "街区",

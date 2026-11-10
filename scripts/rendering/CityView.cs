@@ -73,6 +73,9 @@ public partial class CityView : Node3D
                     (RoadColor(RoadKind.Lane), "巷（尽头路和它的分叉）"), (RoadColor(RoadKind.Outer), "城外道路"),
                     (RoadColor(RoadKind.Track), "便道（通往作坊和城外地标的土路）")),
                 Uses: [Keys.Plaza]),
+            [Keys.StreetPlan] = new((root, s, _) => BuildPlan(root, (StreetPlan)s.Value),
+                _ => Categories("规划街巷", (PlanTint, "规划区（三期、四期成片的地）"), (GuideColor, "引导线（过境道路）"),
+                    (RoadColor(RoadKind.Street), "平行街"), (CrossColor, "横街"))),
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
             [Keys.Parcels] = new((root, s, _) => BuildParcels(root, (ParcelSet)s.Value),
@@ -642,6 +645,31 @@ public partial class CityView : Node3D
                 DrapedLine(lines, edge.Points[i - 1], edge.Points[i], 0.5f, color);
         }
 
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+    }
+
+    private static readonly Color PlanTint = new("c9b27c"), GuideColor = new("2e86c1"), CrossColor = new("b5651d");
+
+    /// <summary>The planned areas tinted, each with its guide route and its parallel and cross streets.</summary>
+    private void BuildPlan(Node3D root, StreetPlan plan)
+    {
+        var fill = new MeshKit();
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
+        var grid = plan.Grid;
+        foreach (var area in plan.Areas)
+        {
+            fill.Drape(grid.Squares(area.Cells).Triangulate(), Height, 0.12f, PlanTint);
+            for (int i = 1; i < area.Guide.Length; i++)
+                DrapedLine(lines, area.Guide[i - 1], area.Guide[i], 0.6f, GuideColor);
+            foreach (var street in area.Streets)
+            {
+                for (int i = 1; i < street.Cells.Length; i++)
+                    DrapedLine(lines, grid.Center(street.Cells[i - 1]), grid.Center(street.Cells[i]), 0.6f,
+                        street.Cross ? CrossColor : RoadColor(RoadKind.Street));
+            }
+        }
+
+        Add(root, fill, MeshKit.Material(unshaded: true, alpha: 0.5f), shadows: false);
         Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
     }
 

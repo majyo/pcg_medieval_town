@@ -174,3 +174,75 @@ public static class RoadTrees
         return pruned;
     }
 }
+
+/// <summary>One street of a planned area: parallel to the guide at an offset, or across it at a distance along it.</summary>
+public sealed record PlanStreet(int[] Cells, bool Cross, float Offset);
+
+/// <summary>
+/// A planned area: a patch of late-built land (walled infill, suburbs) laid out from a guide, the through route it
+/// lies along, with streets parallel to the guide and cross streets back to it.
+/// </summary>
+public sealed record PlanArea(int[] Cells, Vector2[] Guide, IReadOnlyList<PlanStreet> Streets)
+{
+    /// <summary>
+    /// Where a point lies relative to the guide: its signed distance (left of the guide's direction is positive) and
+    /// how far along the guide its nearest point is.
+    /// </summary>
+    public (float Offset, float Along) Frame(Vector2 p) => Frame(Guide, p);
+
+    public static (float Offset, float Along) Frame(Vector2[] guide, Vector2 p)
+    {
+        float best = float.PositiveInfinity, offset = 0, along = 0, run = 0;
+        for (int i = 1; i < guide.Length; i++)
+        {
+            var a = guide[i - 1];
+            var b = guide[i];
+            float length = a.DistanceTo(b);
+            var on = Geometry.ClosestOnSegment(p, a, b);
+            float d = p.DistanceTo(on);
+            if (d < best)
+            {
+                best = d;
+                float side = (b - a).Cross(p - a);
+                offset = side >= 0 ? d : -d;
+                along = run + a.DistanceTo(on);
+            }
+
+            run += length;
+        }
+
+        return (offset, along);
+    }
+}
+
+/// <summary>The planned areas; the organic street nodes keep out of their cells.</summary>
+public sealed class StreetPlan : ISummarized
+{
+    private readonly HashSet<int> _cells;
+
+    public StreetPlan(SiteGrid grid, IReadOnlyList<PlanArea> areas)
+    {
+        Grid = grid;
+        Areas = areas;
+        _cells = areas.SelectMany(a => a.Cells).ToHashSet();
+    }
+
+    public SiteGrid Grid { get; }
+    public IReadOnlyList<PlanArea> Areas { get; }
+
+    public bool Contains(int k) => _cells.Contains(k);
+
+    public float Length(PlanStreet street) =>
+        street.Cells.Zip(street.Cells.Skip(1), (a, b) => Grid.Center(a).DistanceTo(Grid.Center(b))).Sum();
+
+    public string Summary
+    {
+        get
+        {
+            var parallel = Areas.SelectMany(a => a.Streets).Where(s => !s.Cross).ToList();
+            var cross = Areas.SelectMany(a => a.Streets).Where(s => s.Cross).ToList();
+            return $"{Areas.Count} 片规划区，{Grid.Hectares(_cells.Count):0.0} ha；平行街 {parallel.Count} 条 {parallel.Sum(Length):0} m，"
+                + $"横街 {cross.Count} 条 {cross.Sum(Length):0} m";
+        }
+    }
+}

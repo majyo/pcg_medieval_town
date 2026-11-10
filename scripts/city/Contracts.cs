@@ -48,6 +48,7 @@ public static class Contracts
         new(Keys.Landmarks, LandmarkRules),
         new(Keys.Wall, WallRules),
         new(Keys.Gates, GateRules),
+        new(Keys.StreetPlan, PlanRules),
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
         new(Keys.Parcels, ParcelRules),
@@ -824,6 +825,34 @@ public static class Contracts
                     yield return $"城外巷道 {edge.Id} 离开了城外街区 {p}";
                     break;
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Planned areas lie on land built in phase 3 or later; their streets are roads, cell to cell, and keep to their
+    /// iso-lines (a cell of slack beside the band, where the search needed it).
+    /// </summary>
+    private static IEnumerable<string> PlanRules(IKeyReader r)
+    {
+        var plan = r.Get(Keys.StreetPlan)!;
+        var growth = r.Get(Keys.Growth)!;
+        var links = r.Get(Keys.RoadLinks)!;
+        var grid = plan.Grid;
+        float slack = PlannedStreets.HalfBand + 1.5f * grid.CellSize;
+        foreach (var (area, i) in plan.Areas.Select((a, i) => (a, i)))
+        {
+            if (area.Cells.Any(k => growth.Phase[k] < 3))
+                yield return $"规划区 {i} 有三期以前建成或没建成的格";
+            foreach (var street in area.Streets)
+            {
+                string name = street.Cross ? $"横街（沿线 {street.Offset:0} m）" : $"平行街（偏移 {street.Offset:0} m）";
+                if (street.Cells.Zip(street.Cells.Skip(1)).Any(p => !links.TryGet(p.First, p.Second, out _)))
+                    yield return $"规划区 {i} 的{name}有两格之间没有道路连线";
+                float worst = street.Cells.Select(k => area.Frame(grid.Center(k)))
+                    .Max(f => MathF.Abs((street.Cross ? f.Along : f.Offset) - street.Offset));
+                if (worst > slack)
+                    yield return $"规划区 {i} 的{name}偏离等值线 {worst:0.0} m";
             }
         }
     }

@@ -54,7 +54,8 @@ public sealed class WallLane : CityNode<WallLaneOptions>
         var toWall = Proximity.ToRing(grid, c.Get(Keys.Wall).Ring, o.Distance + HalfBand + grid.CellSize);
         bool InBand(int k) => zones.Inside(k) && MathF.Abs(toWall[k] - o.Distance) <= HalfBand
             && gates.All(g => g.DistanceTo(grid.Center(k)) > GateGap);
-        var (_, failed) = IsoStreets.Build(zones, links, RoadZone.Inside, RoadKind.Lane, InBand, o.MinLength, JoinReach,
+        var band = Enumerable.Range(0, grid.Count).Where(InBand);
+        var (_, failed) = IsoStreets.Build(zones, links, RoadZone.Inside, RoadKind.Lane, band, o.MinLength, JoinReach,
             c.Cancellation);
         if (failed > 0)
             c.Notice($"{failed} 段墙根巷无合法通路，已跳过");

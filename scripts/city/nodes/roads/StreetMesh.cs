@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace PcgCitySandbox.City;
 
@@ -17,25 +18,27 @@ public sealed class StreetMeshOptions
 }
 
 /// <summary>
-/// Organic street mesh inside the walls (<see cref="StreetWeave"/>): points anywhere inside, starting from the roads
-/// already inside.
+/// Organic street mesh inside the walls (<see cref="StreetWeave"/>): points anywhere inside but the planned areas,
+/// starting from the roads already inside; no new street runs through a planned area.
 /// </summary>
 public sealed class StreetMesh : CityNode<StreetMeshOptions>
 {
     public override string Group => NodeGroups.Roads;
     public override string Title => "街巷网";
     public override string Description =>
-        "在城内按间距撒点，最近的点两两相连成树，再加少量不形成锐角的环，得到街巷。";
-    public override IReadOnlyList<IKey> Reads => [Keys.RoadZones];
+        "在城内（规划区以外）按间距撒点，最近的点两两相连成树，再加少量不形成锐角的环，得到街巷；新街巷不穿过规划区。";
+    public override IReadOnlyList<IKey> Reads => [Keys.RoadZones, Keys.StreetPlan];
     public override IReadOnlyList<IKey> Edits => [Keys.RoadLinks];
 
     protected override void Run(NodeContext c, StreetMeshOptions o)
     {
         var zones = c.Get(Keys.RoadZones);
+        var plan = c.Get(Keys.StreetPlan);
         var links = c.Get(Keys.RoadLinks).Copy();
+        var roads = links.Cells.ToHashSet();
         int failed = StreetWeave.Weave(zones, links, RoadZone.Inside, zones.Inside,
-            k => zones.Allowed(k, RoadZone.Inside) && !zones.IsGate(k), null, o.Spacing, o.LoopChance, new Random(o.Seed),
-            c.Cancellation);
+            k => zones.Allowed(k, RoadZone.Inside) && !zones.IsGate(k) && !plan.Contains(k),
+            k => !plan.Contains(k) || roads.Contains(k), o.Spacing, o.LoopChance, new Random(o.Seed), c.Cancellation);
         if (failed > 0)
             c.Notice($"{failed} 条候选街巷无合法通路，已跳过");
         c.Set(Keys.RoadLinks, links);

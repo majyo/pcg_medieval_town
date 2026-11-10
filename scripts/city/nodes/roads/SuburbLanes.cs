@@ -31,7 +31,7 @@ public sealed class SuburbLanes : CityNode<SuburbLanesOptions>
     public override string Title => "城外巷道";
     public override string Description =>
         "在城外长厚了的街区里按间距撒点，从穿过它的城外道路岔出巷道，连成以尽头巷和后巷为主的小路；只沿路一两排深的地方不铺。";
-    public override IReadOnlyList<IKey> Reads => [Keys.RoadZones, Keys.Growth, Keys.Wall];
+    public override IReadOnlyList<IKey> Reads => [Keys.RoadZones, Keys.Growth, Keys.Wall, Keys.StreetPlan];
     public override IReadOnlyList<IKey> Edits => [Keys.RoadLinks];
 
     protected override void Run(NodeContext c, SuburbLanesOptions o)
@@ -41,12 +41,13 @@ public sealed class SuburbLanes : CityNode<SuburbLanesOptions>
         var wall = c.Get(Keys.Wall);
         var grid = zones.Grid;
         var links = c.Get(Keys.RoadLinks).Copy();
+        var plan = c.Get(Keys.StreetPlan);
 
-        // The suburbs: built cells outside the wall, clear of it.
+        // The suburbs: built cells outside the wall, clear of it, but the planned areas.
         var nearWall = grid.Mask(grid.CellsIn(wall.Interior.Offset(o.WallSetback)));
         var area = new bool[grid.Count];
         for (int k = 0; k < grid.Count; k++)
-            area[k] = growth.Built(k) && !zones.Inside(k) && !nearWall[k] && zones.Allowed(k, RoadZone.Outside);
+            area[k] = growth.Built(k) && !zones.Inside(k) && !nearWall[k] && zones.Allowed(k, RoadZone.Outside) && !plan.Contains(k);
 
         var roads = links.Cells.ToHashSet();
         int failed = StreetWeave.Weave(zones, links, RoadZone.Outside, k => !zones.Inside(k) && grid.AnyNear(k, 1, j => area[j]),

@@ -144,7 +144,7 @@ public static class Checks
                 or NodeGroups.Zoning || node is RoadZoning));
         errors.AddRange(await Invalidation<WallLane>(graph, "墙根巷",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
-                or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or StreetMesh));
+                or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or PlannedStreets or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or StreetRanks or ExtractRoads
                 or StreetBlocks or FrontageParcels or GableHouses)));
