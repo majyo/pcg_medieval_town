@@ -7,6 +7,13 @@ namespace PcgCitySandbox.City;
 
 public sealed class SuburbsOptions : SpreadOptions
 {
+    /// <summary>Deeper and cheaper off the road than the earlier phases, so the suburbs thicken at the gates.</summary>
+    public SuburbsOptions()
+    {
+        Depth = 80;
+        DepthCost = 1.5f;
+    }
+
     [Param("面积比例", 0, 1, 0.05,
         Hint = "这一期新建的面积 = 城内建成面积 × 这个比例；城内剩下的可建设地先填，余下的往城门外长")]
     public float Share { get; set; } = 0.35f;
@@ -26,8 +33,9 @@ public sealed class SuburbsOptions : SpreadOptions
 
 /// <summary>
 /// Phase four: the town outgrows its wall. Buildable land still free inside the wall fills first (only when phase
-/// three left gardens); the rest of the area grows outward along the routes from the gates and from the ends of the
-/// arms already outside, clear of the wall. Once the town spills outside, a small bridgehead suburb grows across the
+/// three left gardens); the rest of the area grows outward from the gates and the arms already outside, clear of the
+/// wall. Deeper and cheaper off the road than the earlier phases, it thickens beside the gates rather than lengthening
+/// the arms. Once the town spills outside, a small bridgehead suburb grows across the
 /// nearest crossing in use.
 /// </summary>
 public sealed class Suburbs : CityNode<SuburbsOptions>
@@ -41,7 +49,7 @@ public sealed class Suburbs : CityNode<SuburbsOptions>
     public override string Group => TownGrowth.Group;
     public override string Title => "四期 城外街区";
     public override string Description =>
-        "城里满了就往城外长：先填城内剩下的可建设地，再从城门和墙外已有的房子沿过境道路向外长，离墙留出空地；离城最近的渡口，对岸桥头另长一小片。";
+        "城里满了就往城外长：先填城内剩下的可建设地，再从城门和墙外已有的房子向外长，离墙留出空地；比前几期离路更深，所以在城门口长成一团。离城最近的渡口，对岸桥头另长一小片。";
     public override IReadOnlyList<IKey> Reads =>
         [Keys.Wall, Keys.Gates, Keys.Plaza, Keys.Routes, Keys.Crossings, Keys.Habitability, Keys.Buildable];
     public override IReadOnlyList<IKey> Edits => [Keys.Growth];

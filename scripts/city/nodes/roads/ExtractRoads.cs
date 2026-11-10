@@ -35,7 +35,7 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
     public override string Title => "提取路网";
     public override string Description =>
         "把格子之间的连线整理成路网：连续的格子变成折线，路口、端点和等级变化处成为节点；再按路宽铺出路面。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.RoadLinks, Keys.Plaza];
+    public override IReadOnlyList<IKey> Reads => [Keys.Buildable, Keys.RoadLinks, Keys.Plaza, Keys.Wall];
     public override IReadOnlyList<IKey> Writes => [Keys.Roads];
 
     protected override void Run(NodeContext c, ExtractRoadsOptions o)
@@ -44,6 +44,7 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
         var grid = buildable.Grid;
         var links = c.Get(Keys.RoadLinks);
         var plaza = c.Get(Keys.Plaza);
+        var interior = c.Get(Keys.Wall).Interior;
         var anchors = links.Anchors;
         var adjacency = new Dictionary<int, List<int>>();
         foreach (var (a, b) in links.Links.Keys)
@@ -105,13 +106,17 @@ public sealed class ExtractRoads : CityNode<ExtractRoadsOptions>
                 cells.Add(current);
                 // Main and outer roads follow the straightened through routes, whose cells step around lines at any
                 // angle; simplify them as loosely as the routes were, or they zigzag and their paving nicks the plots.
-                // Where the loose line touches water (a crossing, or a cut river bend), keep the tight one.
+                // Where the loose line touches water (a crossing, or a cut river bend) or cuts across the wall away from
+                // the ends (a route hugging the wall), keep the tight one.
                 var centers = cells.Select(k => grid.Center(k)).ToList();
                 var points = Geometry.Simplify(centers, grid.CellSize * 0.4f);
                 if (kind != RoadKind.Street)
                 {
                     var loose = Geometry.Simplify(centers, grid.CellSize * 0.75f);
-                    if (Geometry.Samples(loose, 1).All(p => grid.CellAt(p) is int k && k >= 0 && buildable.Block(k) != SiteBlock.Water))
+                    bool Dry(Vector2 p) => grid.CellAt(p) is int k && k >= 0 && buildable.Block(k) != SiteBlock.Water;
+                    bool Side(Vector2 p) => interior.Contains(p) == (kind == RoadKind.Main)
+                        || p.DistanceTo(centers[0]) < grid.CellSize * 1.5f || p.DistanceTo(centers[^1]) < grid.CellSize * 1.5f;
+                    if (Geometry.Samples(loose, 1).All(p => Dry(p) && Side(p)))
                         points = loose;
                 }
                 edges.Add(new RoadEdge(edges.Count, Id(start), Id(current), points, kind, o.Width(kind)));

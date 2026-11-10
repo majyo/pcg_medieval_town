@@ -73,8 +73,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
         GrowBack();
         FillGaps();
-        c.Set(Keys.Parcels, new ParcelSet(parcels.Select((p, i) =>
-            p with { Ring = shapes[i].Rings[0], Area = (float)shapes[i].Area }).ToList()));
+        c.Set(Keys.Parcels, new ParcelSet(Settle()));
 
         void Frontage(RoadEdge edge, Vector2 p0, Vector2 p1, int side)
         {
@@ -111,7 +110,8 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             var quad = Region.Polygon(new[] { a, b, b + inward * (o.Depth + 0.5f), a + inward * (o.Depth + 0.5f) });
             var piece = Free(quad.Intersect(blocks[block]), quad.Bounds);
             var part = piece.Parts().FirstOrDefault(p => p.Contains(probe));
-            if (part == null || part.Area < o.MinArea)
+            // A part wrapped around an earlier plot would keep only its outer ring and overlap that plot.
+            if (part == null || part.Area < o.MinArea || part.Rings.Count != 1)
                 return;
 
             int id = parcels.Count;
@@ -169,6 +169,32 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
                         Join(best, gap);
                 }
             }
+        }
+
+        // Strips meeting a diagonal block edge can leave a ring that pinches back on itself; read as one polygon, the
+        // pinched loop pokes a sliver into its neighbor. Trim each plot by the plots before it and keep its largest
+        // part, so the rings handed on never overlap.
+        List<Parcel> Settle()
+        {
+            var settled = new List<Region>();
+            var result = new List<Parcel>();
+            for (int i = 0; i < parcels.Count; i++)
+            {
+                var region = Region.Polygon(shapes[i].Rings[0]);
+                foreach (var other in settled)
+                {
+                    if (other.Bounds.Intersects(region.Bounds) && other.Intersect(region).Area > 0.01)
+                        region = region.Subtract(other);
+                }
+
+                var part = region.Parts().MaxBy(r => r.Area);
+                if (part == null || part.Area < o.MinArea)
+                    continue;
+                settled.Add(part);
+                result.Add(parcels[i] with { Id = result.Count, Ring = part.Rings[0], Area = (float)part.Area });
+            }
+
+            return result;
         }
 
         // Adds the parts of `extra` touching plot i to it, if the plot stays one ring; true when it grew.

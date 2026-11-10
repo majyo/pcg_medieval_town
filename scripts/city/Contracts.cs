@@ -726,8 +726,10 @@ public static class Contracts
         if (Reachable(roads).Count != roads.Nodes.Count)
             yield return "路网不连通";
 
+        var growth = r.Get(Keys.Growth)!;
         foreach (var edge in roads.Edges)
         {
+            bool? streetInside = null;
             foreach (var p in Geometry.Samples(edge.Points, 2))
             {
                 int k = grid.CellAt(p);
@@ -739,13 +741,43 @@ public static class Contracts
                     break;
                 }
 
-                if (!nearGate && interior.Contains(p) != (edge.Kind != RoadKind.Outer))
+                if (nearGate)
+                    continue;
+                bool inside = interior.Contains(p);
+                bool expected = edge.Kind switch
+                {
+                    RoadKind.Main => true,
+                    RoadKind.Outer => false,
+                    _ => streetInside ??= inside,
+                };
+                if (inside != expected)
                 {
                     yield return $"路段 {edge.Id}（{edge.Kind}）在城门以外穿越城墙 {p}";
                     break;
                 }
+
+                if (edge.Kind == RoadKind.Street && !inside && !NearBuilt(growth, k))
+                {
+                    yield return $"城外巷道 {edge.Id} 离开了城外街区 {p}";
+                    break;
+                }
             }
         }
+    }
+
+    /// <summary>True if cell k or one of its eight neighbors is built.</summary>
+    private static bool NearBuilt(GrowthHistory growth, int k)
+    {
+        var grid = growth.Grid;
+        int x = k % grid.Nx, z = k / grid.Nx;
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (grid.InGrid(x + dx, z + dz) && growth.Built(grid.Index(x + dx, z + dz)))
+                    return true;
+            }
+
+        return false;
     }
 
     private static IEnumerable<string> BlockRules(IKeyReader r)

@@ -91,7 +91,7 @@ public partial class Main : Node3D
                     ("bank", bank.Focus, 0.35f, bank.Yaw, 45),
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
-                }.Concat(LandmarkViews()).ToArray();
+                }.Concat(LandmarkViews()).Concat(SuburbViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -340,6 +340,15 @@ public partial class Main : Node3D
     private IEnumerable<(string, Vector3, float, float, float)> LandmarkViews() =>
         (_graph.Get(Keys.Landmarks)?.Landmarks ?? Array.Empty<Landmark>()).Select(l =>
             ($"landmark_{l.Id}", new Vector3(l.Center.X, _map.HeightAt(l.Center), l.Center.Y), 0.35f, 2.4f, 110f));
+
+    /// <summary>The suburb outside each gate, seen steeply from the town side, so its lanes and back rows can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> SuburbViews() =>
+        (_graph.Get(Keys.Gates)?.Gates ?? Array.Empty<Gate>()).Select(g =>
+        {
+            var focus = g.Position + g.Outward * 110;
+            return ($"suburb_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.95f,
+                Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 520f);
+        });
 
     private static string ShortName(IKey key) => key.Name[(key.Name.IndexOf('.') + 1)..];
 

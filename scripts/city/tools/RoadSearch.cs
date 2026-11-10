@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -6,16 +7,17 @@ namespace PcgCitySandbox.City;
 /// <summary>
 /// A* over the site grid (8 neighbors) inside one road zone. Steeper and forested cells cost more; reusing an
 /// existing link is cheaper, so new roads merge into old ones. Diagonals may not cut a corner of impassable
-/// terrain or cross an existing link.
+/// terrain or cross an existing link. An optional <c>within</c> test narrows the cells a road may use.
 /// </summary>
 public static class RoadSearch
 {
     public static List<int>? Find(RoadZones zones, RoadLinks links, int start, int goal, RoadZone zone, RoadKind kind,
-        CancellationToken cancel)
+        CancellationToken cancel, Func<int, bool>? within = null)
     {
         var grid = zones.Grid;
         var slope = zones.Slope.Values;
-        if (start < 0 || goal < 0 || !zones.Allowed(start, zone) || !zones.Allowed(goal, zone))
+        bool Open(int k) => zones.Allowed(k, zone) && (within == null || within(k));
+        if (start < 0 || goal < 0 || !Open(start) || !Open(goal))
             return null;
 
         int nx = grid.Nx;
@@ -48,7 +50,7 @@ public static class RoadSearch
                     if (dx == 0 && dz == 0 || !grid.InGrid(x + dx, z + dz))
                         continue;
                     int j = (z + dz) * nx + x + dx;
-                    if (closed.Contains(j) || !zones.Allowed(j, zone))
+                    if (closed.Contains(j) || !Open(j))
                         continue;
                     if (dx != 0 && dz != 0)
                     {

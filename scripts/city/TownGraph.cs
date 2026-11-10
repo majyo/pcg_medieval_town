@@ -37,6 +37,7 @@ public static class TownGraph
         new RoadZoning(),
         new SkeletonLinks(),
         new StreetMesh(),
+        new SuburbLanes(),
         new ExtractRoads(),
         new StreetBlocks(),
         new FrontageParcels(),
