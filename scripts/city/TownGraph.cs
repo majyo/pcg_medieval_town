@@ -29,6 +29,8 @@ public static class TownGraph
         new EnclosingWall(),
         new CastleSite(),
         new RouteGates(),
+        new TownHall(),
+        new Friary(),
         new WalledInfill(),
         new Suburbs(),
         new TownReach(),

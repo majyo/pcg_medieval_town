@@ -18,8 +18,8 @@ public sealed class TownQuartersOptions
 }
 
 /// <summary>
-/// Starts the land use with water and the town: inside the wall the public plots, the market core and housing on
-/// built cells and gardens on the rest; outside the suburbs on built cells; the strip along the wall on both sides;
+/// Starts the land use with water and the town: the market and every landmark's plot are public; inside the wall the
+/// market core and housing on built cells and gardens on the rest; outside the suburbs on built cells; the strip along the wall on both sides;
 /// the through routes outside. Every other cell is left unassigned for the workshops and the countryside.
 /// </summary>
 public sealed class TownQuarters : CityNode<TownQuartersOptions>
@@ -27,7 +27,7 @@ public sealed class TownQuarters : CityNode<TownQuartersOptions>
     public override string Group => LandZoning.Group;
     public override string Title => "城镇分区";
     public override string Description =>
-        "写出水域和城镇的用途：城内的公共用地、市场核心、居住、园地，墙外的城外街区，城墙两侧的空地和城外道路；其余的格留给作坊和农业带。";
+        "写出水域和城镇的用途：市场和地标用地是公共用地，城内的市场核心、居住、园地，墙外的城外街区，城墙两侧的空地和城外道路；其余的格留给作坊和农业带。";
     public override IReadOnlyList<IKey> Reads =>
         [Keys.Shore, Keys.Growth, Keys.Wall, Keys.Plaza, Keys.Landmarks, Keys.Routes];
     public override IReadOnlyList<IKey> Writes => [Keys.LandUse];
@@ -65,12 +65,11 @@ public sealed class TownQuarters : CityNode<TownQuartersOptions>
         {
             if (shore.Values[k] < 0)
                 return LandUse.Water;
+            // The market and every landmark's plot, built on or not (a castle's yard, a friary's garden).
+            if (publicCells.Contains(k))
+                return LandUse.Public;
             if (growth.Built(k))
-            {
-                if (!inside[k])
-                    return LandUse.Suburb;
-                return publicCells.Contains(k) ? LandUse.Public : core.Contains(k) ? LandUse.Core : LandUse.Housing;
-            }
+                return !inside[k] ? LandUse.Suburb : core.Contains(k) ? LandUse.Core : LandUse.Housing;
 
             if (toWall[k] < (inside[k] ? o.InsideStrip : o.OutsideStrip))
                 return LandUse.WallStrip;

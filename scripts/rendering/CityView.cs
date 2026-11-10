@@ -28,7 +28,7 @@ public partial class CityView : Node3D
     private static readonly object DetailMark = new();
     private static readonly Color PlazaColor = new("cdb995"), InheritedColor = new("8d897d");
     private static readonly Color ChurchyardColor = new("a9b98a"), ChurchWall = new("e6dcc6"), ChurchRoof = new("5e5048");
-    private static readonly Color CastleYard = new("b9ad96");
+    private static readonly Color CastleYard = new("b9ad96"), HallWall = new("e3cfa2"), FriaryYard = new("b6c493");
 
     /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
     public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
@@ -313,10 +313,17 @@ public partial class CityView : Node3D
         var church = new MeshKit();
         foreach (var landmark in set.Landmarks)
         {
-            if (landmark.Kind == LandmarkKind.Castle)
+            switch (landmark.Kind)
             {
-                BuildCastle(yard, church, landmark);
-                continue;
+                case LandmarkKind.Castle:
+                    BuildCastle(yard, church, landmark);
+                    continue;
+                case LandmarkKind.TownHall:
+                    BuildTownHall(church, landmark);
+                    continue;
+                case LandmarkKind.Friary:
+                    BuildFriary(yard, church, landmark);
+                    continue;
             }
 
             yard.Drape(landmark.Plot.Triangulate(), Height, 0.3f, ChurchyardColor);
@@ -324,34 +331,108 @@ public partial class CityView : Node3D
             bool alongX = MathF.Abs(landmark.Axis.X) >= MathF.Abs(landmark.Axis.Y);
             float length = (alongX ? size.X : size.Y) * 0.62f, width = MathF.Min((alongX ? size.Y : size.X) * 0.45f, 12);
             var u = landmark.Axis.Normalized();
-            var v = u.Orthogonal();
-            var nave = landmark.Center + u * length * 0.08f;
-            var corners = new[]
-            {
-                nave - u * length / 2 - v * width / 2, nave + u * length / 2 - v * width / 2,
-                nave + u * length / 2 + v * width / 2, nave - u * length / 2 + v * width / 2,
-            };
-            float ground = corners.Min(Height), eaves = corners.Max(Height) + 10, ridge = eaves + width * 0.6f;
-            church.Prism(corners, ground - 1, eaves, ChurchWall, ChurchWall);
-            Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
-            Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
-            Vector2 west = nave - u * length / 2, east = nave + u * length / 2;
-            church.Quad(E(corners[0]), E(corners[1]), R(east), R(west), ChurchRoof, Vector3.Up);
-            church.Quad(E(corners[2]), E(corners[3]), R(west), R(east), ChurchRoof, Vector3.Up);
-            church.Triangle(E(corners[1]), E(corners[2]), R(east), ChurchWall, new Vector3(u.X, 0, u.Y));
-            church.Triangle(E(corners[3]), E(corners[0]), R(west), ChurchWall, new Vector3(-u.X, 0, -u.Y));
-            float tower = width * 0.85f;
-            var foot = west - u * (tower / 2 - 1);
-            var towerCorners = new[]
-            {
-                foot - u * tower / 2 - v * tower / 2, foot + u * tower / 2 - v * tower / 2,
-                foot + u * tower / 2 + v * tower / 2, foot - u * tower / 2 + v * tower / 2,
-            };
-            church.Prism(towerCorners, towerCorners.Min(Height) - 1, ridge + 12, Stone, ChurchRoof);
+            Church(church, landmark.Center + u * length * 0.08f, u, length, width, width * 0.85f);
         }
 
         Add(root, yard, MeshKit.Material(), shadows: false);
         Add(root, church, MeshKit.Material());
+    }
+
+    /// <summary>
+    /// A gabled nave along <paramref name="u"/> with the altar end that way; a bell tower of the given size at the other
+    /// end, or with none (0) a small turret on the ridge.
+    /// </summary>
+    private void Church(MeshKit church, Vector2 nave, Vector2 u, float length, float width, float tower)
+    {
+        var v = u.Orthogonal();
+        var corners = new[]
+        {
+            nave - u * length / 2 - v * width / 2, nave + u * length / 2 - v * width / 2,
+            nave + u * length / 2 + v * width / 2, nave - u * length / 2 + v * width / 2,
+        };
+        float ground = corners.Min(Height), eaves = corners.Max(Height) + 10, ridge = eaves + width * 0.6f;
+        church.Prism(corners, ground - 1, eaves, ChurchWall, ChurchWall);
+        Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
+        Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
+        Vector2 west = nave - u * length / 2, east = nave + u * length / 2;
+        church.Quad(E(corners[0]), E(corners[1]), R(east), R(west), ChurchRoof, Vector3.Up);
+        church.Quad(E(corners[2]), E(corners[3]), R(west), R(east), ChurchRoof, Vector3.Up);
+        church.Triangle(E(corners[1]), E(corners[2]), R(east), ChurchWall, new Vector3(u.X, 0, u.Y));
+        church.Triangle(E(corners[3]), E(corners[0]), R(west), ChurchWall, new Vector3(-u.X, 0, -u.Y));
+        if (tower <= 0)
+        {
+            var turret = nave + u * length * 0.1f;
+            church.Prism(new[] { turret - u - v, turret + u - v, turret + u + v, turret - u + v }, ridge - 1, ridge + 6,
+                ChurchRoof, ChurchRoof);
+            return;
+        }
+
+        var foot = west - u * (tower / 2 - 1);
+        var towerCorners = new[]
+        {
+            foot - u * tower / 2 - v * tower / 2, foot + u * tower / 2 - v * tower / 2,
+            foot + u * tower / 2 + v * tower / 2, foot - u * tower / 2 + v * tower / 2,
+        };
+        church.Prism(towerCorners, towerCorners.Min(Height) - 1, ridge + 12, Stone, ChurchRoof);
+    }
+
+    /// <summary>A two-storey hall filling its plot, with a steep gable roof along its long side and a belfry.</summary>
+    private void BuildTownHall(MeshKit kit, Landmark hall)
+    {
+        var u = hall.Axis.Normalized();
+        var v = u.Orthogonal();
+        var size = hall.Plot.Bounds.Size;
+        bool alongX = MathF.Abs(u.X) >= MathF.Abs(u.Y);
+        float length = (alongX ? size.X : size.Y) - 1, width = (alongX ? size.Y : size.X) - 1;
+        var c = hall.Center;
+        var corners = new[]
+        {
+            c - u * length / 2 - v * width / 2, c + u * length / 2 - v * width / 2,
+            c + u * length / 2 + v * width / 2, c - u * length / 2 + v * width / 2,
+        };
+        float ground = corners.Min(Height), eaves = corners.Max(Height) + 8.5f, ridge = eaves + width * 0.7f;
+        kit.Prism(corners, ground - 1, eaves, HallWall, HallWall);
+        Vector3 E(Vector2 p) => new(p.X, eaves, p.Y);
+        Vector3 R(Vector2 p) => new(p.X, ridge, p.Y);
+        Vector2 a = c - u * length / 2, b = c + u * length / 2;
+        kit.Quad(E(corners[0]), E(corners[1]), R(b), R(a), ChurchRoof, Vector3.Up);
+        kit.Quad(E(corners[2]), E(corners[3]), R(a), R(b), ChurchRoof, Vector3.Up);
+        kit.Triangle(E(corners[1]), E(corners[2]), R(b), HallWall, new Vector3(u.X, 0, u.Y));
+        kit.Triangle(E(corners[3]), E(corners[0]), R(a), HallWall, new Vector3(-u.X, 0, -u.Y));
+        kit.Prism(new[] { c - u * 1.5f - v * 1.5f, c + u * 1.5f - v * 1.5f, c + u * 1.5f + v * 1.5f, c - u * 1.5f + v * 1.5f },
+            ridge - 2, ridge + 6, HallWall, ChurchRoof);
+    }
+
+    /// <summary>
+    /// A friary: an aisleless church with a ridge turret along one long side of the plot, and on the other a cloister
+    /// of four low ranges round a square garth.
+    /// </summary>
+    private void BuildFriary(MeshKit yard, MeshKit kit, Landmark friary)
+    {
+        yard.Drape(friary.Plot.Triangulate(), Height, 0.3f, FriaryYard);
+        var u = friary.Axis.Normalized();
+        var v = u.Orthogonal();
+        var size = friary.Plot.Bounds.Size;
+        bool alongX = MathF.Abs(u.X) >= MathF.Abs(u.Y);
+        float plotLength = alongX ? size.X : size.Y, plotDepth = alongX ? size.Y : size.X;
+        const float nave = 10, range = 6;
+        var church = friary.Center + v * (plotDepth / 2 - nave / 2 - 3);
+        Church(kit, church, u, plotLength * 0.62f, nave, 0);
+
+        float side = MathF.Min(plotLength * 0.45f, plotDepth - nave - 10);
+        var garth = church - v * (nave / 2 + side / 2 + 1) - u * plotLength * 0.1f;
+        for (int i = 0; i < 4; i++)
+        {
+            var dir = i % 2 == 0 ? u : v;
+            var normal = i % 2 == 0 ? v : u;
+            var mid = garth + normal * (i < 2 ? 1 : -1) * (side / 2 - range / 2);
+            var corners = new[]
+            {
+                mid - dir * side / 2 - normal * range / 2, mid + dir * side / 2 - normal * range / 2,
+                mid + dir * side / 2 + normal * range / 2, mid - dir * side / 2 + normal * range / 2,
+            };
+            kit.Prism(corners, corners.Min(Height) - 1, corners.Max(Height) + 6, ChurchWall, ChurchRoof);
+        }
     }
 
     private static FieldLegend LandmarkLegend(LandmarkSet set)
@@ -361,6 +442,10 @@ public partial class CityView : Node3D
             categories.AddRange([(ChurchyardColor, "教堂墓园用地"), (ChurchRoof, "教堂（钟塔在西端，祭坛朝东）")]);
         if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Castle))
             categories.AddRange([(CastleYard, "城堡院子"), (Stone, "城堡（围墙、角楼、主塔；朝外的一面就是城墙）")]);
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.TownHall))
+            categories.Add((HallWall, "市政厅（在市场里）"));
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Friary))
+            categories.Add((FriaryYard, "修道院用地（教堂和回廊方院）"));
         return Categories("地标", categories.ToArray());
     }
 

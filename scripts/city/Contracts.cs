@@ -411,6 +411,7 @@ public static class Contracts
         var level = Workshops.WaterLevel(r.Get(Keys.Height)!, r.Get(Keys.AboveWater)!);
         float townLevel = Workshops.TownWaterLevel(shore, level, toWall);
 
+        var publicCells = Growth.CellsIn(grid, r.Get(Keys.Plaza)!.Area).Concat(r.Get(Keys.Landmarks)!.Cells(grid)).ToHashSet();
         var wrong = new Dictionary<string, int>();
         void Count(string rule) => wrong[rule] = wrong.GetValueOrDefault(rule) + 1;
         for (int k = 0; k < grid.Count; k++)
@@ -420,8 +421,12 @@ public static class Contracts
                 Count("有格未分配");
             if (use == LandUse.Water != shore.Values[k] < 0)
                 Count("水域与离水 < 0 的格不一致");
-            if (growth.Built(k) != LandUses.Built.Contains(use))
-                Count("建成格与城镇四类（公共、核心、居住、城外街区）不一致");
+            if (growth.Built(k) && !LandUses.Built.Contains(use))
+                Count("建成格不是城镇四类（公共、核心、居住、城外街区）之一");
+            if (use is LandUse.Core or LandUse.Housing or LandUse.Suburb && !growth.Built(k))
+                Count("市场核心、居住或城外街区不在建成格上");
+            if (use == LandUse.Public != publicCells.Contains(k))
+                Count("公共用地与市场、地标用地的格不一致");
             if (inside[k] && use != LandUse.Water && use != LandUse.WallStrip && !LandUses.Inside.Contains(use))
                 Count("城内有城外的用途");
             if (!inside[k] && LandUses.Inside.Contains(use))
@@ -511,12 +516,13 @@ public static class Contracts
                 yield return $"{growth.Label(suburbs)} 有 {onWall} 格贴着城墙";
 
             // Outside cells only once the inside is full: past the widest setback, no free buildable cell inside
-            // borders a built one.
+            // borders a built one (a landmark's plot is not free).
             if (cells.Any(k => !town.Interior.Contains(grid.Center(k))))
             {
+                var plots = r.Get(Keys.Landmarks)!.Cells(grid);
                 int left = Growth.CellsIn(grid, town.Interior.Offset(-MaxWallSetback)).Count(k =>
                 {
-                    if (growth.Built(k) || !buildable.Buildable(k))
+                    if (growth.Built(k) || !buildable.Buildable(k) || plots.Contains(k))
                         return false;
                     bool beside = false;
                     Growth.ForSides(grid, k, j => beside |= growth.Built(j));
@@ -620,8 +626,18 @@ public static class Contracts
                 yield return $"{landmark.KindLabel}用地压在不可建设格上";
             if (cells.Any(routes.Cells.Contains))
                 yield return $"{landmark.KindLabel}用地压在过境道路上";
-            if (landmark.Plot.Intersect(plaza.Area).Area >= 1)
+            if (landmark.Kind == LandmarkKind.TownHall)
+            {
+                if (landmark.Plot.Intersect(plaza.Area).Area < landmark.Plot.Area * TownHallOptions.MinInMarket - 1)
+                    yield return "市政厅用地在市场里的部分不足";
+            }
+            else if (landmark.Plot.Intersect(plaza.Area).Area >= 1)
+            {
                 yield return $"{landmark.KindLabel}用地和市场重叠";
+            }
+
+            if (landmark.Kind == LandmarkKind.Friary && cells.Any(k => growth.Phase[k] != 0 && growth.Phase[k] < landmark.Phase))
+                yield return "修道院用地压在筑墙前的建成格上";
             if (landmark.Kind == LandmarkKind.Church && growth.Latest >= landmark.Phase && !cells.All(growth.Built))
                 yield return $"{landmark.KindLabel}用地在{GrowthHistory.Ordinal(landmark.Phase)}结束时没有全部建成";
         }
