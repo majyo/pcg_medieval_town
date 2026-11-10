@@ -37,10 +37,10 @@ public static class LandUses
         "湿作坊", "火作坊", "水磨", "林地", "草场", "菜园果园", "葡萄园", "耕地", "牧场", "荒地",
     ];
 
-    /// <summary>Uses only found inside the wall.</summary>
+    /// <summary>Uses only found inside the wall (public land is also out at the leper house and the gallows).</summary>
     public static readonly IReadOnlySet<LandUse> Inside = new HashSet<LandUse>
     {
-        LandUse.Public, LandUse.Core, LandUse.Housing, LandUse.TownGarden,
+        LandUse.Core, LandUse.Housing, LandUse.TownGarden,
     };
 
     /// <summary>Uses of the built cells: exactly these, and only on built cells.</summary>

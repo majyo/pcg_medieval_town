@@ -33,6 +33,8 @@ public static class TownGraph
         new Friary(),
         new WalledInfill(),
         new Suburbs(),
+        new LeperHouse(),
+        new Gallows(),
         new TownReach(),
         new TownQuarters(),
         new Workshops(),

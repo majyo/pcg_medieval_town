@@ -427,7 +427,7 @@ public static class Contracts
                 Count("市场核心、居住或城外街区不在建成格上");
             if (use == LandUse.Public != publicCells.Contains(k))
                 Count("公共用地与市场、地标用地的格不一致");
-            if (inside[k] && use != LandUse.Water && use != LandUse.WallStrip && !LandUses.Inside.Contains(use))
+            if (inside[k] && use is not (LandUse.Water or LandUse.WallStrip or LandUse.Public) && !LandUses.Inside.Contains(use))
                 Count("城内有城外的用途");
             if (!inside[k] && LandUses.Inside.Contains(use))
                 Count("城外有城内的用途");
@@ -662,7 +662,35 @@ public static class Contracts
             if (corners.Min(p => Geometry.DistanceToRing(p, wall.Ring)) > grid.CellSize)
                 yield return "城堡不在墙线上";
         }
+
+        // Out in the country: outside the wall, on no built cell, beside a route but off it, the two apart.
+        var country = all.Where(l => !l.InTown).ToList();
+        if (country.Count > 0)
+        {
+            var toRoute = Proximity.From(grid, routes.Cells, MaxCountryReach + grid.CellSize);
+            foreach (var landmark in country)
+            {
+                var cells = landmark.Cells(grid).ToList();
+                if (r.Get(Keys.Wall) is { } town && landmark.Plot.Intersect(town.Interior).Area >= 1)
+                    yield return $"{landmark.KindLabel}在城内";
+                if (cells.Any(growth.Built))
+                    yield return $"{landmark.KindLabel}用地压在建成格上";
+                if (cells.Any(k => toRoute[k] < LeperHouse.RouteClearance))
+                    yield return $"{landmark.KindLabel}用地离过境道路太近";
+                float reach = landmark.Kind == LandmarkKind.LeperHouse ? MaxLeperReach : MaxCountryReach;
+                if (!cells.Any(k => toRoute[k] <= reach))
+                    yield return $"{landmark.KindLabel}用地不在过境道路边";
+            }
+
+            if (country.FirstOrDefault(l => l.Kind == LandmarkKind.LeperHouse) is { } leper
+                && country.FirstOrDefault(l => l.Kind == LandmarkKind.Gallows) is { } gallows
+                && leper.Center.DistanceTo(gallows.Center) < 200)
+                yield return "刑场离麻风院不足 200 m";
+        }
     }
+
+    /// <summary>The farthest the leper house and the gallows may be set from a route (the upper ends of their sliders).</summary>
+    private const float MaxLeperReach = 40, MaxCountryReach = 200;
 
     private static int Chebyshev(SiteGrid grid, int a, int b) =>
         Math.Max(Math.Abs(a % grid.Nx - b % grid.Nx), Math.Abs(a / grid.Nx - b / grid.Nx));
@@ -764,7 +792,7 @@ public static class Contracts
             yield return "路网不连通";
 
         var growth = r.Get(Keys.Growth)!;
-        foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!))
+        foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!, r.Get(Keys.Landmarks)!))
             yield return error;
         foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks.Where(l => l.Kind != LandmarkKind.TownHall))
         {
@@ -811,8 +839,8 @@ public static class Contracts
         }
     }
 
-    /// <summary>Every connected set of tracks reaches a trade: no track leads nowhere.</summary>
-    private static IEnumerable<string> TrackRules(RoadGraph roads, CategoryField land)
+    /// <summary>Every connected set of tracks reaches a trade or a landmark out in the country: no track leads nowhere.</summary>
+    private static IEnumerable<string> TrackRules(RoadGraph roads, CategoryField land, LandmarkSet landmarks)
     {
         var grid = land.Grid;
         var tracks = roads.Edges.Where(e => e.Kind == RoadKind.Track).ToList();
@@ -844,9 +872,13 @@ public static class Contracts
             return false;
         }
 
-        var reaching = tracks.Where(e => Geometry.Samples(e.Points, 2).Any(NearTrade)).Select(e => Root(e.Id)).ToHashSet();
+        var country = landmarks.Landmarks.Where(l => !l.InTown).Select(l => l.Plot.Offset(LandmarkAccessOptions.Reach + grid.CellSize))
+            .ToList();
+        bool NearLandmark(Vector2 p) => country.Any(plot => plot.Contains(p));
+        var reaching = tracks.Where(e => Geometry.Samples(e.Points, 2).Any(p => NearTrade(p) || NearLandmark(p)))
+            .Select(e => Root(e.Id)).ToHashSet();
         foreach (var root in tracks.Select(e => Root(e.Id)).Distinct().Where(g => !reaching.Contains(g)))
-            yield return $"便道 {root} 一带没有通到任何作坊";
+            yield return $"便道 {root} 一带没有通到任何作坊或城外地标";
     }
 
     /// <summary>True if cell k or one of its eight neighbors is built.</summary>

@@ -423,7 +423,7 @@ public partial class Main : Node3D
 
     /// <summary>
     /// The one place city results reach the terrain view: no trees, rocks or ground cover inside the walls, on the
-    /// built land outside them, or within a few meters of a road.
+    /// built land outside them, on a landmark's plot, or within a few meters of a road.
     /// </summary>
     private void OnGraphChanged()
     {
@@ -435,6 +435,8 @@ public partial class Main : Node3D
             return;
         _treeMaskSource = roads;
         var town = wall == null ? null : growth == null ? wall.Interior : wall.Interior.Union(growth.Footprint);
+        if (town != null && _graph.Get(Keys.Landmarks) is { } landmarks)
+            town = town.Union(landmarks.Plots);
         _terrain.SetExclusion(town == null ? null : new Exclusion(town.Contains, town.Bounds,
             roads?.Edges.Select(e => (e.Points, e.Width / 2 + 3)) ?? Enumerable.Empty<(Vector2[], float)>()));
     }

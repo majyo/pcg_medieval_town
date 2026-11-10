@@ -29,6 +29,7 @@ public partial class CityView : Node3D
     private static readonly Color PlazaColor = new("cdb995"), InheritedColor = new("8d897d");
     private static readonly Color ChurchyardColor = new("a9b98a"), ChurchWall = new("e6dcc6"), ChurchRoof = new("5e5048");
     private static readonly Color CastleYard = new("b9ad96"), HallWall = new("e3cfa2"), FriaryYard = new("b6c493");
+    private static readonly Color LeperYard = new("a3b47e"), Hedge = new("5f7a3f"), Mound = new("8f7a5a"), Timber = new("4a3a2c");
 
     /// <summary>Colors of the regional frame: through routes, crossings, map entries and the town's origin.</summary>
     public static readonly Color RouteColor = new("8a5a32"), CrossingColor = new("5a3b22"), EntryColor = new("b5523b"),
@@ -324,6 +325,12 @@ public partial class CityView : Node3D
                 case LandmarkKind.Friary:
                     BuildFriary(yard, church, landmark);
                     continue;
+                case LandmarkKind.LeperHouse:
+                    BuildLeperHouse(yard, church, landmark);
+                    continue;
+                case LandmarkKind.Gallows:
+                    BuildGallows(church, landmark);
+                    continue;
             }
 
             yard.Drape(landmark.Plot.Triangulate(), Height, 0.3f, ChurchyardColor);
@@ -374,6 +381,53 @@ public partial class CityView : Node3D
             foot + u * tower / 2 + v * tower / 2, foot - u * tower / 2 + v * tower / 2,
         };
         church.Prism(towerCorners, towerCorners.Min(Height) - 1, ridge + 12, Stone, ChurchRoof);
+    }
+
+    /// <summary>A leper house: a small chapel and three huts inside a low hedge round the plot.</summary>
+    private void BuildLeperHouse(MeshKit yard, MeshKit kit, Landmark house)
+    {
+        yard.Drape(house.Plot.Triangulate(), Height, 0.3f, LeperYard);
+        var ring = house.Plot.Offset(-0.6f).Rings[0];
+        for (int i = 0; i < ring.Length; i++)
+        {
+            var a = ring[i];
+            var b = ring[(i + 1) % ring.Length];
+            var side = (b - a).Normalized().Orthogonal() * 0.4f;
+            kit.Prism(new[] { a + side, b + side, b - side, a - side }, MathF.Min(Height(a), Height(b)) - 0.5f,
+                MathF.Max(Height(a), Height(b)) + 1.2f, Hedge, Hedge);
+        }
+
+        var u = house.Axis.Normalized();
+        var v = u.Orthogonal();
+        var size = house.Plot.Bounds.Size;
+        Church(kit, house.Center + u * size.X * 0.2f - v * size.Y * 0.15f, u, 12, 6, 0);
+        for (int i = 0; i < 3; i++)
+        {
+            var hut = house.Center - u * size.X * 0.28f + v * size.Y * (0.28f - 0.22f * i) + u * (i % 2) * 3;
+            var corners = new[] { hut - u * 2.5f - v * 2, hut + u * 2.5f - v * 2, hut + u * 2.5f + v * 2, hut - u * 2.5f + v * 2 };
+            kit.Prism(corners, corners.Min(Height) - 0.5f, corners.Max(Height) + 3, ChurchWall, ChurchRoof);
+        }
+    }
+
+    /// <summary>The gallows: two posts and a beam on a low mound.</summary>
+    private void BuildGallows(MeshKit kit, Landmark gallows)
+    {
+        var c = gallows.Center;
+        var u = gallows.Axis.Normalized();
+        var v = u.Orthogonal();
+        float r = gallows.Plot.Bounds.Size.X * 0.35f;
+        var mound = new[] { c - u * r - v * r, c + u * r - v * r, c + u * r + v * r, c - u * r + v * r };
+        float top = mound.Max(Height) + 1.2f;
+        kit.Prism(mound, mound.Min(Height) - 0.5f, top, Mound, Mound);
+        foreach (float side in new[] { -1.6f, 1.6f })
+        {
+            var post = c + u * side;
+            kit.Prism(new[] { post - u * 0.2f - v * 0.2f, post + u * 0.2f - v * 0.2f, post + u * 0.2f + v * 0.2f, post - u * 0.2f + v * 0.2f },
+                top, top + 4.5f, Timber, Timber);
+        }
+
+        kit.Prism(new[] { c - u * 2.1f - v * 0.2f, c + u * 2.1f - v * 0.2f, c + u * 2.1f + v * 0.2f, c - u * 2.1f + v * 0.2f },
+            top + 4.1f, top + 4.5f, Timber, Timber);
     }
 
     /// <summary>A two-storey hall filling its plot, with a steep gable roof along its long side and a belfry.</summary>
@@ -446,6 +500,10 @@ public partial class CityView : Node3D
             categories.Add((HallWall, "市政厅（在市场里）"));
         if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Friary))
             categories.Add((FriaryYard, "修道院用地（教堂和回廊方院）"));
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.LeperHouse))
+            categories.Add((LeperYard, "麻风院（礼拜堂和小屋，围着矮篱）"));
+        if (set.Landmarks.Any(l => l.Kind == LandmarkKind.Gallows))
+            categories.Add((Mound, "刑场（土丘上的绞架）"));
         return Categories("地标", categories.ToArray());
     }
 
