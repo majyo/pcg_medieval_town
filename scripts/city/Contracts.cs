@@ -769,6 +769,10 @@ public static class Contracts
         var growth = r.Get(Keys.Growth)!;
         foreach (var error in TrackRules(roads, r.Get(Keys.LandUse)!, r.Get(Keys.Landmarks)!))
             yield return error;
+        var dead = RoadTrees.DeadEnds(roads.Edges.Select(e => (e.From, e.To, e.Kind is not (RoadKind.Main or RoadKind.Outer))).ToList(),
+            n => roads.Nodes[n].Kind is not ("end" or "junction"));
+        foreach (var edge in roads.Edges.Where(e => e.Kind == RoadKind.Street && dead.Contains(e.Id)))
+            yield return $"次街 {edge.Id} 只通向一片地（应为巷）";
         foreach (var landmark in r.Get(Keys.Landmarks)!.Landmarks.Where(l => l.Kind != LandmarkKind.TownHall))
         {
             if (landmark.Plot.Intersect(roads.Footprint).Area >= Tolerance)
@@ -805,7 +809,7 @@ public static class Contracts
                     break;
                 }
 
-                if (edge.Kind == RoadKind.Street && !inside && !grid.AnyNear(k, 1, growth.Built))
+                if (edge.Kind is RoadKind.Street or RoadKind.Lane && !inside && !grid.AnyNear(k, 1, growth.Built))
                 {
                     yield return $"城外巷道 {edge.Id} 离开了城外街区 {p}";
                     break;

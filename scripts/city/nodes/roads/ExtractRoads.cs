@@ -9,9 +9,12 @@ public sealed class ExtractRoadsOptions
     [Param("主街宽 m", 4, 14, 0.5,
         Hint = "主街的路面宽度，影响铺装范围和街区大小")]
     public float MainWidth { get; set; } = 7;
-    [Param("街巷宽 m", 2.5, 8, 0.5,
-        Hint = "街巷的路面宽度，影响铺装范围和街区大小")]
-    public float StreetWidth { get; set; } = 4;
+    [Param("次街宽 m", 2.5, 8, 0.5,
+        Hint = "次街（连成环或连接两条路的街巷）的路面宽度，影响铺装范围和街区大小。超过 5 m 时街巷可能贴到地标用地上")]
+    public float StreetWidth { get; set; } = 5;
+    [Param("巷宽 m", 2, 6, 0.5,
+        Hint = "巷（只通向一片地的尽头街巷和它的分叉）的路面宽度")]
+    public float LaneWidth { get; set; } = 3;
     [Param("城外道路宽 m", 3, 10, 0.5,
         Hint = "城外道路的路面宽度")]
     public float OuterWidth { get; set; } = 5;
@@ -23,6 +26,7 @@ public sealed class ExtractRoadsOptions
     {
         RoadKind.Main => MainWidth,
         RoadKind.Outer => OuterWidth,
+        RoadKind.Lane => LaneWidth,
         RoadKind.Track => TrackWidth,
         _ => StreetWidth,
     };

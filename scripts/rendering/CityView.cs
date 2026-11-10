@@ -69,8 +69,9 @@ public partial class CityView : Node3D
             [Keys.RoadLinks] = new((root, s, _) => BuildLinks(root, (RoadLinks)s.Value, s.Previous as RoadLinks),
                 LinksLegend, Context: [Keys.Grid]),
             [Keys.Roads] = new((root, s, other) => BuildRoads(root, (RoadGraph)s.Value, other(Keys.Plaza) as Plaza),
-                _ => Categories("道路", (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Street), "街巷"),
-                    (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Track), "便道（通往作坊和城外地标的土路）")),
+                _ => Categories("道路", (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Street), "次街"),
+                    (RoadColor(RoadKind.Lane), "巷（尽头路和它的分叉）"), (RoadColor(RoadKind.Outer), "城外道路"),
+                    (RoadColor(RoadKind.Track), "便道（通往作坊和城外地标的土路）")),
                 Uses: [Keys.Plaza]),
             [Keys.Blocks] = new((root, s, _) => BuildBlocks(root, (BlockSet)s.Value),
                 _ => new FieldLegend("街区 · 每块一种颜色", null, "", "", null)),
@@ -115,6 +116,7 @@ public partial class CityView : Node3D
     {
         RoadKind.Main => new Color("c0392b"),
         RoadKind.Outer => new Color("2e86c1"),
+        RoadKind.Lane => new Color("d0a868"),
         RoadKind.Track => new Color("7d7a4e"),
         _ => new Color("8f6a3a"),
     };
@@ -612,8 +614,8 @@ public partial class CityView : Node3D
     {
         var categories = new List<(Color, string)>
         {
-            (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Street), "街巷"),
-            (RoadColor(RoadKind.Track), "便道"),
+            (RoadColor(RoadKind.Main), "主街"), (RoadColor(RoadKind.Outer), "城外道路"), (RoadColor(RoadKind.Street), "街巷 / 次街"),
+            (RoadColor(RoadKind.Lane), "巷"), (RoadColor(RoadKind.Track), "便道"),
         };
         if (shown.Previous != null)
             categories.Add((InheritedColor, "上游已有的连线"));

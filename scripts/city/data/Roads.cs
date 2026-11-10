@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
@@ -8,7 +9,7 @@ namespace PcgCitySandbox.City;
 /// Road classes, most important first: where two classes share a grid link, the smaller one wins. Tracks are the
 /// dirt roads out to the workshops and the landmarks in the country.
 /// </summary>
-public enum RoadKind { Main, Outer, Street, Track }
+public enum RoadKind { Main, Outer, Street, Lane, Track }
 
 public enum RoadZone { Inside, Outside }
 
@@ -85,6 +86,14 @@ public sealed class RoadLinks : ISummarized
 
     public void Anchor(int cell, string role) => _anchors[cell] = role;
 
+    /// <summary>Sets the class of one existing link, whatever it was (marking only ever raises a class).</summary>
+    public void Rank((int, int) link, RoadKind kind)
+    {
+        if (!_links.ContainsKey(link))
+            throw new KeyNotFoundException($"没有连线 {link}");
+        _links[link] = kind;
+    }
+
     public void Mark(IReadOnlyList<int> path, RoadKind kind)
     {
         for (int i = 1; i < path.Count; i++)
@@ -116,8 +125,52 @@ public sealed class RoadGraph : ISummarized
         get
         {
             float Length(RoadKind kind) => Edges.Where(e => e.Kind == kind).Sum(e => e.Length);
-            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {Length(RoadKind.Main):0} m，街巷 {Length(RoadKind.Street):0} m，"
-                + $"城外 {Length(RoadKind.Outer):0} m，便道 {Length(RoadKind.Track):0} m";
+            return $"{Nodes.Count} 节点 / {Edges.Count} 路段；主街 {Length(RoadKind.Main):0} m，次街 {Length(RoadKind.Street):0} m，"
+                + $"巷 {Length(RoadKind.Lane):0} m，城外 {Length(RoadKind.Outer):0} m，便道 {Length(RoadKind.Track):0} m";
         }
+    }
+}
+
+public static class RoadTrees
+{
+    /// <summary>
+    /// The links that lead nowhere: repeatedly prunes a node left with one link, unless the node is fixed (an
+    /// anchor) or that link may not be pruned. What is left is every loop and every way between fixed nodes, so the
+    /// result does not depend on the order. Returns the indices of the pruned links.
+    /// </summary>
+    public static HashSet<int> DeadEnds(IReadOnlyList<(int A, int B, bool Prunable)> links, Func<int, bool> isFixed)
+    {
+        var incident = new Dictionary<int, List<int>>();
+        for (int i = 0; i < links.Count; i++)
+        {
+            Add(links[i].A, i);
+            Add(links[i].B, i);
+        }
+
+        void Add(int node, int link)
+        {
+            if (!incident.TryGetValue(node, out var list))
+                incident[node] = list = new List<int>();
+            list.Add(link);
+        }
+
+        var degree = incident.ToDictionary(p => p.Key, p => p.Value.Count);
+        var pruned = new HashSet<int>();
+        var queue = new Queue<int>(incident.Keys.Where(n => degree[n] == 1 && !isFixed(n)).OrderBy(n => n));
+        while (queue.TryDequeue(out int node))
+        {
+            if (degree[node] != 1)
+                continue;
+            int link = incident[node].First(l => !pruned.Contains(l));
+            if (!links[link].Prunable)
+                continue;
+            pruned.Add(link);
+            degree[node] = 0;
+            int other = links[link].A == node ? links[link].B : links[link].A;
+            if (--degree[other] == 1 && !isFixed(other))
+                queue.Enqueue(other);
+        }
+
+        return pruned;
     }
 }

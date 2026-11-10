@@ -16,8 +16,8 @@ public sealed class RoadZoningOptions
 /// </summary>
 public sealed class RoadZoning : CityNode<RoadZoningOptions>
 {
-    // Half a lane's width plus the most a simplified lane strays from its cells.
-    private const float PlotClearance = 3.6f;
+    // Half a secondary street's width (5 m) plus the most a simplified street strays from its cells.
+    private const float PlotClearance = 4.1f;
 
     public override string Group => NodeGroups.Roads;
     public override string Title => "通行区";
