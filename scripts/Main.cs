@@ -13,7 +13,7 @@ namespace PcgCitySandbox;
 /// <summary>
 /// Composition root. Creates the components and wires them together; holds no generation, rendering,
 /// camera or widget logic of its own. The interface is assembled in MainInterface.cs. Command line: `--test`
-/// runs the headless checks; `--capture=DIR` generates the town and saves screenshots; `--seed=N` replaces the map
+/// runs the headless checks; `--sweep=N` checks the contracts on seeds 1 to N; `--capture=DIR` generates the town and saves screenshots; `--seed=N` replaces the map
 /// seed from the settings for this run.
 /// </summary>
 public partial class Main : Node3D
@@ -66,6 +66,14 @@ public partial class Main : Node3D
                 int terrain = TerrainChecks.Run(_settings);
                 int city = await Checks.Run(seed => TemperateMapData.Create(_settings, seed));
                 GetTree().Quit(Math.Max(terrain, city));
+                return;
+            }
+
+            var sweep = args.FirstOrDefault(a => a.StartsWith("--sweep="));
+            if (sweep != null)
+            {
+                int count = int.Parse(sweep["--sweep=".Length..]);
+                GetTree().Quit(await Checks.Sweep(seed => TemperateMapData.Create(_settings, seed), count));
                 return;
             }
 

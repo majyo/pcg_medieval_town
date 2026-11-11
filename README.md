@@ -8,6 +8,8 @@
 
 结构、数据和规则见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+代码排版、命名、组件边界与验证约定见 [docs/CODE_STYLE.md](docs/CODE_STYLE.md)。
+
 ## 运行
 
 用 Godot **.NET 版**打开 `project.godot`，或在项目根目录执行：
@@ -15,6 +17,7 @@
 ```powershell
 .\tools\project.ps1 run       # 打开沙盒，启动后自动生成整座城镇
 .\tools\project.ps1 test      # 组件依赖检查 + 无界面检查：三个固定种子 × 地形与城市不变量 + 可复现性
+.\tools\project.ps1 sweep     # 无界面：对种子 1–20 各生成一次并检查全部契约，输出每个种子的指标表；-Count N 改种子数
 .\tools\project.ps1 capture   # 生成后保存地表、各采样场与评价、每个节点单独的输出的截图到 artifacts/capture/，并输出各视角渲染耗时；截图时隐藏界面
 .\tools\project.ps1 build     # 只编译
 ```

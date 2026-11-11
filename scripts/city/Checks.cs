@@ -10,6 +10,7 @@ namespace PcgCitySandbox.City;
 /// <summary>
 /// Headless check: runs the town graph for fixed seeds and asserts every key's contract, graph wiring and
 /// invalidation, and determinism. Run with `tools/project.ps1 test`. Exit code 0 means every check passed.
+/// <see cref="Sweep"/> runs the contracts alone over many seeds (`tools/project.ps1 sweep`).
 /// </summary>
 public static class Checks
 {
@@ -60,6 +61,83 @@ public static class Checks
         return failures.Count == 0 ? 0 : 1;
     }
 
+    /// <summary>
+    /// Generates the town for seeds 1 to <paramref name="count"/> and checks every key's contract on each: the wide,
+    /// shallow counterpart of <see cref="Run"/>, for rules and parameters tuned on the three fixed seeds. Prints one row
+    /// of measurements per seed, then each seed's failures, then the spread of every measurement. Returns 0 when no
+    /// node failed and no contract broke.
+    /// </summary>
+    public static async Task<int> Sweep(Func<int, ITerrain> createTerrain, int count)
+    {
+        var columns = new (string Title, Func<CityGraph, double?> Value, string Format)[]
+        {
+            ("城内 ha", g => g.Get(Keys.Wall)?.Interior.Area / 10000, "0.0"),
+            ("墙长比", g => g.Get(Keys.Wall)?.Winding, "0.00"),
+            ("围住 %", g => g.Get(Keys.Wall)?.BuiltShare * 100, "0"),
+            ("城内不可建 %", UnbuildableInside, "0.0"),
+            ("城门", g => g.Get(Keys.Gates)?.Gates.Count, "0"),
+            ("建成 ha", g => g.Get(Keys.Growth) is { } growth ? growth.AreaAfter(growth.Latest) / 10000 : null, "0.0"),
+            ("地块", g => g.Get(Keys.Parcels)?.Parcels.Count, "0"),
+            ("房屋", g => g.Get(Keys.Buildings)?.Buildings.Count, "0"),
+            ("无房地块", g => g.Get(Keys.Parcels)?.Parcels.Count - g.Get(Keys.Buildings)?.Buildings.Count, "0"),
+            ("提示", g => Enumerable.Range(0, g.Nodes.Count).Sum(i => g.Notices(i).Count), "0"),
+            ("耗时 s", g => Enumerable.Range(0, g.Nodes.Count).Sum(g.Seconds), "0.0"),
+        };
+        // Chinese characters are two columns wide in a terminal; pad by what is shown, not by characters.
+        static int Shown(string text) => text.Sum(ch => ch > 0xff ? 2 : 1);
+        static string Pad(string text, int width) => new string(' ', Math.Max(0, width - Shown(text))) + text;
+        string Row(string first, IEnumerable<string> cells) =>
+            Pad(first, 6) + " " + string.Join(" ", cells.Zip(columns, (cell, column) => Pad(cell, Math.Max(7, Shown(column.Title)))));
+
+        GD.Print(Row("种子", columns.Select(c => c.Title)) + "  失败");
+        var values = columns.Select(_ => new List<double>()).ToArray();
+        var failures = new List<string>();
+        int failedSeeds = 0;
+        for (int seed = 1; seed <= count; seed++)
+        {
+            var graph = TownGraph.Create(createTerrain(seed));
+            await graph.Run();
+            var errors = Enumerable.Range(0, graph.Nodes.Count).Where(i => graph.Status(i) == NodeStatus.Failed)
+                .Select(i => $"{graph.Nodes[i].Title}: {graph.Error(i)}").ToList();
+            // A failed node leaves its keys and everything downstream missing; the contracts would only repeat that.
+            if (errors.Count == 0)
+                errors = Invariants(graph);
+
+            var cells = new List<string>();
+            for (int c = 0; c < columns.Length; c++)
+            {
+                double? value = columns[c].Value(graph);
+                if (value is { } v)
+                    values[c].Add(v);
+                cells.Add(value?.ToString(columns[c].Format) ?? "—");
+            }
+
+            GD.Print(Row(seed.ToString(), cells) + (errors.Count == 0 ? "" : $"  {errors.Count}"));
+            failures.AddRange(errors.Select(e => $"seed={seed} {e}"));
+            if (errors.Count > 0)
+                failedSeeds++;
+        }
+
+        foreach (var (name, pick) in new (string, Func<List<double>, double>)[]
+            { ("最小", v => v.Min()), ("中位", v => v.OrderBy(x => x).ElementAt(v.Count / 2)), ("最大", v => v.Max()) })
+        {
+            GD.Print(Row(name, values.Select((v, c) => v.Count == 0 ? "—" : pick(v).ToString(columns[c].Format))));
+        }
+
+        foreach (var failure in failures)
+            GD.PrintErr("SWEEP FAILED: " + failure);
+        GD.Print(failedSeeds == 0 ? $"SWEEP PASSED ({count} seeds)" : $"SWEEP FAILED ({failedSeeds} of {count} seeds)");
+        return failedSeeds == 0 ? 0 : 1;
+    }
+
+    /// <summary>The share of the cells inside the wall that cannot be built on, in percent.</summary>
+    private static double? UnbuildableInside(CityGraph graph)
+    {
+        if (graph.Get(Keys.Wall) is not { } wall || graph.Get(Keys.Buildable) is not { } buildable)
+            return null;
+        var inside = buildable.Grid.CellsIn(wall.Interior);
+        return inside.Count == 0 ? null : inside.Count(k => !buildable.Buildable(k)) * 100.0 / inside.Count;
+    }
 
     /// <summary>Every key contract, plus: no node changed a value it read (summaries still match what was written).</summary>
     public static List<string> Invariants(CityGraph graph)

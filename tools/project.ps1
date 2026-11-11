@@ -1,9 +1,11 @@
 param(
-    [ValidateSet('build', 'run', 'test', 'capture')]
+    [ValidateSet('build', 'run', 'test', 'sweep', 'capture')]
     [string]$Action = 'run',
     [string]$GodotPath = 'E:\workspace\godot\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe',
     # run / capture only: map seed instead of the one in configs/temperate_plain.tres (capture then saves to artifacts/capture_<seed>).
-    [int]$Seed = -1
+    [int]$Seed = -1,
+    # sweep only: check the contracts on seeds 1 to this.
+    [int]$Count = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +64,10 @@ try {
         'test' {
             & $GodotPath --headless --path $projectRoot -- --test
             if ($LASTEXITCODE -ne 0) { throw 'Checks failed.' }
+        }
+        'sweep' {
+            & $GodotPath --headless --path $projectRoot -- "--sweep=$Count"
+            if ($LASTEXITCODE -ne 0) { throw 'Sweep failed.' }
         }
         'capture' {
             $directory = if ($Seed -ge 0) { "artifacts/capture_$Seed" } else { 'artifacts/capture' }

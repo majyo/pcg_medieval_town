@@ -17,13 +17,17 @@ public sealed class Wells : CityNode<NoOptions>
     public const float Reach = 80;
     /// <summary>The nearest two wells may be.</summary>
     public const float MinSpacing = 40;
-    /// <summary>Points along the streets and roads, so a long arm far from any junction can have a well.</summary>
-    private const float Step = 40;
+    /// <summary>
+    /// Points along the streets and roads, so a long arm far from any junction can have a well. Much closer than
+    /// <see cref="MinSpacing"/>: with points only that far apart, the last cells without water can have every point
+    /// in their reach shut out by a well already dug next to it.
+    /// </summary>
+    private const float Step = 10;
 
     public override string Group => NodeGroups.Lots;
     public override string Title => "水井";
     public override string Description =>
-        "先在市场放一口井，然后反复挑能让最多还没水的建成格在 80 m 内有井的位置（门内广场、路口、沿街每 40 m 一点），直到每个建成格离井或河都不超过 80 m；井两两相距至少 40 m。";
+        "先在市场放一口井，然后反复挑能让最多还没水的建成格在 80 m 内有井的位置（门内广场、路口、沿街每 10 m 一点），直到每个建成格离井或河都不超过 80 m；井两两相距至少 40 m。";
     public override IReadOnlyList<IKey> Reads => [Keys.Roads, Keys.Plaza, Keys.Squares, Keys.Growth, Keys.Shore];
     public override IReadOnlyList<IKey> Writes => [Keys.Fixtures];
 

@@ -37,6 +37,14 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
     private const int DetourWidth = 3, MaxPasses = 3;
 
     /// <summary>
+    /// The least share of the town built so far that the wall should hold. A town of long arms along its roads leaves
+    /// more than this outside a compact wall; the wall then follows the built land more closely, step by step.
+    /// </summary>
+    private const float MinBuiltShare = 0.55f;
+
+    private static readonly float[] PreferenceSteps = [1, 1.5f, 2, 3];
+
+    /// <summary>
     /// Land this near the market and the landmark plots can be enclosed however steep: smoothing cuts the corners of
     /// the outline, and would cut into a plot standing at the top of a slope.
     /// </summary>
@@ -66,40 +74,60 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         int built = growth.BuiltCells.Count();
         int target = (int)MathF.Round(built * (1 + o.Margin));
 
-        var inside = Compact(grid, required, Enclosable, k => growth.Built(k) ? o.BuiltPreference : 0, target, c);
         bool Dry(int k) => shore[k] >= 0;
-        TakeInRoads(grid, network, inside, k => inside[k], Dry);
-        int r = grid.Span(o.Smoothing, 0);
-        Vector2[] Shape()
+        Vector2[] line = [];
+        float share = 0;
+        foreach (float step in PreferenceSteps)
         {
-            if (r > 0)
+            c.Cancellation.ThrowIfCancellationRequested();
+            line = Enclose(o.BuiltPreference * step);
+            var held = Region.Polygon(line);
+            share = built > 0 ? growth.BuiltCells.Count(k => held.Contains(grid.Center(k))) / (float)built : 1;
+            if (share >= MinBuiltShare)
+                break;
+        }
+
+        if (share < MinBuiltShare)
+            c.Notice($"建成区沿道路伸得太长，城墙只围住其中的 {share:P0}");
+        c.Set(Keys.Wall, new WallRing(line, built > 0 ? share : null));
+        return;
+
+        // The ring for one weight of the built land: compact cells, roads taken in, smoothed.
+
+        Vector2[] Enclose(float builtPreference)
+        {
+            var inside = Compact(grid, required, Enclosable, k => growth.Built(k) ? builtPreference : 0, target, c);
+            TakeInRoads(grid, network, inside, k => inside[k], Dry);
+            int r = grid.Span(o.Smoothing, 0);
+            Vector2[] Shape()
             {
-                var closed = Morphology.Close(grid, inside, r);
-                for (int k = 0; k < grid.Count; k++)
-                    inside[k] = inside[k] || closed[k] && shore[k] >= o.RiverSetback / 2;
+                if (r > 0)
+                {
+                    var closed = Morphology.Close(grid, inside, r);
+                    for (int k = 0; k < grid.Count; k++)
+                        inside[k] = inside[k] || closed[k] && shore[k] >= o.RiverSetback / 2;
+                }
+
+                Morphology.FillHoles(grid, inside);
+                Morphology.KeepConnected(grid, inside, required);
+                return Outline(grid, inside, o.MinSpacing);
             }
 
-            Morphology.FillHoles(grid, inside);
-            Morphology.KeepConnected(grid, inside, required);
-            return Outline(grid, inside, o.MinSpacing);
-        }
+            // Smoothing moves the line, so check the routes against the finished ring and repeat while a route still
+            // leaves and comes back, or grazes the town, within a short stretch.
+            var ring = Shape();
+            for (int pass = 0; pass < MaxPasses; pass++)
+            {
+                var interior = Region.Polygon(ring);
+                var cache = new Dictionary<int, bool>();
+                bool In(int k) => cache.TryGetValue(k, out bool v) ? v : cache[k] = interior.Contains(grid.Center(k));
+                if (!TakeInRoads(grid, network, inside, In, Dry))
+                    break;
+                ring = Shape();
+            }
 
-        // Smoothing moves the line, so check the routes against the finished ring and repeat while a route still
-        // leaves and comes back, or grazes the town, within a short stretch.
-        var ring = Shape();
-        for (int pass = 0; pass < MaxPasses; pass++)
-        {
-            var interior = Region.Polygon(ring);
-            var cache = new Dictionary<int, bool>();
-            bool In(int k) => cache.TryGetValue(k, out bool v) ? v : cache[k] = interior.Contains(grid.Center(k));
-            if (!TakeInRoads(grid, network, inside, In, Dry))
-                break;
-            ring = Shape();
+            return ring;
         }
-
-        var wall = new WallRing(ring);
-        int enclosed = growth.BuiltCells.Count(k => wall.Interior.Contains(grid.Center(k)));
-        c.Set(Keys.Wall, new WallRing(ring, built > 0 ? enclosed / (float)built : null));
     }
 
     /// <summary>
