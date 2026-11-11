@@ -55,6 +55,7 @@ public static class Contracts
         new(Keys.Parcels, ParcelRules),
         new(Keys.Buildings, BuildingRules),
         new(Keys.Yards, YardRules),
+        new(Keys.Fixtures, FixtureRules),
         new(Keys.Reach, r => FieldRules(r, Keys.Reach).Concat(ReachRules(r))),
         new(Keys.LandUse, LandUseRules),
     };
@@ -1034,6 +1035,27 @@ public static class Contracts
             if (sheds.TryGetValue(garden.ParcelId, out var shed) && garden.Area.Intersect(shed).Area >= Tolerance)
                 yield return $"地块 {garden.ParcelId} 的菜园压到后屋";
         }
+    }
+
+    /// <summary>Wells stand in the paving, apart; every built cell has a well or the water within reach.</summary>
+    private static IEnumerable<string> FixtureRules(IKeyReader r)
+    {
+        var wells = r.Get(Keys.Fixtures)!.Wells.Select(f => f.Position).ToList();
+        var paving = r.Get(Keys.Roads)!.Footprint.Offset(0.1f);
+        var growth = r.Get(Keys.Growth)!;
+        var shore = r.Get(Keys.Shore)!;
+        if (wells.Any(w => !paving.Contains(w)))
+            yield return "有水井不在铺装上";
+        for (int i = 0; i < wells.Count; i++)
+        {
+            if (wells.Skip(i + 1).Any(w => w.DistanceTo(wells[i]) < Wells.MinSpacing - 0.01f))
+                yield return $"水井 {i} 离另一口井不到 {Wells.MinSpacing:0} m";
+        }
+
+        int dry = growth.BuiltCells.Count(k => shore.Values[k] > Wells.Reach
+            && !wells.Any(w => w.DistanceTo(growth.Grid.Center(k)) <= Wells.Reach + 0.01f));
+        if (dry > 0)
+            yield return $"{dry} 个建成格 {Wells.Reach:0} m 内既没有井也没有水";
     }
 
     private static IEnumerable<string> BuildingRules(IKeyReader r)

@@ -64,6 +64,8 @@ public static class Keys
         "可建区（城内外的建成格，城墙两侧退让，去掉道路和不可建设地）分成的街区");
     public static readonly Key<ParcelSet> Parcels = new("parcels", "地块",
         "沿街切出的临街地块");
+    public static readonly Key<FixtureSet> Fixtures = new("fixtures", "公共设施",
+        "立在铺装上的公共设施：水井（每个建成格离井或水不超过 80 m），以后还有市场十字");
     public static readonly Key<BuildingSet> Buildings = new("buildings", "建筑",
         "每个地块上的房屋");
     public static readonly Key<YardSet> Yards = new("yards", "院落",

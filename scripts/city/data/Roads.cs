@@ -269,3 +269,17 @@ public sealed class SquareSet(IReadOnlyList<Square> squares) : ISummarized
         : string.Join("，", Squares.GroupBy(s => s.Kind).OrderBy(g => g.Key)
             .Select(g => $"{g.First().Label} {g.Count()} 处 {g.Sum(s => s.Area.Area):0} m²"));
 }
+
+public enum FixtureKind { Well, MarketCross }
+
+/// <summary>A small public thing standing in the paving: a well, the market cross.</summary>
+public sealed record Fixture(FixtureKind Kind, Vector2 Position);
+
+public sealed class FixtureSet(IReadOnlyList<Fixture> fixtures) : ISummarized
+{
+    public IReadOnlyList<Fixture> Fixtures { get; } = fixtures;
+    public IEnumerable<Fixture> Wells => Fixtures.Where(f => f.Kind == FixtureKind.Well);
+
+    public string Summary => $"水井 {Wells.Count()} 口"
+        + (Fixtures.Any(f => f.Kind == FixtureKind.MarketCross) ? "，市场十字" : "");
+}

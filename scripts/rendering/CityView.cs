@@ -87,6 +87,8 @@ public partial class CityView : Node3D
                         ? [(CornerColor, "街角地块（侧街边加画一道）"), (CourtColor, "客栈大院")] : Array.Empty<(Color, string)>())
                     .ToArray())),
             [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
+            [Keys.Fixtures] = new((root, s, _) => BuildFixtures(root, (FixtureSet)s.Value),
+                _ => Categories("公共设施", (Stone, "水井（石砌井台）"))),
             [Keys.Yards] = new((root, s, _) => BuildYards(root, (YardSet)s.Value),
                 _ => Categories("院落", (Stone, "院墙（城内）"), (HedgeGreen, "篱笆（城外）"), (ShedWall, "后屋"),
                     (GardenGreen, "菜园"))),
@@ -116,7 +118,7 @@ public partial class CityView : Node3D
         CityLayer.Roads => [Keys.Roads, Keys.Crossings],
         CityLayer.Blocks => [Keys.Blocks],
         CityLayer.Parcels => [Keys.Parcels],
-        _ => [Keys.Buildings, Keys.Yards],
+        _ => [Keys.Buildings, Keys.Yards, Keys.Fixtures],
     };
 
     /// <summary>Whether the key is drawn here (otherwise it can only be painted on the ground, or not shown at all).</summary>
@@ -754,6 +756,20 @@ public partial class CityView : Node3D
 
     private static readonly Color HedgeGreen = new("4f6b34"), ShedWall = new("b7a07a"), ShedRoof = new("7d5b43"),
         GardenGreen = new("8fae5a");
+
+    /// <summary>Each well as a round stone curb, 2 m across and knee high.</summary>
+    private void BuildFixtures(Node3D root, FixtureSet set)
+    {
+        var kit = new MeshKit();
+        foreach (var well in set.Wells)
+        {
+            var ring = Enumerable.Range(0, 10).Select(i => well.Position + Vector2.Right.Rotated(i * MathF.Tau / 10)).ToArray();
+            float ground = ring.Min(Height);
+            kit.Prism(ring, ground - 0.3f, ring.Max(Height) + 0.8f, Stone, StoneTop);
+        }
+
+        Add(root, kit, MeshKit.Material());
+    }
 
     /// <summary>Walls and hedges as lines on the ground, back buildings as low boxes, gardens as green ground.</summary>
     private void BuildYards(Node3D root, YardSet yards)
