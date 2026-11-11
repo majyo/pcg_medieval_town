@@ -84,6 +84,8 @@ public partial class Main : Node3D
             var capture = args.FirstOrDefault(a => a.StartsWith("--capture="));
             if (capture != null)
             {
+                // The panels and legend would cover most of every picture.
+                _ui!.Visible = false;
                 var bank = BankView(core);
                 var forest = ForestEdgeView(core);
                 var closeups = new (string, Vector3, float, float, float)[]

@@ -15,7 +15,7 @@
 ```powershell
 .\tools\project.ps1 run       # 打开沙盒，启动后自动生成整座城镇
 .\tools\project.ps1 test      # 组件依赖检查 + 无界面检查：三个固定种子 × 地形与城市不变量 + 可复现性
-.\tools\project.ps1 capture   # 生成后保存地表、各采样场与评价、每个节点单独的输出的截图到 artifacts/capture/，并输出各视角渲染耗时
+.\tools\project.ps1 capture   # 生成后保存地表、各采样场与评价、每个节点单独的输出的截图到 artifacts/capture/，并输出各视角渲染耗时；截图时隐藏界面
 .\tools\project.ps1 build     # 只编译
 ```
 
