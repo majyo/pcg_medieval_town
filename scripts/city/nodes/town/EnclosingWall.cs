@@ -17,8 +17,8 @@ public sealed class EnclosingWallOptions
         Hint = "城墙离水至少多远；靠河的一侧墙停在这条线上，河当护城河")]
     public float RiverSetback { get; set; } = 20;
     [Param("平滑半径 m", 0, 40, 2,
-        Hint = "抹平墙线凹口的尺度。调大后墙线更圆，凹进去的角被填平")]
-    public float Smoothing { get; set; } = 20;
+        Hint = "抹平墙线凹口的尺度：口宽不到它两倍的凹湾被填平，哪怕里面是不能建房的陡坡。调大后墙线更圆、更短，城内多出一些空坡")]
+    public float Smoothing { get; set; } = 30;
     [Param("最少顶点间距 m", 2, 30, 1,
         Hint = "墙线上相邻转折点的最小距离，决定一段墙有多长")]
     public float MinSpacing { get; set; } = 8;
@@ -26,22 +26,29 @@ public sealed class EnclosingWallOptions
 
 /// <summary>
 /// The town wall: a compact piece of land around the market, as large as the town built so far plus a margin,
-/// taking built cells first. It stops at a setback from the river and at the top of steep slopes, takes in junctions
+/// taking built cells first. It stops at a setback from the river and at the top of slopes too steep to build on (the
+/// same slopes the buildability rules out, so the wall takes in no land that would stay empty), takes in junctions
 /// just outside it and short stretches where a road leaves and comes back, and is smoothed into a ring. The ends of
 /// long arms may stay outside.
 /// </summary>
 public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
 {
-    private const float MaxSlope = 15, JunctionReach = 40, JunctionRadius = 20, DetourLength = 120, GrazeLength = 40;
+    private const float JunctionReach = 40, JunctionRadius = 20, DetourLength = 120, GrazeLength = 40;
     private const int DetourWidth = 3, MaxPasses = 3;
+
+    /// <summary>
+    /// Land this near the market and the landmark plots can be enclosed however steep: smoothing cuts the corners of
+    /// the outline, and would cut into a plot standing at the top of a slope.
+    /// </summary>
+    private const float PlotMargin = 8;
 
     public override string Group => NodeGroups.Town;
     public override string Title => "城墙";
     public override string Description =>
-        "以市场为中心围出一块紧凑的城内范围（筑墙前的建成面积再加余地），优先围住已建成的格；靠河停在离河线上，陡坡停在坡顶；" +
+        "以市场为中心围出一块紧凑的城内范围（筑墙前的建成面积再加余地），优先围住已建成的格；靠河停在离河线上，不能建房的陡坡停在坡顶；" +
         "把墙外不远的路口和出墙又回来的路段包进来，再平滑成墙线。长臂的末端可以留在墙外。";
     public override IReadOnlyList<IKey> Reads =>
-        [Keys.Growth, Keys.Plaza, Keys.Landmarks, Keys.Routes, Keys.Shore, Keys.Slope];
+        [Keys.Growth, Keys.Plaza, Keys.Landmarks, Keys.Routes, Keys.Shore, Keys.Buildable];
     public override IReadOnlyList<IKey> Writes => [Keys.Wall];
 
     protected override void Run(NodeContext c, EnclosingWallOptions o)
@@ -49,11 +56,13 @@ public sealed class EnclosingWall : CityNode<EnclosingWallOptions>
         var growth = c.Get(Keys.Growth);
         var network = c.Get(Keys.Routes);
         var shore = c.Get(Keys.Shore).Values;
-        var slope = c.Get(Keys.Slope).Values;
+        var buildable = c.Get(Keys.Buildable);
         var grid = growth.Grid;
-        bool Enclosable(int k) => shore[k] >= o.RiverSetback && slope[k] <= MaxSlope;
 
         var required = grid.CellsIn(c.Get(Keys.Plaza).Area).Concat(c.Get(Keys.Landmarks).Cells()).Distinct().ToList();
+        var byPlots = Proximity.From(grid, required, PlotMargin);
+        bool Enclosable(int k) => shore[k] >= o.RiverSetback
+            && (buildable.Block(k) != SiteBlock.Slope || float.IsFinite(byPlots[k]));
         int built = growth.BuiltCells.Count();
         int target = (int)MathF.Round(built * (1 + o.Margin));
 

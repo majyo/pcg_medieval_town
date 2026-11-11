@@ -26,6 +26,12 @@ public static class Contracts
     /// <summary>The farthest the leper house and the gallows may be set from a route.</summary>
     private const float MaxLeperReach = 40, MaxCountryReach = 200;
 
+    /// <summary>
+    /// The longest a wall may be, as a multiple of the circumference of a circle of its area. Walls measured on eight
+    /// seeds run 1.2 to 1.55; one wrapped around every road arm would pass 2.
+    /// </summary>
+    private const float MaxWinding = 1.7f;
+
     public static readonly IReadOnlyList<Invariant> All = new Invariant[]
     {
         new(Keys.Grid, GridRules),
@@ -678,8 +684,9 @@ public static class Contracts
     private static bool Diagonal(SiteGrid grid, int a, int b) => a % grid.Nx != b % grid.Nx && a / grid.Nx != b / grid.Nx;
 
     /// <summary>
-    /// The wall is a simple polygon that stays out of the water, holds the landmark plots (the market: see its rules), and
-    /// encloses at least half of the town built before it.
+    /// The wall is a simple polygon that stays out of the water, holds the landmark plots (the market: see its rules),
+    /// encloses at least half of the town built before it, and does not wind around arms and bays for much more than
+    /// the circumference of a circle of its area.
     /// </summary>
     private static IEnumerable<string> WallRules(IKeyReader r)
     {
@@ -713,6 +720,8 @@ public static class Contracts
 
         if (wall.BuiltShare is < 0.5f)
             yield return $"城墙只围住筑墙前建成区的 {wall.BuiltShare:P0}";
+        if (wall.Winding > MaxWinding)
+            yield return $"城墙长度是等面积圆周长的 {wall.Winding:0.00} 倍，超过 {MaxWinding}";
     }
 
     /// <summary>True if segments ab and cd cross at a point inside both.</summary>

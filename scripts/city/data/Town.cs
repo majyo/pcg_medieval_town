@@ -28,6 +28,12 @@ public sealed class WallRing : ISummarized
     public float? BuiltShare { get; }
     public float Length => Ring.Select((p, i) => p.DistanceTo(Ring[(i + 1) % Ring.Length])).Sum();
 
+    /// <summary>
+    /// Wall length over the circumference of a circle enclosing the same area: 1 for a circle, larger the more the wall
+    /// winds around arms and bays.
+    /// </summary>
+    public float Winding => Length / (2 * Mathf.Sqrt(Mathf.Pi * (float)Interior.Area));
+
     /// <summary>One flag per cell of <paramref name="grid"/>: whether its center lies inside the wall.</summary>
     public bool[] Inside(SiteGrid grid) => grid.Mask(grid.CellsIn(Interior));
 
@@ -35,7 +41,7 @@ public sealed class WallRing : ISummarized
     public WallRing With(Vector2[] ring) => new(ring, BuiltShare);
 
     public string Summary => $"城内 {Interior.Area / 10000:0.0} ha" +
-        (BuiltShare is { } share ? $"（围住建成区的 {share:P0}）" : "") + $"，城墙 {Length:0} m";
+        (BuiltShare is { } share ? $"（围住建成区的 {share:P0}）" : "") + $"，城墙 {Length:0} m（等面积圆周长的 {Winding:0.00} 倍）";
 }
 
 /// <summary>A wall opening. Position is a wall ring point; Entry is where its outer road should reach the map edge.</summary>
