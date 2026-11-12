@@ -11,14 +11,15 @@ public sealed class TerracesOptions
         Hint = "关掉后没有台地：地块按原来的方式切，房屋地坪取四角处修整后地面的最高点")]
     public bool Enabled { get; set; } = true;
     [Param("台阶高差上限 m", 0.3, 3, 0.1,
-        Hint = "沿街相邻两块台地的高差上限。调小台阶更矮、更密；街太陡时做不到，记为超过上限的台阶")]
-    public float StepMax { get; set; } = 1;
+        Hint = "沿街相邻两块台地的高差上限。调小台阶更矮、更密，台地更碎；街太陡时做不到，记为超过上限的台阶")]
+    public float StepMax { get; set; } = 2;
     [Param("最短台地长 m", 4, 40, 1,
-        Hint = "一块台地沿街至少多长（约两块地的面宽）。调小坡街上的台阶更密")]
-    public float MinLength { get; set; } = 10;
+        Hint = "一块台地沿街至少多长（两三块地的面宽）；短于它的台地并进邻块。"
+            + "台阶高差上限 ÷ 它是一级台阶能应付的街道坡度（默认 10%），调小坡街上台阶更密")]
+    public float MinLength { get; set; } = 20;
     [Param("门前高差 m", 0.1, 1.5, 0.05,
-        Hint = "台地比它门前的街高出或低出多少以内；调大台地可以更长，门口的台阶更高")]
-    public float Doorstep { get; set; } = 0.5f;
+        Hint = "台地比它门前的街高出或低出多少以内（门口的几级台阶）；调大台地可以更长")]
+    public float Doorstep { get; set; } = 1;
     [Param("离原地形 m", 0, 3, 0.1,
         Hint = "台地最多比它沿街一段的原地形平均高度高出或低出这么多")]
     public float MaxOffset { get; set; } = 1;
@@ -28,9 +29,10 @@ public sealed class TerracesOptions
     [Param("作坊台地进深 m", 6, 40, 1,
         Hint = "作坊的台地整平多深：作坊的棚屋可以从临街边退后，院子也要平")]
     public float TradeDepth { get; set; } = 28;
-    [Param("合并高差 m", 0, 1, 0.05,
-        Hint = "同一街区里相邻两块台地高差小于它、合并后门前高差仍在限度内时合成一块；调大台地更少更大")]
-    public float MergeStep { get; set; } = 0.25f;
+    [Param("合并高差 m", 0, 2, 0.05,
+        Hint = "同一街区里相邻两块台地高差小于它、有一个高度能让两边的门前高差和离原地形都在限度内时，"
+            + "合成一块（取这些高度里最接近两块按临街长加权平均的一个）；调大台地更少更大，门前高差更大")]
+    public float MergeStep { get; set; } = 1;
     [Param("台阶代价", 0, 20, 0.5,
         Hint = "沿街每多一级台阶的代价（与门前高差的平方和相比）。调大台地更长、门前高差更大，调小台阶更多")]
     public float StepCost { get; set; } = 2;
@@ -59,8 +61,11 @@ public sealed class Terraces : CityNode<TerracesOptions>
     /// </summary>
     public const float MaxEarthwork = 2.5f;
 
-    /// <summary>Terraces smaller than this join the neighbor they share most border with.</summary>
-    private const float MinArea = 60;
+    /// <summary>
+    /// Terraces whose level part is smaller than this (or whose front is shorter than the shortest terrace) join the
+    /// neighbor they share most border with: too small for more than one house.
+    /// </summary>
+    private const float MinArea = 150;
 
     private const float Step = 2;
     private const float MaxGap = 1500;
@@ -85,6 +90,9 @@ public sealed class Terraces : CityNode<TerracesOptions>
         public bool Steep;
         public readonly List<int> Claims = new();
         public int Cluster = -1;
+
+        /// <summary>The stretches before and after it along its street that have ground of their own.</summary>
+        public Stretch? Before, After;
     }
 
     protected override void Run(NodeContext c, TerracesOptions o)
@@ -210,7 +218,45 @@ public sealed class Terraces : CityNode<TerracesOptions>
             clusters.Add(new Cluster(sweep.BlockOf[s.Claims[0]], level, reach, [s]));
         }
 
-        int merges = Merge(clusters, o, c);
+        // The level part keeps off the water and the map's rim (the ground solver leaves both as they are) and off
+        // ground too far above or below the terrace: lattice points by the solver's own rule, each taking its square meter.
+        var shore = c.Get(Keys.Shore);
+        float rim = terrain.Half - 2 * GradeBake.Rim;
+        var inside = Region.Polygon(new[]
+        {
+            new Vector2(-rim, -rim), new Vector2(rim, -rim), new Vector2(rim, rim), new Vector2(-rim, rim),
+        });
+        void Trim(Cluster g)
+        {
+            c.Cancellation.ThrowIfCancellationRequested();
+            var level = g.Full.Intersect(inside);
+            var off = new List<Vector2[]>();
+            var box = level.Bounds;
+            for (int z = (int)MathF.Floor(box.Position.Y); z <= box.End.Y; z++)
+            {
+                for (int x = (int)MathF.Floor(box.Position.X); x <= box.End.X; x++)
+                {
+                    var p = new Vector2(x, z);
+                    if ((shore.Nearest(p) < 0 || MathF.Abs(terrain.HeightAt(p) - g.Height) > MaxEarthwork) && level.Contains(p))
+                    {
+                        off.Add([p + new Vector2(-0.5f, -0.5f), p + new Vector2(0.5f, -0.5f), p + new Vector2(0.5f, 0.5f),
+                            p + new Vector2(-0.5f, 0.5f)]);
+                    }
+                }
+            }
+
+            g.Level = off.Count > 0 ? level.Subtract(Region.Polygons(off)) : level;
+        }
+
+        // Neighbors along each street, for keeping the heights in the street's order while joining.
+        foreach (var run in runs)
+        {
+            var kept = run.Select(i => stretches[i]).Where(s => s.Cluster >= 0).ToList();
+            for (int i = 1; i < kept.Count; i++)
+                (kept[i - 1].After, kept[i].Before) = (kept[i], kept[i - 1]);
+        }
+
+        int merges = Merge(clusters, o, c, Trim);
 
         // The steps along each run, between neighbors that stayed apart.
         var steps = new List<TerraceStep>();
@@ -237,41 +283,17 @@ public sealed class Terraces : CityNode<TerracesOptions>
             }
         }
 
-        // The level part keeps off the water and the map's rim (the ground solver leaves both as they are) and off
-        // ground too far above or below the terrace: lattice points by the solver's own rule, each taking its square meter.
-        var shore = c.Get(Keys.Shore);
-        float rim = terrain.Half - 2 * GradeBake.Rim;
-        var inside = Region.Polygon(new[]
-        {
-            new Vector2(-rim, -rim), new Vector2(rim, -rim), new Vector2(rim, rim), new Vector2(-rim, rim),
-        });
         var terraces = new List<Terrace>();
         foreach (var g in clusters.Where(g => g.Alive))
         {
-            c.Cancellation.ThrowIfCancellationRequested();
-            g.Level = g.Level.Intersect(inside);
-            var off = new List<Vector2[]>();
-            var box = g.Level.Bounds;
-            for (int z = (int)MathF.Floor(box.Position.Y); z <= box.End.Y; z++)
-            {
-                for (int x = (int)MathF.Floor(box.Position.X); x <= box.End.X; x++)
-                {
-                    var p = new Vector2(x, z);
-                    if ((shore.Nearest(p) < 0 || MathF.Abs(terrain.HeightAt(p) - g.Height) > MaxEarthwork) && g.Level.Contains(p))
-                    {
-                        off.Add([p + new Vector2(-0.5f, -0.5f), p + new Vector2(0.5f, -0.5f), p + new Vector2(0.5f, 0.5f),
-                            p + new Vector2(-0.5f, 0.5f)]);
-                    }
-                }
-            }
-
-            if (off.Count > 0)
-                g.Level = g.Level.Subtract(Region.Polygons(off));
             var members = g.Members;
             float low = members.Min(s => s.Low), high = members.Max(s => s.High);
             // Marked where a limit could not be kept: a doorstep, the ground, or a step to a neighbor.
             bool steep = g.Steep || g.Height < high - o.Doorstep - 0.01f || g.Height > low + o.Doorstep + 0.01f
                 || g.Height < g.Ground - o.MaxOffset - 0.01f || g.Height > MathF.Max(g.Ground + o.MaxOffset, g.Floor) + 0.01f;
+            // Each union along the way may add a sliver of clipping error past the block.
+            g.Reach = g.Reach.Intersect(blocks[g.Block]);
+            g.Level = g.Level.Intersect(g.Reach);
             terraces.Add(new Terrace(terraces.Count, TerraceKind.Block, g.Block.ToString(), g.Level, g.Reach, g.Height,
                 members.Select(s => new TerraceFront(s.Edge, s.Side, s.From, s.To)).ToList(), low, high, g.Ground, g.Floor, steep));
         }
@@ -441,6 +463,8 @@ public sealed class Terraces : CityNode<TerracesOptions>
     private sealed class Cluster(int block, Region level, Region reach, List<Stretch> members)
     {
         public int Block { get; } = block;
+        /// <summary>The level part as cut, before it keeps off the water, the rim and ground too far off.</summary>
+        public Region Full { get; set; } = level;
         public Region Level { get; set; } = level;
         public Region Reach { get; set; } = reach;
         public List<Stretch> Members { get; } = members;
@@ -464,7 +488,7 @@ public sealed class Terraces : CityNode<TerracesOptions>
     /// Joins neighbors in one block, the closest in height first, while the joined height keeps every doorstep and the
     /// ground limit; then joins pieces too small to stand alone to the neighbor they border most. Returns the joins.
     /// </summary>
-    private static int Merge(List<Cluster> clusters, TerracesOptions o, NodeContext c)
+    private static int Merge(List<Cluster> clusters, TerracesOptions o, NodeContext c, Action<Cluster> trim)
     {
         bool Touch(Cluster a, Cluster b) => a.Block == b.Block && a.Level.Bounds.Grow(1).Intersects(b.Level.Bounds)
             && a.Level.Offset(0.3f).Intersect(b.Level).Area > 0.5;
@@ -474,21 +498,61 @@ public sealed class Terraces : CityNode<TerracesOptions>
         float Earth(Stretch m, float h) =>
             MathF.Max(0, MathF.Max(m.Ground - o.MaxOffset - h, h - MathF.Max(m.Ground + o.MaxOffset, m.Floor)));
 
-        // A height for both, or null: no member's doorstep or ground may end farther from its limit than it is now.
-        bool Keeps(Cluster g, float h) =>
-            g.Members.All(m => Door(m, h) <= Door(m, g.Height) + 0.01f && Earth(m, h) <= Earth(m, g.Height) + 0.01f);
+        // The heights a member allows: its doorstep and ground within their limits, or, where it is already past one,
+        // no farther past it than it is now.
+        (float Low, float High) Allows(Stretch m, float now)
+        {
+            float door = Door(m, now) + 0.01f, earth = Earth(m, now) + 0.01f;
+            return (MathF.Max(m.High - o.Doorstep - door, m.Ground - o.MaxOffset - earth),
+                MathF.Min(m.Low + o.Doorstep + door, MathF.Max(m.Ground + o.MaxOffset, m.Floor) + earth));
+        }
 
+        // Whether a, joined with b (if given), at height h keeps every step to its neighbors along the streets with the
+        // street's slope (as the steps are measured: a step against a slope of more than 0.1 m is one of more than 0.1 m).
+        bool Ordered(Cluster a, Cluster? b, float h)
+        {
+            int ra = clusters.IndexOf(a), rb = b == null ? -1 : clusters.IndexOf(b);
+            foreach (var m in b == null ? a.Members : a.Members.Concat(b.Members))
+            {
+                foreach (var (n, after) in new[] { (m.Before, false), (m.After, true) })
+                {
+                    if (n == null)
+                        continue;
+                    int rn = Root(clusters, n.Cluster);
+                    if (rn == ra || rn == rb)
+                        continue;
+                    float street = after ? n.Mid - m.Mid : m.Mid - n.Mid;
+                    float rise = after ? clusters[rn].Height - h : h - clusters[rn].Height;
+                    if (MathF.Abs(street) > 0.1f && rise * MathF.Sign(street) < -0.05f)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        // A height for both, or null: the heights every member of either allows have one in common (above both floors);
+        // of those, the nearest to their mean by front length.
         float? Joined(Cluster a, Cluster b)
         {
-            float h = (a.Height * a.Length + b.Height * b.Length) / (a.Length + b.Length);
-            h = MathF.Max(h, MathF.Max(a.Floor, b.Floor));
-            return Keeps(a, h) && Keeps(b, h) ? h : null;
+            float low = MathF.Max(a.Floor, b.Floor), high = float.PositiveInfinity;
+            foreach (var (g, m) in a.Members.Select(m => (a, m)).Concat(b.Members.Select(m => (b, m))))
+            {
+                var (l, u) = Allows(m, g.Height);
+                (low, high) = (MathF.Max(low, l), MathF.Min(high, u));
+            }
+
+            if (low > high)
+                return null;
+            float h = Math.Clamp((a.Height * a.Length + b.Height * b.Length) / (a.Length + b.Length), low, high);
+            return Ordered(a, b, h) ? h : null;
         }
 
         void Absorb(int into, int from, float height)
         {
             var (a, b) = (clusters[into], clusters[from]);
-            a.Level = a.Level.Union(b.Level);
+            a.Full = a.Full.Union(b.Full);
+            a.Level = a.Full;
             a.Reach = a.Reach.Union(b.Reach);
             a.Members.AddRange(b.Members);
             a.Steep |= b.Steep;
@@ -530,22 +594,35 @@ public sealed class Terraces : CityNode<TerracesOptions>
             merges++;
         }
 
-        // Slivers left at bends and corners go to the neighbor they share most border with, at its height.
+        // What is left of each level part off the water, the rim and ground too far off decides what is too small.
+        foreach (var g in clusters.Where(g => g.Alive))
+            trim(g);
+
+        // Pieces too small to stand alone, by area (a thin strip, a corner's cut, a part mostly too far off its ground)
+        // or by front (a block's short side between two junctions), go to a neighbor in the block, the one they share
+        // most border with first, at its height, if the step is within the limit and their ground is within reach of
+        // it. Their own front's doorstep may get worse: their houses front the longer street, or there is no room for one.
         foreach (int i in Enumerable.Range(0, clusters.Count).Where(i => clusters[i].Alive).OrderBy(i => clusters[i].Level.Area))
         {
             var small = clusters[i];
-            if (!small.Alive || small.Level.Area >= MinArea)
+            if (!small.Alive || small.Level.Area >= MinArea && small.Length >= o.MinLength)
                 continue;
-            var around = small.Level.Offset(0.3f);
-            var neighbor = pairs.Where(p => p.A == i || p.B == i).Select(p => Root(clusters, p.A == i ? p.B : p.A))
-                .Where(j => j != i && clusters[j].Alive).Distinct()
-                .Select(j => (j, Border: around.Intersect(clusters[j].Level).Area)).Where(x => x.Border > 0.5)
-                .OrderByDescending(x => x.Border).FirstOrDefault();
-            if (neighbor.Border <= 0 || MathF.Abs(clusters[neighbor.j].Height - small.Height) > o.StepMax
-                || !Keeps(small, clusters[neighbor.j].Height))
-                continue;
-            Absorb(neighbor.j, i, clusters[neighbor.j].Height);
-            merges++;
+            var around = small.Full.Offset(0.3f);
+            var neighbors = pairs.Select(p => (A: Root(clusters, p.A), B: Root(clusters, p.B)))
+                .Where(p => p.A == i ^ p.B == i).Select(p => p.A == i ? p.B : p.A).Distinct()
+                .Select(j => (j, Border: around.Intersect(clusters[j].Full).Area)).Where(x => x.Border > 0.5)
+                .OrderByDescending(x => x.Border).ToList();
+            foreach (var (j, _) in neighbors)
+            {
+                float h = clusters[j].Height;
+                if (MathF.Abs(h - small.Height) > o.StepMax || h < small.Floor - 0.01f || !Ordered(clusters[j], small, h)
+                    || small.Members.Any(m => MathF.Abs(h - m.Ground) > MaxEarthwork && Earth(m, h) > Earth(m, small.Height) + 0.01f))
+                    continue;
+                Absorb(j, i, h);
+                trim(clusters[j]);
+                merges++;
+                break;
+            }
         }
 
         return merges;
