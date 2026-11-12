@@ -77,6 +77,16 @@ public static class Checks
             ("城内不可建 %", UnbuildableInside, "0.0"),
             ("城门", g => g.Get(Keys.Gates)?.Gates.Count, "0"),
             ("建成 ha", g => g.Get(Keys.Growth) is { } growth ? growth.AreaAfter(growth.Latest) / 10000 : null, "0.0"),
+            ("最深挖 m", g => g.Get(Keys.Grading)?.MaxCut, "0.0"),
+            ("最高填 m", g => g.Get(Keys.Grading)?.MaxFill, "0.0"),
+            ("陡坡段 %", g => g.Get(Keys.Grading) is { Corridors.Count: > 0 } plan
+                ? plan.SteepLength / plan.Corridors.Sum(c => c.Length) * 100 : null, "0.0"),
+            ("挡土墙 m", g => g.Get(Keys.Grading)?.Walls.Sum(w => w.Length), "0"),
+            ("挡土墙段", g => g.Get(Keys.Grading)?.Walls.Count, "0"),
+            ("外露墙 m", ExposedWalls, "0"),
+            ("台地", g => g.Get(Keys.Terraces)?.Terraces.Count(t => t.Kind == TerraceKind.Block), "0"),
+            ("超限台阶", g => g.Get(Keys.Terraces)?.Steps.Count(s => s.Steep), "0"),
+            ("桥", g => g.Get(Keys.Bridges)?.Bridges.Count, "0"),
             ("地块", g => g.Get(Keys.Parcels)?.Parcels.Count, "0"),
             ("房屋", g => g.Get(Keys.Buildings)?.Buildings.Count, "0"),
             ("无房地块", g => g.Get(Keys.Parcels)?.Parcels.Count - g.Get(Keys.Buildings)?.Buildings.Count, "0"),
@@ -128,6 +138,28 @@ public static class Checks
             GD.PrintErr("SWEEP FAILED: " + failure);
         GD.Print(failedSeeds == 0 ? $"SWEEP PASSED ({count} seeds)" : $"SWEEP FAILED ({failedSeeds} of {count} seeds)");
         return failedSeeds == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// How much retaining wall stands outside the houses, in meters: a wall under a house is its side or back wall.
+    /// </summary>
+    private static double? ExposedWalls(CityGraph graph)
+    {
+        if (graph.Get(Keys.Grading) is not { } plan || graph.Get(Keys.Buildings) is not { } buildings)
+            return null;
+        var houses = buildings.Buildings.Select(b => Region.Polygon(b.Corners).Offset(0.4f)).ToList();
+        double exposed = 0;
+        foreach (var wall in plan.Walls)
+        {
+            for (int i = 1; i < wall.Points.Length; i++)
+            {
+                var m = (wall.Points[i - 1] + wall.Points[i]) / 2;
+                if (!houses.Any(h => h.Bounds.HasPoint(m) && h.Contains(m)))
+                    exposed += wall.Points[i - 1].DistanceTo(wall.Points[i]);
+            }
+        }
+
+        return exposed;
     }
 
     /// <summary>The share of the cells inside the wall that cannot be built on, in percent.</summary>
@@ -213,7 +245,7 @@ public static class Checks
     /// <summary>
     /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result. Checked on
     /// nodes at several depths, each with the list of nodes that must stay valid: the road skeleton, the wall lane, the
-    /// workshops, the church, the castle, the wall, the habitability score and the sampled heights.
+    /// workshops, the road profiles, the church, the castle, the wall, the habitability score and the sampled heights.
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
@@ -226,7 +258,11 @@ public static class Checks
                 or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or PlannedStreets or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or Squares or StreetRanks or ExtractRoads
-                or StreetBlocks or FrontageParcels or ParcelKinds or Wells or GableHouses or Yards)));
+                or StreetBlocks or FrontageParcels or ParcelKinds or Wells or Bridges or RoadProfiles or Terraces or Platforms
+                or GableHouses or Yards)));
+        errors.AddRange(await Invalidation<RoadProfiles>(graph, "道路纵断面",
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
+                or NodeGroups.Zoning or NodeGroups.Roads || node is Bridges or Wells));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace));
@@ -321,6 +357,14 @@ public static class Checks
             graph.Get(Keys.Yards) is { } yards
                 ? $"{yards.Fences.Sum(f => f.Length):F1},{yards.Outbuildings.Count},{yards.Gardens.Sum(g => g.Area.Area):F1}"
                 : "",
-            string.Join(",", graph.Get(Keys.LandUse)?.Counts ?? Array.Empty<int>()));
+            string.Join(",", graph.Get(Keys.LandUse)?.Counts ?? Array.Empty<int>()),
+            graph.Get(Keys.Grading) is { } grading
+                ? $"{grading.MaxCut:F2},{grading.MaxFill:F2},{grading.CutVolume:F0},{grading.FillVolume:F0},{grading.SteepLength:F0},{grading.Platforms.Count},{grading.Walls.Sum(w => w.Length):F0}"
+                : "",
+            string.Join(",", graph.Get(Keys.Bridges)?.Bridges.Select(b => $"{b.Height:F2}/{b.Length:F0}/{b.Piers.Length}") ?? []),
+            graph.Get(Keys.Terraces) is { } terraces
+                ? $"{terraces.Terraces.Count},{terraces.Steps.Count},{terraces.Terraces.Sum(t => t.Height):F1},"
+                    + $"{graph.Get(Keys.Grading)?.Walls.Count}"
+                : "");
     }
 }

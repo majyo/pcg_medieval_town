@@ -32,6 +32,9 @@ public partial class Main : Node3D
     private object? _paintedPrevious;
     private object? _treeMaskSource;
 
+    /// <summary>The map as drawn: with the town's grading once there is one. Camera, probe and overlays read it.</summary>
+    private GradedTerrain _shownGround = null!;
+
     // What is shown. Several controls may show one setting; changing it anywhere updates the scene and them all.
     /// <summary>The node or stage whose outputs the scene shows; none shows the town as the settings below say.</summary>
     private readonly Setting<GraphFocus> _focus = new(GraphFocus.None);
@@ -102,7 +105,7 @@ public partial class Main : Node3D
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
                 }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).Concat(PlannedViews())
-                    .Concat(GateViews()).Concat(YardViews()).ToArray();
+                    .Concat(GateViews()).Concat(YardViews()).Concat(BridgeViews()).Concat(TerraceViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -118,7 +121,8 @@ public partial class Main : Node3D
     {
         _atmosphere = new Atmosphere { Name = "Atmosphere" };
         AddChild(_atmosphere);
-        _camera = new MapCamera { MapSize = _settings.SizeMeters, GroundHeight = p => _map.HeightAt(p) };
+        _shownGround = new GradedTerrain(_map);
+        _camera = new MapCamera { MapSize = _settings.SizeMeters, GroundHeight = p => _shownGround.HeightAt(p) };
         AddChild(_camera);
         _city = new CityView { Name = "City" };
         AddChild(_city);
@@ -159,6 +163,8 @@ public partial class Main : Node3D
         _terrain = new TerrainRenderer { Name = "Terrain" };
         AddChild(_terrain);
         _terrain.Build(_map);
+        _shownGround = new GradedTerrain(_map);
+        _city.Ground = _shownGround.HeightAt;
         _painted = null;
         ApplyGround(force: true);
         ShowEnvironment();
@@ -350,14 +356,14 @@ public partial class Main : Node3D
     /// <summary>A close-up of each landmark from the south-east, so its building and plot can be checked.</summary>
     private IEnumerable<(string, Vector3, float, float, float)> LandmarkViews() =>
         (_graph.Get(Keys.Landmarks)?.Landmarks ?? Array.Empty<Landmark>()).Select(l =>
-            ($"landmark_{l.Id}", new Vector3(l.Center.X, _map.HeightAt(l.Center), l.Center.Y), 0.35f, 2.4f, 110f));
+            ($"landmark_{l.Id}", new Vector3(l.Center.X, _shownGround.HeightAt(l.Center), l.Center.Y), 0.35f, 2.4f, 110f));
 
     /// <summary>The suburb outside each gate, seen steeply from the town side, so its lanes and back rows can be checked.</summary>
     private IEnumerable<(string, Vector3, float, float, float)> SuburbViews() =>
         (_graph.Get(Keys.Gates)?.Gates ?? Array.Empty<Gate>()).Select(g =>
         {
             var focus = g.Position + g.Outward * 110;
-            return ($"suburb_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.95f,
+            return ($"suburb_{g.Id}", new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), 0.95f,
                 Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 520f);
         });
 
@@ -366,15 +372,43 @@ public partial class Main : Node3D
     {
         if (_graph.Get(Keys.Plaza) is not { } plaza)
             yield break;
-        yield return ("yards_core", new Vector3(plaza.Center.X, _map.HeightAt(plaza.Center), plaza.Center.Y), 1.2f, 0.3f, 220f);
+        yield return ("yards_core", new Vector3(plaza.Center.X, _shownGround.HeightAt(plaza.Center), plaza.Center.Y), 1.2f, 0.3f, 220f);
     }
+
+    /// <summary>
+    /// Along the street with the most terrace steps, low and a little to one side, so the steps between terraces and
+    /// the houses on them can be checked.
+    /// </summary>
+    private IEnumerable<(string, Vector3, float, float, float)> TerraceViews()
+    {
+        if (_graph.Get(Keys.Terraces) is not { Steps.Count: > 1 } set)
+            yield break;
+        var steps = set.Steps;
+        var busiest = steps.MaxBy(s => steps.Count(o => o.At.DistanceTo(s.At) < 60));
+        var far = steps.Where(o => o.At.DistanceTo(busiest.At) is > 5 and < 60).DefaultIfEmpty(busiest)
+            .MaxBy(o => o.At.DistanceTo(busiest.At));
+        var focus = (busiest.At + far.At) / 2;
+        var along = (far.At - busiest.At).Normalized();
+        yield return ("terraces_steep", new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), 0.3f,
+            Mathf.Atan2(along.X, along.Y) + 0.5f, 75f);
+    }
+
+    /// <summary>Each bridge from the side, low over the water, so its deck, piers and approaches can be checked.</summary>
+    private IEnumerable<(string, Vector3, float, float, float)> BridgeViews() =>
+        (_graph.Get(Keys.Bridges)?.Bridges ?? Array.Empty<Bridge>()).Select(b =>
+        {
+            var middle = (b.Deck[0] + b.Deck[^1]) / 2;
+            var across = (b.Deck[^1] - b.Deck[0]).Normalized().Orthogonal();
+            return ($"bridge_{b.Crossing}", new Vector3(middle.X, b.Height, middle.Y), 0.22f, Mathf.Atan2(across.X, across.Y),
+                b.Length * 1.3f);
+        });
 
     /// <summary>The inside of each gate, seen from within the town, so its square and the wall lane can be checked.</summary>
     private IEnumerable<(string, Vector3, float, float, float)> GateViews() =>
         (_graph.Get(Keys.Gates)?.Gates ?? Array.Empty<Gate>()).Select(g =>
         {
             var focus = g.Position - g.Outward * 20;
-            return ($"gate_{g.Id}", new Vector3(focus.X, _map.HeightAt(focus), focus.Y), 0.9f,
+            return ($"gate_{g.Id}", new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), 0.9f,
                 Mathf.Atan2(-g.Outward.X, -g.Outward.Y), 420f);
         });
 
@@ -387,7 +421,7 @@ public partial class Main : Node3D
         return plan.Areas.Select((area, i) =>
         {
             var center = area.Cells.Aggregate(Vector2.Zero, (sum, k) => sum + plan.Grid.Center(k)) / area.Cells.Length;
-            return ($"planned_{i + 1}", new Vector3(center.X, _map.HeightAt(center), center.Y), 1.1f, 0.4f, 420f);
+            return ($"planned_{i + 1}", new Vector3(center.X, _shownGround.HeightAt(center), center.Y), 1.1f, 0.4f, 420f);
         });
     }
 
@@ -401,7 +435,7 @@ public partial class Main : Node3D
         return land.Patches(trades).Select((patch, i) =>
         {
             var center = patch.Aggregate(Vector2.Zero, (sum, k) => sum + land.Grid.Center(k)) / patch.Count;
-            return ($"workshop_{i + 1}", new Vector3(center.X, _map.HeightAt(center), center.Y), 0.7f, 2.4f, 200f);
+            return ($"workshop_{i + 1}", new Vector3(center.X, _shownGround.HeightAt(center), center.Y), 0.7f, 2.4f, 200f);
         });
     }
 
@@ -416,7 +450,7 @@ public partial class Main : Node3D
     private Vector3 FocusOnTown()
     {
         var center = _graph.Get(Keys.Plaza)?.Center ?? _graph.Get(Keys.Origin)?.Position ?? Vector2.Zero;
-        var core = new Vector3(center.X, _map.HeightAt(center), center.Y);
+        var core = new Vector3(center.X, _shownGround.HeightAt(center), center.Y);
         _camera.Frame(core, 0.83f, -0.38f, 1200);
         return core;
     }
@@ -442,7 +476,7 @@ public partial class Main : Node3D
         if (normal.Dot(town - point.Position) < 0)
             normal = -normal;
         var focus = point.Position + normal * (point.HalfWidth + 3);
-        return (new Vector3(focus.X, _map.HeightAt(focus), focus.Y), Mathf.Atan2(normal.X, normal.Y));
+        return (new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), Mathf.Atan2(normal.X, normal.Y));
     }
 
     /// <summary>
@@ -459,7 +493,7 @@ public partial class Main : Node3D
             .MinBy(p => Mathf.Abs(p.DistanceTo(town) - 350));
         var toTown = (town - tree).Normalized();
         var focus = tree + toTown * 18;
-        return (new Vector3(focus.X, _map.HeightAt(focus), focus.Y), Mathf.Atan2(toTown.X, toTown.Y));
+        return (new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), Mathf.Atan2(toTown.X, toTown.Y));
     }
 
     /// <summary>
@@ -468,6 +502,7 @@ public partial class Main : Node3D
     /// </summary>
     private void OnGraphChanged()
     {
+        ShowGrading();
         RefreshView();
         var wall = _graph.Get(Keys.Wall);
         var growth = _graph.Get(Keys.Growth);
@@ -480,6 +515,23 @@ public partial class Main : Node3D
             town = town.Union(landmarks.Plots);
         _terrain.SetExclusion(town == null ? null : new Exclusion(town.Contains, town.Bounds,
             roads?.Edges.Select(e => (e.Points, e.Width / 2 + 3)) ?? Enumerable.Empty<(Vector2[], float)>()));
+    }
+
+    /// <summary>
+    /// Shows the ground as the latest grading leaves it. While the grading is being regenerated the last one stays,
+    /// rather than the ground dropping back to the terrain and jumping up again.
+    /// </summary>
+    private void ShowGrading()
+    {
+        var grading = _graph.Get(Keys.Grading);
+        if (grading == null || ReferenceEquals(grading, _shownGround.Grading) || _terrain == null)
+            return;
+        var before = _shownGround.Changed;
+        _shownGround = new GradedTerrain(_map, grading);
+        var changed = before.Size.X <= 0 ? _shownGround.Changed
+            : _shownGround.Changed.Size.X <= 0 ? before : before.Merge(_shownGround.Changed);
+        _terrain.SetHeights(_shownGround.Heights, changed);
+        _city.Ground = _shownGround.HeightAt;
     }
 
     public override void _Process(double delta)
@@ -496,7 +548,7 @@ public partial class Main : Node3D
     {
         var mouse = GetViewport().GetMousePosition();
         if (GetViewport().GuiGetHoveredControl() != null ||
-            !_map.Pick(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit))
+            !_shownGround.Pick(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit))
             return "鼠标移到地面上查看各采样场的读数";
 
         var parts = new List<string> { $"({hit.X:0}, {hit.Y:0})" };

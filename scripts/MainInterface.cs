@@ -125,10 +125,11 @@ public partial class Main
     {
         var keys = new Shortcuts { Name = "Shortcuts" };
         AddChild(keys);
-        for (int i = 0; i < Math.Min(_stages.Count, 9); i++)
+        // Stages 1 to 9 on their digits, the tenth on 0.
+        for (int i = 0; i < Math.Min(_stages.Count, 10); i++)
         {
             int index = i;
-            keys.Map(Key.Key1 + i, () => _focus.Value = new GraphFocus(index, -1));
+            keys.Map(i == 9 ? Key.Key0 : Key.Key1 + i, () => _focus.Value = new GraphFocus(index, -1));
         }
 
         keys.Map(Key.F5, () => _ = _graph.Run());

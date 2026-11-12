@@ -254,6 +254,8 @@ public static class FieldStyles
         new("cfd85a"), new("8a5a9a"), new("ecd27a"), new("9fc58a"), new("a8a39a"),
     };
 
+    private static readonly Func<float, Color> CutFill = Stops((0, "2f5f9a"), (0.5f, "eeeadb"), (1, "b5452f"));
+
     private const int GridBlock = 25;
     private static readonly string[] BlockTones = { "e6e0cf", "cdd6c3" };
     private static readonly string[] ZoneNames = { "不能修路（水或太陡）", "城内可修路", "城外可修路", "墙边（不能沿墙修路）", "城门（唯一可穿墙处）" };
@@ -318,6 +320,13 @@ public static class FieldStyles
             NoDataName = "走不到",
         },
         new CategoryStyle("用地", Keys.LandUse, LandColors),
+        // Cut blue, fill red, untouched ground pale.
+        new CellStyle<GradePlan>("修整", Keys.Grading, (g, p) => CutFill(Mathf.Clamp(g.Patch.Sample(p) / 4 + 0.5f, 0, 1)),
+            g => new FieldLegend("挖填（m）· " + g.Summary, CutFill, "挖 2 m", "填 2 m", null),
+            (g, p) => g.Patch.Sample(p) is var d && MathF.Abs(d) < 0.05f ? "未挖填" : $"{(d < 0 ? "挖" : "填")} {MathF.Abs(d):0.0} m")
+        {
+            Listed = true,
+        },
         new CellStyle<SiteGrid>("过程", Keys.Grid, GridColor,
             g => new FieldLegend($"采样网格 · {g.Nx}×{g.Nz} 格，每格 {g.CellSize:0.#} m", null, "", "",
                 new[] { (new Color(BlockTones[0]), $"色块边长 {GridBlock * g.CellSize:0} m（{GridBlock} 格）") }),

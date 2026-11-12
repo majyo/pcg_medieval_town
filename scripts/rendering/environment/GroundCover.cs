@@ -20,6 +20,7 @@ public partial class GroundCover : Node3D
 
     private readonly List<(MultiMeshInstance3D Node, ShaderMaterial Material, float Spacing)> _layers = new();
     private ImageTexture _exclusion = null!;
+    private ImageTexture _heights = null!;
     private int _side;
 
     public void Build(TemperateMapData map, Image masks)
@@ -27,13 +28,20 @@ public partial class GroundCover : Node3D
         _side = map.HeightSide;
         var heights = Image.CreateFromData(_side, _side, false, Image.Format.Rf,
             System.Runtime.InteropServices.MemoryMarshal.AsBytes(map.HeightGrid.AsSpan()).ToArray());
-        var heightTexture = ImageTexture.CreateFromImage(heights);
+        var heightTexture = _heights = ImageTexture.CreateFromImage(heights);
         var maskTexture = ImageTexture.CreateFromImage(masks);
         _exclusion = ImageTexture.CreateFromImage(Image.CreateEmpty(_side, _side, false, Image.Format.R8));
 
         var shader = GD.Load<Shader>(ShaderPath);
         AddLayer("Grass", TuftMesh(), shader, kind: 0, gridSize: 300, spacing: 0.33f, map, heightTexture, maskTexture);
         AddLayer("Flowers", FlowerMesh(), shader, kind: 1, gridSize: 100, spacing: 0.9f, map, heightTexture, maskTexture);
+    }
+
+    /// <summary>The ground heights the cover stands on: a whole height grid, replacing the one it was built with.</summary>
+    public void SetHeights(float[] heights)
+    {
+        _heights.Update(Image.CreateFromData(_side, _side, false, Image.Format.Rf,
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(heights.AsSpan()).ToArray()));
     }
 
     /// <summary>Where nothing may grow, one byte per height-grid point (from <see cref="Exclusion.Rasterize"/>).</summary>

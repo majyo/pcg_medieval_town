@@ -45,7 +45,7 @@ public sealed class ParcelKinds : CityNode<ParcelKindsOptions>
     public override string Title => "地块类型";
     public override string Description =>
         "切好的地块分类：作坊地块；城门内外和市场边各把两三块临主街的地块并成一处客栈大院；一边贴着另一条路的街角地块；临主街、次街的长条地块；其余是一般地块。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Roads, Keys.Gates, Keys.Plaza, Keys.Wall, Keys.LandUse];
+    public override IReadOnlyList<IKey> Reads => [Keys.Roads, Keys.Gates, Keys.Plaza, Keys.Wall, Keys.LandUse, Keys.Terraces];
     public override IReadOnlyList<IKey> Edits => [Keys.Parcels];
 
     protected override void Run(NodeContext c, ParcelKindsOptions o)
@@ -56,6 +56,9 @@ public sealed class ParcelKinds : CityNode<ParcelKindsOptions>
         var plaza = c.Get(Keys.Plaza);
         var interior = c.Get(Keys.Wall).Interior;
         var land = c.Get(Keys.LandUse);
+        // A court stands on one terrace: its plots are merged only where they share one.
+        var terraces = c.Get(Keys.Terraces);
+        int TerraceOf(Parcel p) => terraces.At(p.Probe)?.Id ?? -1;
         var plots = c.Get(Keys.Parcels).Parcels
             .Select(p => LandUses.Trades.Contains(p.Use) ? p with { Kind = ParcelKind.Trade } : p).ToList();
 
@@ -71,7 +74,7 @@ public sealed class ParcelKinds : CityNode<ParcelKindsOptions>
                 .Where(i => plots[i] != null && plots[i].Kind == ParcelKind.General
                     && plots[i].Street is RoadKind.Main or RoadKind.Outer && site(plots[i]))
                 .ToList();
-            if (Court(plots, candidates, o, land, interior) is not { } court)
+            if (Court(plots, candidates, o, land, interior, TerraceOf) is not { } court)
             {
                 if (candidates.Count > 0)
                     missing++;
@@ -105,18 +108,18 @@ public sealed class ParcelKinds : CityNode<ParcelKindsOptions>
     }
 
     /// <summary>
-    /// The best court among the candidates: two or three neighbors in a row on one street, together within the
+    /// The best court among the candidates: two or three neighbors in a row on one street and one terrace, together within the
     /// frontage range and still one ring; the one nearest the middle of the range.
     /// </summary>
     private static (int[] Members, Parcel Plot)? Court(List<Parcel> plots, List<int> candidates, ParcelKindsOptions o,
-        CategoryField land, Region interior)
+        CategoryField land, Region interior, Func<Parcel, int> terraceOf)
     {
         var regions = candidates.ToDictionary(i => i, i => Region.Polygon(plots[i].Ring));
         bool Adjacent(int a, int b)
         {
             var p = plots[a];
             var q = plots[b];
-            if (p.Inward.Dot(q.Inward) < 0.95f || MathF.Abs((q.FrontA - p.FrontA).Dot(p.Inward)) > 1)
+            if (p.Inward.Dot(q.Inward) < 0.95f || MathF.Abs((q.FrontA - p.FrontA).Dot(p.Inward)) > 1 || terraceOf(p) != terraceOf(q))
                 return false;
             double shared = regions[a].Offset(0.1f).Intersect(regions[b]).Area / 0.1;
             return shared >= 0.7 * Math.Min(p.Depth, q.Depth);
