@@ -996,11 +996,13 @@ public static class Contracts
         foreach (var parcel in r.Get(Keys.Parcels)!.Parcels)
         {
             var ring = Region.Polygon(parcel.Ring);
-            var terrace = terraces.Where(t => t.Reach.Bounds.Intersects(ring.Bounds))
-                .MaxBy(t => t.Reach.Intersect(ring).Area);
-            // A large plot clipped to its terrace may keep a sliver of clipping error along the cut.
-            if (terrace != null && ring.Subtract(terrace.Reach).Area >= Math.Max(Tolerance, ring.Area * 0.001))
-                yield return $"地块 {parcel.Id} 跨在台地 {terrace.Id} 和别的台地上";
+            var (terrace, on) = terraces.Where(t => t.Reach.Bounds.Intersects(ring.Bounds))
+                .Select(t => (Terrace: t, Area: t.Reach.Intersect(ring).Area)).DefaultIfEmpty().MaxBy(x => x.Area);
+            // A plot on land no terrace reaches touches none. A large plot clipped to its terrace may keep a sliver of
+            // clipping error along the cut.
+            if (terrace != null && on >= Tolerance && ring.Subtract(terrace.Reach) is { } outside
+                && outside.Area >= Math.Max(Tolerance, ring.Area * 0.001))
+                yield return $"地块 {parcel.Id} 跨在台地 {terrace.Id} 和别的台地上（{outside.Area:0.00} / {ring.Area:0} m²，在 {outside.Bounds.GetCenter()} 一带）";
         }
     }
 
@@ -1487,8 +1489,9 @@ public static class Contracts
 
         // On a terrace a house stands on one terrace: its footprint (half a meter in from the walls) lies on its
         // terrace's level part and on no other terrace; few reach past the level part (a shed set back, a house deeper
-        // than the terrace). Under it the ground is level, read a lattice step clear of the terrace's edge (where the
-        // ground between lattice points eases to the neighbor).
+        // than the terrace). Under it the ground is level, read a lattice square's diagonal clear of the terrace's edge
+        // (the ground at a point is read from the four lattice points around it, and where one of them lies past the edge
+        // the ground there eases to the neighbor).
         if (r.Get(Keys.Terraces) is { Terraces.Count: > 0 } terraces && r.Get(Keys.Grading) is { } grading)
         {
             int uneven = 0, beyond = 0;
@@ -1506,7 +1509,7 @@ public static class Contracts
                 if (foot.Subtract(terrace.Level).Area > foot.Area * 0.1)
                     beyond++;
                 var middle = (b.Corners[0] + b.Corners[2]) / 2;
-                var clear = terrace.Level.Offset(-1);
+                var clear = terrace.Level.Offset(-1.5f);
                 var under = b.Corners.Select(v => v.MoveToward(middle, 1.5f)).Where(clear.Contains).Select(grading.HeightAt).ToList();
                 if (under.Count >= 2 && under.Max() - under.Min() > MaxFloorStep)
                     uneven++;
