@@ -23,7 +23,7 @@ public sealed class YardsOptions
 
 /// <summary>
 /// What a plot holds besides its house. Its boundary off the street becomes a wall (inside the town wall) or a hedge
-/// (outside), once per shared side, left out where a house wall stands on it. A deep back yard gets a back building at
+/// (outside), once per shared side, left out where a house wall or a retaining wall stands on it. A deep back yard gets a back building at
 /// the rear: a store by the market, a workshop in the housing, a barn in the suburbs, a stable in an inn's court, a
 /// shed in the trades. What is left behind and beside the buildings of a house plot is its kitchen garden.
 /// </summary>
@@ -33,14 +33,16 @@ public sealed class Yards : CityNode<YardsOptions>
     private const float RoadReach = 1.2f;
     /// <summary>A house wall this near the boundary stands in for the fence.</summary>
     private const float HouseReach = 0.3f;
+    /// <summary>A retaining wall this near the boundary is the yard's wall.</summary>
+    private const float WallReach = 0.3f;
     private const float MaxWidth = 8, MinWidth = 3, SideGap = 0.5f, Gap = 1, MinGarden = 30, GardenWidth = 3;
     private const float Bucket = 16;
 
     public override string Group => NodeGroups.Buildings;
     public override string Title => "院落";
     public override string Description =>
-        "地块不临街的边是院墙（城内）或篱笆（城外），相邻地块共用的边只算一次；房子后面够深的在地块尾端放一间后屋（仓房、作坊间、畜棚、马厩或料棚）；房子和后屋以外的地是菜园。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Parcels, Keys.Buildings, Keys.Roads, Keys.Wall];
+        "地块不临街的边是院墙（城内）或篱笆（城外），相邻地块共用的边只算一次，与房屋的墙、挡土墙重合的地方不另砌；房子后面够深的在地块尾端放一间后屋（仓房、作坊间、畜棚、马厩或料棚）；房子和后屋以外的地是菜园。";
+    public override IReadOnlyList<IKey> Reads => [Keys.Parcels, Keys.Buildings, Keys.Roads, Keys.Wall, Keys.Grading];
     public override IReadOnlyList<IKey> Writes => [Keys.Yards];
 
     protected override void Run(NodeContext c, YardsOptions o)
@@ -66,6 +68,24 @@ public sealed class Yards : CityNode<YardsOptions>
             }
         }
 
+        // The retaining walls, a piece at a time: where one runs along a plot's side, it is that side's wall.
+        var retaining = new Dictionary<(int, int), List<(Vector2 A, Vector2 B)>>();
+        foreach (var wall in c.Get(Keys.Grading).Walls)
+        {
+            for (int k = 1; k < wall.Points.Length; k++)
+            {
+                var (a, b) = (wall.Points[k - 1], wall.Points[k]);
+                foreach (var key in Buckets(new Rect2(a, Vector2.Zero).Expand(b).Grow(WallReach)))
+                {
+                    if (!retaining.TryGetValue(key, out var list))
+                        retaining[key] = list = new List<(Vector2, Vector2)>();
+                    list.Add((a, b));
+                }
+            }
+        }
+
+        bool OnWall(Vector2 p) => retaining.TryGetValue(Key(p), out var pieces)
+            && pieces.Any(w => Geometry.DistanceToSegment(p, w.A, w.B) <= WallReach);
         IEnumerable<int> Around(Vector2 p) => near.TryGetValue(Key(p), out var list) ? list : Enumerable.Empty<int>();
         bool OnRoad(Vector2 p, List<RoadEdge> local) => local.Any(e => Geometry.DistanceToLine(p, e.Points) <= e.Width / 2 + RoadReach);
 
@@ -80,12 +100,13 @@ public sealed class Yards : CityNode<YardsOptions>
             var box = regions[i].Bounds.Grow(RoadReach + 8);
             var local = edges.Where((e, k) => edgeBounds[k].Intersects(box)).ToList();
 
-            // Fences: each side off the street, once (an earlier plot sharing it has it), not where a house wall is.
+            // Fences: each side off the street, once (an earlier plot sharing it has it), not where a house wall or a
+            // retaining wall is.
             bool ByHouse(Vector2 m) => Around(m).Any(j => houseAreas.TryGetValue(j, out var h) && h.Contains(m));
             bool Keep(Vector2 p, Vector2 q)
             {
                 var m = (p + q) / 2;
-                return !OnRoad(m, local) && !ByHouse(p) && !ByHouse(m) && !ByHouse(q)
+                return !OnRoad(m, local) && !ByHouse(p) && !ByHouse(m) && !ByHouse(q) && !OnWall(m)
                     && !Around(m).Any(j => j < i && Geometry.DistanceToRing(m, parcels[j].Ring) < HouseReach);
             }
             var run = new List<Vector2>();

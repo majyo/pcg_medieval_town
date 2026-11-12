@@ -1059,8 +1059,8 @@ public static class Contracts
     }
 
     /// <summary>
-    /// Fences keep off the paving and out of the houses; back buildings and gardens stay in their plots, clear of
-    /// the plot's house and of each other.
+    /// Fences keep off the paving, out of the houses and off the retaining walls (a retaining wall along a plot's side
+    /// is its yard wall); back buildings and gardens stay in their plots, clear of the plot's house and of each other.
     /// </summary>
     private static IEnumerable<string> YardRules(IKeyReader r)
     {
@@ -1069,6 +1069,37 @@ public static class Contracts
         var houses = r.Get(Keys.Buildings)!.Buildings.ToDictionary(b => b.ParcelId, b => Region.Polygon(b.Corners));
         var paving = r.Get(Keys.Roads)!.Footprint.Offset(-0.3f);
         var inner = houses.Values.Aggregate(Region.Empty, (all, h) => all.Union(h.Offset(-0.1f)));
+        // Retaining walls by 8 m square: a yard wall along one is the same wall twice.
+        var retaining = new Dictionary<(int, int), List<(Vector2 A, Vector2 B)>>();
+        foreach (var wall in r.Get(Keys.Grading)!.Walls)
+        {
+            for (int k = 1; k < wall.Points.Length; k++)
+            {
+                var m = (wall.Points[k - 1] + wall.Points[k]) / 2;
+                var key = ((int)MathF.Floor(m.X / 8), (int)MathF.Floor(m.Y / 8));
+                if (!retaining.TryGetValue(key, out var list))
+                    retaining[key] = list = new List<(Vector2, Vector2)>();
+                list.Add((wall.Points[k - 1], wall.Points[k]));
+            }
+        }
+
+        bool AlongWall(Vector2 p, Vector2 q)
+        {
+            var m = (p + q) / 2;
+            var along = (q - p).Normalized();
+            for (int z = (int)MathF.Floor(m.Y / 8) - 1; z <= (int)MathF.Floor(m.Y / 8) + 1; z++)
+            {
+                for (int x = (int)MathF.Floor(m.X / 8) - 1; x <= (int)MathF.Floor(m.X / 8) + 1; x++)
+                {
+                    if (retaining.TryGetValue((x, z), out var list) && list.Any(w =>
+                        Geometry.DistanceToSegment(m, w.A, w.B) < 0.2f && MathF.Abs(along.Dot((w.B - w.A).Normalized())) > 0.9f))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         foreach (var (fence, i) in yards.Fences.Select((f, i) => (f, i)))
         {
             var samples = Geometry.Samples(fence.Points, 2).ToList();
@@ -1076,6 +1107,8 @@ public static class Contracts
                 yield return $"院墙 {i} 压在路面上";
             if (samples.Any(inner.Contains))
                 yield return $"院墙 {i} 穿过房屋";
+            if (fence.Points.Zip(fence.Points.Skip(1)).Any(s => s.First.DistanceTo(s.Second) > 0.5f && AlongWall(s.First, s.Second)))
+                yield return $"院墙 {i} 与挡土墙重合";
         }
 
         var sheds = new Dictionary<int, Region>();

@@ -83,6 +83,7 @@ public static class Checks
                 ? plan.SteepLength / plan.Corridors.Sum(c => c.Length) * 100 : null, "0.0"),
             ("挡土墙 m", g => g.Get(Keys.Grading)?.Walls.Sum(w => w.Length), "0"),
             ("挡土墙段", g => g.Get(Keys.Grading)?.Walls.Count, "0"),
+            ("外露墙 m", ExposedWalls, "0"),
             ("台地", g => g.Get(Keys.Terraces)?.Terraces.Count(t => t.Kind == TerraceKind.Block), "0"),
             ("超限台阶", g => g.Get(Keys.Terraces)?.Steps.Count(s => s.Steep), "0"),
             ("桥", g => g.Get(Keys.Bridges)?.Bridges.Count, "0"),
@@ -137,6 +138,28 @@ public static class Checks
             GD.PrintErr("SWEEP FAILED: " + failure);
         GD.Print(failedSeeds == 0 ? $"SWEEP PASSED ({count} seeds)" : $"SWEEP FAILED ({failedSeeds} of {count} seeds)");
         return failedSeeds == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// How much retaining wall stands outside the houses, in meters: a wall under a house is its side or back wall.
+    /// </summary>
+    private static double? ExposedWalls(CityGraph graph)
+    {
+        if (graph.Get(Keys.Grading) is not { } plan || graph.Get(Keys.Buildings) is not { } buildings)
+            return null;
+        var houses = buildings.Buildings.Select(b => Region.Polygon(b.Corners).Offset(0.4f)).ToList();
+        double exposed = 0;
+        foreach (var wall in plan.Walls)
+        {
+            for (int i = 1; i < wall.Points.Length; i++)
+            {
+                var m = (wall.Points[i - 1] + wall.Points[i]) / 2;
+                if (!houses.Any(h => h.Bounds.HasPoint(m) && h.Contains(m)))
+                    exposed += wall.Points[i - 1].DistanceTo(wall.Points[i]);
+            }
+        }
+
+        return exposed;
     }
 
     /// <summary>The share of the cells inside the wall that cannot be built on, in percent.</summary>
