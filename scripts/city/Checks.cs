@@ -82,6 +82,9 @@ public static class Checks
             ("陡坡段 %", g => g.Get(Keys.Grading) is { Corridors.Count: > 0 } plan
                 ? plan.SteepLength / plan.Corridors.Sum(c => c.Length) * 100 : null, "0.0"),
             ("挡土墙 m", g => g.Get(Keys.Grading)?.Walls.Sum(w => w.Length), "0"),
+            ("挡土墙段", g => g.Get(Keys.Grading)?.Walls.Count, "0"),
+            ("台地", g => g.Get(Keys.Terraces)?.Terraces.Count(t => t.Kind == TerraceKind.Block), "0"),
+            ("超限台阶", g => g.Get(Keys.Terraces)?.Steps.Count(s => s.Steep), "0"),
             ("桥", g => g.Get(Keys.Bridges)?.Bridges.Count, "0"),
             ("地块", g => g.Get(Keys.Parcels)?.Parcels.Count, "0"),
             ("房屋", g => g.Get(Keys.Buildings)?.Buildings.Count, "0"),
@@ -219,7 +222,7 @@ public static class Checks
     /// <summary>
     /// Invalidating a node makes exactly it and its downstream stale; rerunning restores the same result. Checked on
     /// nodes at several depths, each with the list of nodes that must stay valid: the road skeleton, the wall lane, the
-    /// workshops, the church, the castle, the wall, the habitability score and the sampled heights.
+    /// workshops, the road profiles, the church, the castle, the wall, the habitability score and the sampled heights.
     /// </summary>
     private static async Task<List<string>> Invalidation(CityGraph graph)
     {
@@ -232,7 +235,11 @@ public static class Checks
                 or NodeGroups.Zoning || node is RoadZoning or SkeletonLinks or PlannedStreets or StreetMesh));
         errors.AddRange(await Invalidation<Workshops>(graph, "作坊",
             node => node is not (Workshops or Countryside or WorkshopLanes or LandmarkAccess or Squares or StreetRanks or ExtractRoads
-                or StreetBlocks or FrontageParcels or ParcelKinds or Wells or Bridges or RoadProfiles or Platforms or GableHouses or Yards)));
+                or StreetBlocks or FrontageParcels or ParcelKinds or Wells or Bridges or RoadProfiles or Terraces or Platforms
+                or GableHouses or Yards)));
+        errors.AddRange(await Invalidation<RoadProfiles>(graph, "道路纵断面",
+            node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional or NodeGroups.Town
+                or NodeGroups.Zoning or NodeGroups.Roads || node is Bridges or Wells));
         errors.AddRange(await Invalidation<ChurchSite>(graph, "教堂",
             node => node.Group is NodeGroups.Sampling or NodeGroups.Evaluation or NodeGroups.Regional ||
                 node is Village or MarketPlace));
@@ -331,6 +338,10 @@ public static class Checks
             graph.Get(Keys.Grading) is { } grading
                 ? $"{grading.MaxCut:F2},{grading.MaxFill:F2},{grading.CutVolume:F0},{grading.FillVolume:F0},{grading.SteepLength:F0},{grading.Platforms.Count},{grading.Walls.Sum(w => w.Length):F0}"
                 : "",
-            string.Join(",", graph.Get(Keys.Bridges)?.Bridges.Select(b => $"{b.Height:F2}/{b.Length:F0}/{b.Piers.Length}") ?? []));
+            string.Join(",", graph.Get(Keys.Bridges)?.Bridges.Select(b => $"{b.Height:F2}/{b.Length:F0}/{b.Piers.Length}") ?? []),
+            graph.Get(Keys.Terraces) is { } terraces
+                ? $"{terraces.Terraces.Count},{terraces.Steps.Count},{terraces.Terraces.Sum(t => t.Height):F1},"
+                    + $"{graph.Get(Keys.Grading)?.Walls.Count}"
+                : "");
     }
 }

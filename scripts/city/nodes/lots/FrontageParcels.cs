@@ -66,15 +66,17 @@ public sealed class FrontageParcelsOptions
 /// </summary>
 public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 {
-    private const float Bucket = 40;
     private const float Step = 2;
     private const float MaxGap = 1500;
+
+    /// <summary>The shortest terrace front given a plot of its own when it is narrower than its use's plots.</summary>
+    private const float MinTerraceFront = 6;
 
     public override string Group => NodeGroups.Lots;
     public override string Title => "临街地块";
     public override string Description =>
         "沿每条街和城外道路两侧按随机面宽切出临街地块（先主街，再城外道路，然后街巷，最后便道），面宽按用途：市场核心窄、城外街区宽、作坊最宽；再让所有地块一齐向后延伸到街区中间，街角和弯处剩下的空隙并给相邻地块。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads, Keys.LandUse, Keys.Wall];
+    public override IReadOnlyList<IKey> Reads => [Keys.Blocks, Keys.Roads, Keys.LandUse, Keys.Wall, Keys.Terraces];
     public override IReadOnlyList<IKey> Writes => [Keys.Parcels];
 
     protected override void Run(NodeContext c, FrontageParcelsOptions o)
@@ -95,10 +97,18 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
         var interior = c.Get(Keys.Wall).Interior;
         LandUse UseAt(Vector2 p) => land.PlotUse(p, interior.Contains(p));
         bool InBlock(Vector2 p) => blocks.Any(b => b.Bounds.HasPoint(p) && b.Contains(p));
+        var sweep = new FrontSweep(blocks, c.Cancellation);
         var parcels = new List<Parcel>();
-        var shapes = new List<Region>();
-        var blockOf = new List<int>();
-        var index = new Dictionary<(int, int), List<int>>();
+        // Where there are terraces, a plot starts and ends on one terrace's front and grows only within its reach.
+        var terraces = c.Get(Keys.Terraces).Terraces.Where(t => t.Kind == TerraceKind.Block).ToList();
+        var breaks = terraces.SelectMany(t => t.Fronts).GroupBy(f => (f.Edge, f.Side))
+            .ToDictionary(g => g.Key, g => g.SelectMany(f => new[] { f.From, f.To }).Distinct().OrderBy(x => x).ToArray());
+        var within = new List<Region?>();
+        // A plot opening onto no terrace keeps to the land no terrace reaches.
+        var unreached = terraces.Count == 0 ? null
+            : blocks.Aggregate(Region.Empty, (all, b) => all.Union(b))
+                .Subtract(terraces.Aggregate(Region.Empty, (all, t) => all.Union(t.Reach)));
+        Region? ReachAt(Vector2 p) => terraces.FirstOrDefault(t => t.Reach.Bounds.HasPoint(p) && t.Reach.Contains(p))?.Reach ?? unreached;
         var rng = new Random(o.Seed);
         var ordered = roads.Edges.OrderBy(e => e.Kind).ThenByDescending(e => e.Length).ThenBy(e => e.Id);
         foreach (var edge in ordered)
@@ -106,18 +116,32 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             c.Cancellation.ThrowIfCancellationRequested();
             foreach (int side in new[] { 1, -1 })
             {
+                float at = 0;
+                var cuts = breaks.GetValueOrDefault((edge.Id, side), []);
                 for (int s = 1; s < edge.Points.Length; s++)
-                    Frontage(edge, edge.Points[s - 1], edge.Points[s], side);
+                {
+                    var (p0, p1) = (edge.Points[s - 1], edge.Points[s]);
+                    float length = p0.DistanceTo(p1);
+                    var along = (p1 - p0) / MathF.Max(1e-4f, length);
+                    float from = at;
+                    foreach (float cut in cuts.Where(x => x > at + 0.01f && x < at + length - 0.01f).Append(at + length))
+                    {
+                        Frontage(edge, p0 + along * (from - at), p0 + along * (cut - at), side, cuts.Length > 0);
+                        from = cut;
+                    }
+
+                    at += length;
+                }
             }
         }
 
-        GrowBack();
-        FillGaps();
+        sweep.GrowBack(o.Depth, o.MaxDepth, Step);
+        sweep.FillGaps(MaxGap, (i, gap) => within[i] is not { } reach || reach.Intersect(gap).Area > 0.5);
         var settled = Settle();
         Leftovers(settled);
         c.Set(Keys.Parcels, new ParcelSet(settled));
 
-        void Frontage(RoadEdge edge, Vector2 p0, Vector2 p1, int side)
+        void Frontage(RoadEdge edge, Vector2 p0, Vector2 p1, int side, bool terraced)
         {
             float length = p0.DistanceTo(p1);
             var along = (p1 - p0) / length;
@@ -130,7 +154,8 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
                 while (length - t >= 1 && !InBlock(p0 + along * (t + 1) + inward * (front + 1.5f)))
                     t += 1;
                 var (min, max) = o.Frontage(UseAt(p0 + along * Math.Min(t + 2, length) + inward * (front + 1.5f)));
-                if (length - t < min)
+                // A terrace's front shorter than a plot of its use still gets one plot, unless it is a mere sliver.
+                if (length - t < min && !(terraced && t == 0 && length >= MinTerraceFront))
                     break;
                 float width = min + rng.NextSingle() * (max - min);
                 if (length - t - width < min * 0.6f && length - t <= max * 1.4f)
@@ -145,84 +170,15 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
         void Claim(RoadEdge edge, Vector2 a, Vector2 b, Vector2 inward)
         {
-            var probe = (a + b) / 2 + inward * 2;
-            int block = blocks.Count;
-            for (int i = 0; i < blocks.Count && block == blocks.Count; i++)
-            {
-                if (blocks[i].Contains(probe))
-                    block = i;
-            }
-
-            if (block == blocks.Count)
+            var reach = ReachAt((a + b) / 2 + inward * 2);
+            int id = sweep.Claim(a, b, inward, o.Depth + 0.5f, o.MinArea, reach);
+            if (id < 0)
                 return;
-
-            var quad = Region.Polygon(new[] { a, b, b + inward * (o.Depth + 0.5f), a + inward * (o.Depth + 0.5f) });
-            var piece = Free(quad.Intersect(blocks[block]), quad.Bounds);
-            var part = piece.Parts().FirstOrDefault(p => p.Contains(probe));
-            // A part wrapped around an earlier plot would keep only its outer ring and overlap that plot.
-            if (part == null || part.Area < o.MinArea || part.Rings.Count != 1)
-                return;
-
-            // The block may start back from the paving (a wall lane running on the unbuilt strip by the wall): the
-            // plot's front is where the plot starts, not the road's edge.
-            float gap = Math.Max(0, part.Rings[0].Min(p => (p - a).Dot(inward)) - 0.5f);
-            int id = parcels.Count;
-            var parcel = new Parcel(id, part.Rings[0], a + inward * (0.5f + gap), b + inward * (0.5f + gap), inward, edge.Kind,
-                default, (float)part.Area);
+            within.Add(reach);
+            var (frontA, frontB, _) = sweep.Fronts[id];
+            var parcel = new Parcel(id, sweep.Shapes[id].Rings[0], frontA, frontB, inward, edge.Kind, default,
+                (float)sweep.Shapes[id].Area);
             parcels.Add(parcel with { Use = UseAt(parcel.Probe) });
-            shapes.Add(part);
-            blockOf.Add(block);
-            Register(id);
-        }
-
-        // Every plot takes the next strip behind it in turn, round after round, so plots facing each other across a
-        // block meet within a strip of its middle. A plot stops once nothing behind it is free.
-        void GrowBack()
-        {
-            var growing = Enumerable.Range(0, parcels.Count).ToList();
-            for (float near = o.Depth; near < o.MaxDepth && growing.Count > 0; near += Step)
-            {
-                c.Cancellation.ThrowIfCancellationRequested();
-                float far = Math.Min(near + Step, o.MaxDepth) + 0.5f;
-                var still = new List<int>();
-                foreach (int i in growing)
-                {
-                    var p = parcels[i];
-                    var strip = Region.Polygon(new[]
-                    {
-                        p.FrontA + p.Inward * (near - 1), p.FrontB + p.Inward * (near - 1),
-                        p.FrontB + p.Inward * far, p.FrontA + p.Inward * far,
-                    });
-                    var free = Free(strip.Intersect(blocks[blockOf[i]]), strip.Bounds);
-                    if (Join(i, free))
-                        still.Add(i);
-                }
-
-                growing = still;
-            }
-        }
-
-        // What is left of each block after the plots joins the plot it borders most; large leftovers stay open.
-        void FillGaps()
-        {
-            for (int block = 0; block < blocks.Count; block++)
-            {
-                var members = Enumerable.Range(0, parcels.Count).Where(i => blockOf[i] == block).ToList();
-                if (members.Count == 0)
-                    continue;
-
-                var taken = Region.Polygons(members.Select(i => shapes[i].Rings[0]));
-                foreach (var gap in blocks[block].Subtract(taken).Parts())
-                {
-                    if (gap.Area < 1 || gap.Area > MaxGap)
-                        continue;
-
-                    var around = gap.Offset(0.3f);
-                    var (best, border) = members.Select(i => (i, around.Intersect(shapes[i]).Area)).MaxBy(x => x.Area);
-                    if (border > 0.05)
-                        Join(best, gap);
-                }
-            }
         }
 
         // A trade's block left without a plot (a mill's strip of bank, whose track bends too often for a full
@@ -239,6 +195,15 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
                 // A strip along a bend can have its centroid in the river: judge it by the cells it covers.
                 if (!land.Grid.CellsIn(shape).Any(k => LandUses.Trades.Contains(land.Use(k))))
                     continue;
+                // On terraces it keeps to the one it overlaps most.
+                if (terraces.Where(t => t.Reach.Bounds.Intersects(shape.Bounds)).MaxBy(t => t.Reach.Intersect(shape).Area) is { } terrace
+                    && terrace.Reach.Intersect(shape).Parts().MaxBy(r => r.Area) is { } part)
+                {
+                    if (part.Area < o.MinArea || part.Rings.Count != 1)
+                        continue;
+                    shape = part;
+                }
+
                 var ring = shape.Rings[0];
                 var centroid = ring.Aggregate(Vector2.Zero, (sum, p) => sum + p) / ring.Length;
 
@@ -259,7 +224,7 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             var result = new List<Parcel>();
             for (int i = 0; i < parcels.Count; i++)
             {
-                var region = Region.Polygon(shapes[i].Rings[0]);
+                var region = Region.Polygon(sweep.Shapes[i].Rings[0]);
                 foreach (var other in settled)
                 {
                     if (other.Bounds.Intersects(region.Bounds) && other.Intersect(region).Area > 0.01)
@@ -275,48 +240,6 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
 
             return result;
         }
-
-        // Adds the parts of `extra` touching plot i to it, if the plot stays one ring; true when it grew.
-        bool Join(int i, Region extra)
-        {
-            var touch = shapes[i].Offset(0.1f);
-            var added = extra.Parts().Where(part => part.Intersect(touch).Area > 0.01).ToList();
-            if (added.Count == 0)
-                return false;
-
-            var merged = added.Aggregate(shapes[i], (shape, part) => shape.Union(part));
-            if (merged.Rings.Count != 1 || merged.Area < shapes[i].Area + 0.5)
-                return false;
-
-            shapes[i] = merged;
-            Register(i);
-            return true;
-        }
-
-        Region Free(Region piece, Rect2 bounds)
-        {
-            foreach (int other in Nearby(bounds))
-            {
-                if (shapes[other].Bounds.Intersects(bounds))
-                    piece = piece.Subtract(shapes[other]);
-            }
-
-            return piece;
-        }
-
-        void Register(int id)
-        {
-            foreach (var cell in Buckets(shapes[id].Bounds))
-            {
-                if (!index.TryGetValue(cell, out var list))
-                    index[cell] = list = new List<int>();
-                if (!list.Contains(id))
-                    list.Add(id);
-            }
-        }
-
-        IEnumerable<int> Nearby(Rect2 bounds) =>
-            Buckets(bounds).SelectMany(k => index.TryGetValue(k, out var list) ? list : Enumerable.Empty<int>()).Distinct();
     }
 
     /// <summary>
@@ -355,12 +278,5 @@ public sealed class FrontageParcels : CityNode<FrontageParcelsOptions>
             (A: P(to, near), B: P(to, far), Inward: -along),
         };
         return sides.MinBy(s => ((s.A + s.B) / 2).DistanceSquaredTo(road));
-    }
-
-    private static IEnumerable<(int, int)> Buckets(Rect2 r)
-    {
-        for (int z = (int)MathF.Floor(r.Position.Y / Bucket); z <= (int)MathF.Floor(r.End.Y / Bucket); z++)
-            for (int x = (int)MathF.Floor(r.Position.X / Bucket); x <= (int)MathF.Floor(r.End.X / Bucket); x++)
-                yield return (x, z);
     }
 }

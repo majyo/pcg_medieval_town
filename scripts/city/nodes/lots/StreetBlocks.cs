@@ -31,7 +31,7 @@ public sealed class StreetBlocks : CityNode<StreetBlocksOptions>
     /// <summary>How far from the wall the built land reaches out toward a wall lane.</summary>
     private const float NearWall = 16;
 
-    public override string Group => NodeGroups.Lots;
+    public override string Group => NodeGroups.Roads;
     public override string Title => "街区";
     public override string Description =>
         "城内外已建成的地在城墙两侧各留出空地，去掉路面、地标用地和不可建设地，再加上作坊用地（去掉路面），连通部分就是街区；没建成的地（陡坡、菜园）不建房。城墙内侧的建成地多伸出一格接上墙根巷；窄于 4 m 的地去掉。";

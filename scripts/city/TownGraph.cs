@@ -51,12 +51,13 @@ public static class TownGraph
         new StreetRanks(),
         new ExtractRoads(),
         new StreetBlocks(),
+        new Bridges(),
+        new RoadProfiles(),
+        new Terraces(),
+        new Platforms(),
         new FrontageParcels(),
         new ParcelKinds(),
         new Wells(),
-        new Bridges(),
-        new RoadProfiles(),
-        new Platforms(),
         new GableHouses(),
         new Yards());
 }

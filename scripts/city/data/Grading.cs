@@ -33,7 +33,7 @@ public readonly record struct GradePlane(Vector2 Origin, float Height, Vector2 S
 }
 
 /// <summary>What a platform carries; later kinds override earlier ones where they overlap.</summary>
-public enum PlatformKind { Plot, Landmark, Square, Market }
+public enum PlatformKind { Terrace, Landmark, Square, Market }
 
 /// <summary>A piece of ground made flat: its outline, its plane, and what it is for.</summary>
 public sealed record GradePlatform(PlatformKind Kind, string Of, Region Area, GradePlane Plane);

@@ -51,7 +51,7 @@ public static class Contracts
     /// How much the graded ground may differ between a house's corners, and the share of houses that may exceed it
     /// (a house deeper than its plot's platform, or set back from the street, reaches onto the yard behind).
     /// </summary>
-    private const float MaxFloorStep = 0.5f, MaxUnevenShare = 0.1f;
+    private const float MaxFloorStep = 0.1f, MaxBeyondShare = 0.02f;
 
     /// <summary>
     /// Leveling a road across its width on a side slope cuts one edge and fills the other on top of the center line's
@@ -61,6 +61,9 @@ public static class Contracts
 
     /// <summary>The largest share of the roads' length that may stay steeper than its class allows.</summary>
     private const float MaxSteepShare = 0.25f;
+
+    /// <summary>The least share of the blocks the terraces' reach must cover.</summary>
+    private const float MinTerraceCover = 0.9f;
 
     /// <summary>The steepest the market plane can be set, as rise over run.</summary>
     private const float MaxMarketGrade = 0.08f;
@@ -91,8 +94,9 @@ public static class Contracts
         new(Keys.Squares, SquareRules),
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
-        new(Keys.Parcels, ParcelRules),
+        new(Keys.Parcels, r => ParcelRules(r).Concat(ParcelTerraceRules(r))),
         new(Keys.Bridges, BridgeRules),
+        new(Keys.Terraces, TerraceRules),
         new(Keys.Grading, GradingRules),
         new(Keys.Buildings, BuildingRules),
         new(Keys.Yards, YardRules),
@@ -983,6 +987,23 @@ public static class Contracts
             yield return "可建区压到道路";
     }
 
+    /// <summary>Where there are terraces, each plot lies within the reach of one terrace.</summary>
+    private static IEnumerable<string> ParcelTerraceRules(IKeyReader r)
+    {
+        var terraces = r.Get(Keys.Terraces)!.Terraces.Where(t => t.Kind == TerraceKind.Block).ToList();
+        if (terraces.Count == 0)
+            yield break;
+        foreach (var parcel in r.Get(Keys.Parcels)!.Parcels)
+        {
+            var ring = Region.Polygon(parcel.Ring);
+            var terrace = terraces.Where(t => t.Reach.Bounds.Intersects(ring.Bounds))
+                .MaxBy(t => t.Reach.Intersect(ring).Area);
+            // A large plot clipped to its terrace may keep a sliver of clipping error along the cut.
+            if (terrace != null && ring.Subtract(terrace.Reach).Area >= Math.Max(Tolerance, ring.Area * 0.001))
+                yield return $"地块 {parcel.Id} 跨在台地 {terrace.Id} 和别的台地上";
+        }
+    }
+
     private static IEnumerable<string> ParcelRules(IKeyReader r)
     {
         var developable = r.Get(Keys.Blocks)!.Developable;
@@ -1153,6 +1174,77 @@ public static class Contracts
     /// its grade limit, and only a small share is steep; the roads meeting at a junction meet at one height; a road is
     /// level across; the market is one plane.
     /// </summary>
+    /// <summary>
+    /// Terraces lie in the blocks off the paving without overlapping, cover the blocks, and keep their limits (doorstep,
+    /// ground, steps between neighbors, no step against the street's slope) except where marked steep, which may be no
+    /// more than <see cref="MaxSteepShare"/> of the frontage. A landmark's terrace is its plot off the paving.
+    /// </summary>
+    private static IEnumerable<string> TerraceRules(IKeyReader r)
+    {
+        var set = r.Get(Keys.Terraces)!;
+        if (set.Terraces.Count == 0)
+            yield break;
+        var developable = r.Get(Keys.Blocks)!.Developable;
+        var footprint = r.Get(Keys.Roads)!.Footprint;
+        var landmarks = r.Get(Keys.Landmarks)!.Landmarks;
+        var terraces = set.Terraces;
+        for (int i = 0; i < terraces.Count; i++)
+        {
+            var t = terraces[i];
+            if (t.Id != i)
+                yield return $"台地 {i} 的编号是 {t.Id}";
+            if (t.Level.Subtract(t.Reach).Area >= Tolerance)
+                yield return $"台地 {i} 的水平部分超出它的范围";
+            if (t.Level.Intersect(footprint).Area >= Tolerance)
+                yield return $"台地 {i} 压到铺装";
+            if (!float.IsFinite(t.Height))
+                yield return $"台地 {i} 的高度无效";
+            for (int j = i + 1; j < terraces.Count; j++)
+            {
+                if (t.Level.Bounds.Intersects(terraces[j].Level.Bounds) && t.Level.Intersect(terraces[j].Level).Area >= Tolerance)
+                    yield return $"台地 {i} 与 {j} 重叠";
+            }
+
+            if (t.Kind == TerraceKind.Landmark)
+            {
+                var plot = landmarks.FirstOrDefault(l => l.Id == t.Of)?.Plot.Subtract(footprint);
+                if (plot == null || plot.Subtract(t.Level).Area >= Tolerance || t.Level.Subtract(plot).Area >= Tolerance)
+                    yield return $"地标台地 {t.Of} 不是它的用地";
+                continue;
+            }
+
+            if (t.Reach.Subtract(developable).Area >= Tolerance)
+                yield return $"台地 {i} 超出街区";
+            if (t.Fronts.Count == 0 || t.Fronts.Any(f => f.Length <= 0))
+                yield return $"台地 {i} 没有临街段";
+            if (t.Steep)
+                continue;
+            if (t.Height < t.StreetHigh - set.Doorstep - 0.05f || t.Height > t.StreetLow + set.Doorstep + 0.05f)
+                yield return $"台地 {i} 高 {t.Height:0.00} m，门前的街在 {t.StreetLow:0.00}–{t.StreetHigh:0.00} m，超过门前高差";
+            if (t.Height < t.Ground - set.MaxOffset - 0.05f || t.Height > MathF.Max(t.Ground + set.MaxOffset, t.Floor) + 0.05f)
+                yield return $"台地 {i} 高 {t.Height:0.00} m，离原地形 {t.Ground:0.00} m 超过上限";
+        }
+
+        var blocks = terraces.Where(t => t.Kind == TerraceKind.Block).ToList();
+        if (blocks.Count > 0)
+        {
+            var reach = Region.Polygons(blocks.SelectMany(t => t.Reach.Rings));
+            if (developable.Area > 0 && reach.Intersect(developable).Area < developable.Area * MinTerraceCover)
+                yield return $"台地只盖住街区的 {reach.Intersect(developable).Area / developable.Area:P0}";
+            float front = blocks.Sum(t => t.FrontLength), steep = blocks.Where(t => t.Steep).Sum(t => t.FrontLength);
+            if (steep > front * MaxSteepShare)
+                yield return $"超限台地的临街长 {steep:0} m，占 {steep / front:P0}，超过 {MaxSteepShare:P0}";
+        }
+
+        foreach (var step in set.Steps)
+        {
+            if (!step.Steep && MathF.Abs(step.Rise) > set.StepMax + 0.05f)
+                yield return $"({step.At.X:0}, {step.At.Y:0}) 处台阶 {step.Rise:0.00} m 超过上限却没有标出";
+            if (MathF.Abs(step.StreetRise) > 0.1f && step.Rise * MathF.Sign(step.StreetRise) < -0.1f)
+                yield return $"({step.At.X:0}, {step.At.Y:0}) 处台阶逆着街的坡（台地 {step.Rise:0.00} m，街 {step.StreetRise:0.00} m）";
+        }
+    }
+
     private static IEnumerable<string> GradingRules(IKeyReader r)
     {
         var plan = r.Get(Keys.Grading)!;
@@ -1249,7 +1341,7 @@ public static class Contracts
         if (apart > 0)
             yield return $"{apart} 个路口处各条路的高度相差超过 5 cm";
 
-        int sloped = plan.Platforms.Count(p => p.Kind is PlatformKind.Plot or PlatformKind.Landmark && p.Plane.Grade > 0);
+        int sloped = plan.Platforms.Count(p => p.Kind is PlatformKind.Terrace or PlatformKind.Landmark && p.Plane.Grade > 0);
         if (sloped > 0)
             yield return $"{sloped} 块地块或地标平台不是水平的";
         if (plan.Walls.Any(w => w.High <= w.Low || w.Points.Length < 2))
@@ -1308,7 +1400,7 @@ public static class Contracts
         IEnumerable<GradePlatform> Near(Vector2 p) =>
             buckets.TryGetValue(((int)MathF.Floor(p.X / 16), (int)MathF.Floor(p.Y / 16)), out var list) ? list : [];
         GradePlatform? On(Vector2 p) => Near(p).FirstOrDefault(q => q.Area.Contains(p));
-        bool ByWall(Vector2 p) => Near(p).Any(q => q.Kind is PlatformKind.Plot or PlatformKind.Landmark
+        bool ByWall(Vector2 p) => Near(p).Any(q => q.Kind is PlatformKind.Terrace or PlatformKind.Landmark
             && q.Area.Rings.Any(ring => Geometry.DistanceToRing(p, ring) <= WallGap));
 
         int broken = 0, graded = 0;
@@ -1360,18 +1452,37 @@ public static class Contracts
         foreach (var (a, b) in Overlaps(regions))
             yield return $"建筑 {a} 与 {b} 重叠";
 
-        // On graded ground a house stands level: few have corners at different heights.
-        if (r.Get(Keys.Grading) is { Platforms.Count: > 0 } grading && grading.Platforms.Any(p => p.Kind == PlatformKind.Plot))
+        // On a terrace a house stands on one terrace: its footprint (half a meter in from the walls) lies on its
+        // terrace's level part and on no other terrace; few reach past the level part (a shed set back, a house deeper
+        // than the terrace). Under it the ground is level, read a lattice step clear of the terrace's edge (where the
+        // ground between lattice points eases to the neighbor).
+        if (r.Get(Keys.Terraces) is { Terraces.Count: > 0 } terraces && r.Get(Keys.Grading) is { } grading)
         {
-            // Measured a little inside the walls: at a wall shared with a neighbor the ground steps to its platform.
-            int uneven = buildings.Count(b =>
+            int uneven = 0, beyond = 0;
+            foreach (var b in buildings)
             {
+                if (terraces.At(parcels[b.ParcelId].Probe) is not { } terrace)
+                    continue;
+                var foot = Region.Polygon(b.Corners).Offset(-0.5f);
+                foreach (var other in terraces.Terraces)
+                {
+                    if (other != terrace && other.Level.Bounds.Intersects(foot.Bounds) && other.Level.Intersect(foot).Area >= Tolerance)
+                        yield return $"地块 {b.ParcelId} 上的房屋跨在台地 {terrace.Id} 和 {other.Id} 上";
+                }
+
+                if (foot.Subtract(terrace.Level).Area > foot.Area * 0.1)
+                    beyond++;
                 var middle = (b.Corners[0] + b.Corners[2]) / 2;
-                var under = b.Corners.Select(v => grading.HeightAt(v.MoveToward(middle, 1.5f))).ToList();
-                return under.Max() - under.Min() > MaxFloorStep;
-            });
-            if (uneven > buildings.Count * MaxUnevenShare)
-                yield return $"{uneven}/{buildings.Count} 栋房屋四角处的地面高差超过 {MaxFloorStep} m";
+                var clear = terrace.Level.Offset(-1);
+                var under = b.Corners.Select(v => v.MoveToward(middle, 1.5f)).Where(clear.Contains).Select(grading.HeightAt).ToList();
+                if (under.Count >= 2 && under.Max() - under.Min() > MaxFloorStep)
+                    uneven++;
+            }
+
+            if (uneven > 0)
+                yield return $"{uneven} 栋房屋下的台地（离台地边 1 m 以外）高差超过 {MaxFloorStep} m";
+            if (beyond > buildings.Count * MaxBeyondShare)
+                yield return $"{beyond}/{buildings.Count} 栋房屋有一成以上伸出台地的水平部分";
         }
     }
 

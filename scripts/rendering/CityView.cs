@@ -88,6 +88,9 @@ public partial class CityView : Node3D
                     .ToArray())),
             [Keys.Bridges] = new((root, s, _) => BuildBridges(root, (BridgeSet)s.Value),
                 _ => Categories("桥", (CrossingColor, "桥面"), (Stone, "桥台与桥墩"))),
+            [Keys.Terraces] = new((root, s, _) => BuildTerraces(root, (TerraceSet)s.Value),
+                _ => Categories("台地", (TerraceColors[0], "台地的水平部分（按高度每 0.5 m 换一色，画在台地的高度上）"),
+                    (TerraceReach, "地块可以延伸到的后院（细线）"), (SteepColor, "超过上限的台阶"))),
             [Keys.Grading] = new((root, s, _) => BuildGrading(root, (GradePlan)s.Value, s.Detail),
                 s => s.Detail ? Categories("修整", (SteepColor, "陡坡段（压到坡度上限以内要挖填太深，保留原坡）"),
                     (Stone, "挡土墙")) : null),
@@ -251,6 +254,51 @@ public partial class CityView : Node3D
     /// Retaining walls as low stone walls, and the stretches of road left steeper than their class allows as ribbons
     /// along their center lines.
     /// </summary>
+    private static readonly Color[] TerraceColors =
+    {
+        new("e0c68f"), new("b9cf8c"), new("8fc4b0"), new("a7b3d8"), new("cfa4c4"), new("e3a98c"), new("c9c27d"), new("9cc49a"),
+    };
+    private static readonly Color TerraceReach = new("5b4a32");
+
+    /// <summary>
+    /// Each terrace's level part drawn flat at its own height, tinted by height (a new tint every half meter, so steps
+    /// show), its reach outlined; steps over the limit marked with a post.
+    /// </summary>
+    private void BuildTerraces(Node3D root, TerraceSet set)
+    {
+        var fill = new MeshKit();
+        var lines = new MeshKit(Mesh.PrimitiveType.Lines);
+        var posts = new MeshKit();
+        foreach (var t in set.Terraces)
+        {
+            int band = (int)MathF.Floor(t.Height / 0.5f);
+            var color = TerraceColors[((band % TerraceColors.Length) + TerraceColors.Length) % TerraceColors.Length];
+            fill.Drape(t.Level.Triangulate(), _ => t.Height, 0.12f, color);
+            foreach (var ring in t.Level.Rings)
+            {
+                for (int i = 0; i < ring.Length; i++)
+                    lines.Line(new Vector3(ring[i].X, t.Height + 0.15f, ring[i].Y),
+                        new Vector3(ring[(i + 1) % ring.Length].X, t.Height + 0.15f, ring[(i + 1) % ring.Length].Y), color.Darkened(0.5f));
+            }
+
+            foreach (var ring in t.Reach.Rings)
+            {
+                for (int i = 0; i < ring.Length; i++)
+                    DrapedLine(lines, ring[i], ring[(i + 1) % ring.Length], 0.3f, TerraceReach);
+            }
+        }
+
+        foreach (var step in set.Steps.Where(s => s.Steep))
+        {
+            float h = Height(step.At);
+            posts.Prism(Band(step.At - new Vector2(0.4f, 0), step.At + new Vector2(0.4f, 0), 0.4f), h, h + 3, SteepColor, SteepColor);
+        }
+
+        Add(root, fill, MeshKit.Material(), shadows: false);
+        Add(root, lines, MeshKit.Material(unshaded: true), shadows: false);
+        Add(root, posts, MeshKit.Material());
+    }
+
     private void BuildGrading(Node3D root, GradePlan plan, bool detail)
     {
         var walls = new MeshKit();

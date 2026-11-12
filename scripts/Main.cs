@@ -105,7 +105,7 @@ public partial class Main : Node3D
                     ("bank_low", bank.Focus, 0.12f, bank.Yaw + 0.6f, 16),
                     ("forest", forest.Focus, 0.16f, forest.Yaw, 32),
                 }.Concat(LandmarkViews()).Concat(SuburbViews()).Concat(WorkshopViews()).Concat(PlannedViews())
-                    .Concat(GateViews()).Concat(YardViews()).Concat(BridgeViews()).ToArray();
+                    .Concat(GateViews()).Concat(YardViews()).Concat(BridgeViews()).Concat(TerraceViews()).ToArray();
                 await Capture.Save(this, _camera, core, closeups, FieldViews(core), capture["--capture=".Length..]);
                 GetTree().Quit();
             }
@@ -373,6 +373,24 @@ public partial class Main : Node3D
         if (_graph.Get(Keys.Plaza) is not { } plaza)
             yield break;
         yield return ("yards_core", new Vector3(plaza.Center.X, _shownGround.HeightAt(plaza.Center), plaza.Center.Y), 1.2f, 0.3f, 220f);
+    }
+
+    /// <summary>
+    /// Along the street with the most terrace steps, low and a little to one side, so the steps between terraces and
+    /// the houses on them can be checked.
+    /// </summary>
+    private IEnumerable<(string, Vector3, float, float, float)> TerraceViews()
+    {
+        if (_graph.Get(Keys.Terraces) is not { Steps.Count: > 1 } set)
+            yield break;
+        var steps = set.Steps;
+        var busiest = steps.MaxBy(s => steps.Count(o => o.At.DistanceTo(s.At) < 60));
+        var far = steps.Where(o => o.At.DistanceTo(busiest.At) is > 5 and < 60).DefaultIfEmpty(busiest)
+            .MaxBy(o => o.At.DistanceTo(busiest.At));
+        var focus = (busiest.At + far.At) / 2;
+        var along = (far.At - busiest.At).Normalized();
+        yield return ("terraces_steep", new Vector3(focus.X, _shownGround.HeightAt(focus), focus.Y), 0.3f,
+            Mathf.Atan2(along.X, along.Y) + 0.5f, 75f);
     }
 
     /// <summary>Each bridge from the side, low over the water, so its deck, piers and approaches can be checked.</summary>

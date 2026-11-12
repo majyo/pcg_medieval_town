@@ -120,9 +120,14 @@ public static class NodeGroups
     public const string Town = "城镇生长";
     public const string Zoning = "用地分区";
     public const string Roads = "路网";
-    public const string Lots = "街区与地块";
 
-    /// <summary>Nodes that reshape the ground for what was planned; planning itself reads the terrain as it was.</summary>
+    /// <summary>
+    /// Nodes that reshape the ground for what was planned (planning up to the blocks reads the terrain as it was) and cut
+    /// the blocks into terraces, before any plot.
+    /// </summary>
     public const string Grading = "地形修整";
+
+    /// <summary>Nodes that cut the terraces into plots.</summary>
+    public const string Lots = "地块";
     public const string Buildings = "建筑";
 }

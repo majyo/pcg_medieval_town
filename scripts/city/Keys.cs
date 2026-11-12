@@ -68,6 +68,8 @@ public static class Keys
         "立在铺装上的公共设施：水井（每个建成格离井或水不超过 80 m），以后还有市场十字");
     public static readonly Key<BridgeSet> Bridges = new("bridges", "桥",
         "道路过河处的桥：水平的桥面、两岸的桥台和水里的桥墩");
+    public static readonly Key<TerraceSet> Terraces = new("terraces", "台地",
+        "街区沿街分成的台地：每块临街一段是水平的，后面是它的地块可以延伸到的后院；地标用地各一块。地块在台地里切，房屋地坪取台地的高度");
     public static readonly Key<GradePlan> Grading = new("grading", "地面修整",
         "修整后的地面：道路走廊、平台、挡土墙，以及由它们算出的地面高度；规划仍读原地形，画出来和建起来的东西读它");
     public static readonly Key<BuildingSet> Buildings = new("buildings", "建筑",
