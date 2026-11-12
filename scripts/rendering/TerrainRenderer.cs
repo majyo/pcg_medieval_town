@@ -70,6 +70,18 @@ public partial class TerrainRenderer : Node3D
         _cover.Follow(camera, focus);
     }
 
+    /// <summary>
+    /// Shows the ground at <paramref name="heights"/> (a whole height grid). Only <paramref name="changed"/>, the grid
+    /// points that differ from what is shown, is sent to the ground; the ground cover takes the whole grid.
+    /// </summary>
+    public void SetHeights(float[] heights, Rect2I changed)
+    {
+        if (changed.Size.X <= 0 || changed.Size.Y <= 0)
+            return;
+        _ground.SetHeights(heights, changed);
+        _cover.SetHeights(heights);
+    }
+
     public void ShowForest(bool visible) => _forest.Visible = visible;
     public void ShowWater(bool visible) => _water.Visible = visible;
 

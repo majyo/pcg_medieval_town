@@ -54,6 +54,9 @@ public static class TownGraph
         new FrontageParcels(),
         new ParcelKinds(),
         new Wells(),
+        new Bridges(),
+        new RoadProfiles(),
+        new Platforms(),
         new GableHouses(),
         new Yards());
 }

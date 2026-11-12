@@ -79,6 +79,22 @@ public partial class GroundSurface : Node3D
         _terrain.Material.SetShaderParam("view_mode", 1);
     }
 
+    /// <summary>
+    /// Replaces the ground's heights inside <paramref name="rect"/> (columns and rows of the height grid) with those of
+    /// <paramref name="heights"/>, a whole height grid; colors and holes stay as they are.
+    /// </summary>
+    public void SetHeights(float[] heights, Rect2I rect)
+    {
+        if (rect.Size.X <= 0 || rect.Size.Y <= 0)
+            return;
+        var values = new float[rect.Size.X * rect.Size.Y];
+        for (int z = 0; z < rect.Size.Y; z++)
+            Array.Copy(heights, (rect.Position.Y + z) * _side + rect.Position.X, values, z * rect.Size.X, rect.Size.X);
+        var image = Image.CreateFromData(rect.Size.X, rect.Size.Y, false, Image.Format.Rf, MemoryMarshal.AsBytes(values.AsSpan()).ToArray());
+        var corner = new Vector3((rect.Position.X - _halfIndex) * _spacing, 0, (rect.Position.Y - _halfIndex) * _spacing);
+        _terrain.Data.ImportImages(new Godot.Collections.Array { image, new Variant(), new Variant() }, corner);
+    }
+
     /// <summary>Centers the finest clipmap level on <paramref name="focus"/>.</summary>
     public void Follow(Vector3 focus) => _target.GlobalPosition = focus;
 

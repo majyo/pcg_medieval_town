@@ -86,6 +86,11 @@ public partial class CityView : Node3D
                     .Concat(((ParcelSet)s.Value).Parcels.Any(p => p.Kind == ParcelKind.Corner)
                         ? [(CornerColor, "街角地块（侧街边加画一道）"), (CourtColor, "客栈大院")] : Array.Empty<(Color, string)>())
                     .ToArray())),
+            [Keys.Bridges] = new((root, s, _) => BuildBridges(root, (BridgeSet)s.Value),
+                _ => Categories("桥", (CrossingColor, "桥面"), (Stone, "桥台与桥墩"))),
+            [Keys.Grading] = new((root, s, _) => BuildGrading(root, (GradePlan)s.Value, s.Detail),
+                s => s.Detail ? Categories("修整", (SteepColor, "陡坡段（压到坡度上限以内要挖填太深，保留原坡）"),
+                    (Stone, "挡土墙")) : null),
             [Keys.Buildings] = new((root, s, _) => BuildBuildings(root, (BuildingSet)s.Value), _ => null),
             [Keys.Fixtures] = new((root, s, _) => BuildFixtures(root, (FixtureSet)s.Value),
                 _ => Categories("公共设施", (Stone, "水井（石砌井台）"))),
@@ -115,10 +120,10 @@ public partial class CityView : Node3D
         CityLayer.Contours => [Keys.Height],
         CityLayer.Region => [Keys.Crossings, Keys.Routes, Keys.Origin],
         CityLayer.Layout => [Keys.Plaza, Keys.Landmarks, Keys.Wall, Keys.Gates],
-        CityLayer.Roads => [Keys.Roads, Keys.Crossings],
+        CityLayer.Roads => [Keys.Roads, Keys.Bridges],
         CityLayer.Blocks => [Keys.Blocks],
         CityLayer.Parcels => [Keys.Parcels],
-        _ => [Keys.Buildings, Keys.Yards, Keys.Fixtures],
+        _ => [Keys.Buildings, Keys.Yards, Keys.Fixtures, Keys.Grading],
     };
 
     /// <summary>Whether the key is drawn here (otherwise it can only be painted on the ground, or not shown at all).</summary>
@@ -194,7 +199,77 @@ public partial class CityView : Node3D
         public IKey[] Context { get; } = Context ?? Array.Empty<IKey>();
     }
 
-    private float Height(Vector2 p) => _graph!.Terrain.HeightAt(p);
+    private Func<Vector2, float>? _ground;
+
+    /// <summary>
+    /// The ground everything here is draped on and stands on; null for the graph's terrain. Changing it redraws every
+    /// value.
+    /// </summary>
+    public Func<Vector2, float>? Ground
+    {
+        get => _ground;
+        set
+        {
+            _ground = value;
+            _built.Clear();
+            Show(_shown);
+        }
+    }
+
+    private static readonly Color SteepColor = new("c0392b");
+
+    /// <summary>Each bridge: a plank deck with low parapets, stone abutments at its ends and stone piers down to the riverbed.</summary>
+    private void BuildBridges(Node3D root, BridgeSet set)
+    {
+        var timber = new MeshKit();
+        var stone = new MeshKit();
+        foreach (var bridge in set.Bridges)
+        {
+            float half = bridge.Width / 2 + 0.3f;
+            for (int i = 1; i < bridge.Deck.Length; i++)
+            {
+                var a = bridge.Deck[i - 1];
+                var b = bridge.Deck[i];
+                timber.Prism(Band(a, b, half), bridge.Height - 0.5f, bridge.Height + 0.05f, CrossingColor, CrossingColor.Lightened(0.2f));
+                var side = (b - a).Normalized().Orthogonal() * half;
+                foreach (float sign in new[] { 1f, -1f })
+                    timber.Prism(Band(a + side * sign, b + side * sign, 0.15f), bridge.Height, bridge.Height + 1, CrossingColor, CrossingColor);
+            }
+
+            var along = (bridge.Deck[^1] - bridge.Deck[0]).Normalized();
+            foreach (var end in new[] { bridge.Deck[0], bridge.Deck[^1] })
+                stone.Prism(Box(end, along, 2.5f, bridge.Width + 1.6f), Height(end) - 1.5f, bridge.Height - 0.5f, Stone, StoneTop);
+            foreach (var pier in bridge.Piers)
+                stone.Prism(Box(pier, along, 1.6f, bridge.Width + 0.4f), Height(pier) - 1, bridge.Height - 0.5f, Stone, StoneTop);
+        }
+
+        Add(root, timber, MeshKit.Material());
+        Add(root, stone, MeshKit.Material());
+    }
+
+    /// <summary>
+    /// Retaining walls as low stone walls, and the stretches of road left steeper than their class allows as ribbons
+    /// along their center lines.
+    /// </summary>
+    private void BuildGrading(Node3D root, GradePlan plan, bool detail)
+    {
+        var walls = new MeshKit();
+        foreach (var wall in plan.Walls)
+        {
+            for (int i = 1; i < wall.Points.Length; i++)
+                walls.Prism(Band(wall.Points[i - 1], wall.Points[i], 0.25f), wall.Low - 0.5f, wall.High + 0.15f, Stone, StoneTop);
+        }
+
+        Add(root, walls, MeshKit.Material());
+        var steep = plan.Corridors.Where(c => c.Steep).Select(c => ((IReadOnlyList<Vector2>)c.Points, 1.6f)).ToList();
+        if (steep.Count == 0 || !detail)
+            return;
+        var kit = new MeshKit();
+        kit.Drape(Region.Lines(steep).Triangulate(), Height, 0.5f, SteepColor);
+        Add(root, kit, MeshKit.Material(unshaded: true), shadows: false);
+    }
+
+    private float Height(Vector2 p) => _ground?.Invoke(p) ?? _graph!.Terrain.HeightAt(p);
 
     private static void Add(Node3D root, MeshKit kit, Material material, bool shadows = true) =>
         Add(root, kit.Commit(), material, shadows);

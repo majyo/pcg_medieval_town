@@ -108,7 +108,7 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
     public override string Title => "临街双坡房屋";
     public override string Description =>
         "在每个地块临街处放一栋矩形双坡顶房屋，进深和层数随机，主街上多一层；窄长的房屋山墙朝街。层数、进深和留小巷的概率按地块的用途：市场核心高而深、连排，城外街区矮而疏；作坊是屋顶较平的棚屋，旁边留出院子。";
-    public override IReadOnlyList<IKey> Reads => [Keys.Parcels];
+    public override IReadOnlyList<IKey> Reads => [Keys.Parcels, Keys.Grading];
     public override IReadOnlyList<IKey> Writes => [Keys.Buildings];
 
     protected override void Run(NodeContext c, GableHousesOptions o)
@@ -120,7 +120,10 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
                 throw new ArgumentException($"{use.Label()}的最大值不能小于最小值");
         }
 
-        var map = c.Terrain;
+        var ground = c.Get(Keys.Grading);
+        // The floor of a house is its plot's platform, where the plot has one.
+        var floorOf = ground.Platforms.Where(p => p.Kind == PlatformKind.Plot)
+            .ToDictionary(p => p.Of, p => p.Plane.Height);
         var rng = new Random(o.Seed);
         var buildings = new List<Building>();
         int skipped = 0;
@@ -195,11 +198,12 @@ public sealed class GableHouses : CityNode<GableHousesOptions>
 
             float width = corners[0].DistanceTo(corners[1]);
             depth = corners[1].DistanceTo(corners[2]);
-            var heights = corners.Select(map.HeightAt).ToArray();
-            float eaves = heights.Max() + floors * FloorHeight;
+            var heights = corners.Select(ground.HeightAt).ToArray();
+            float floor = floorOf.TryGetValue(Platforms.Name(parcel), out float platform) ? platform : heights.Max();
+            float eaves = floor + floors * FloorHeight;
             bool ridgeToStreet = width <= depth * 1.2f;
             float span = ridgeToStreet ? width : depth;
-            buildings.Add(new Building(parcel.Id, corners, heights.Min() - 0.5f, eaves, eaves + span * spec.Pitch, ridgeToStreet,
+            buildings.Add(new Building(parcel.Id, corners, MathF.Min(heights.Min(), floor) - 0.5f, eaves, eaves + span * spec.Pitch, ridgeToStreet,
                 palette));
         }
 

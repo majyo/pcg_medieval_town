@@ -121,5 +121,8 @@ public static class NodeGroups
     public const string Zoning = "用地分区";
     public const string Roads = "路网";
     public const string Lots = "街区与地块";
+
+    /// <summary>Nodes that reshape the ground for what was planned; planning itself reads the terrain as it was.</summary>
+    public const string Grading = "地形修整";
     public const string Buildings = "建筑";
 }

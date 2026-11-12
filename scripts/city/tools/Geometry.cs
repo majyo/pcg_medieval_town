@@ -82,6 +82,29 @@ public static class Geometry
         }
     }
 
+    /// <summary>
+    /// The stations of a line: its two ends and points between them about <paramref name="step"/> apart, none closer
+    /// than half a meter to the one before.
+    /// </summary>
+    public static Vector2[] Stations(Vector2[] line, float step)
+    {
+        var points = new List<Vector2> { line[0] };
+        foreach (var p in Samples(line, step))
+        {
+            if (p.DistanceSquaredTo(points[^1]) > 0.25f)
+                points.Add(p);
+        }
+
+        // Keep the line's own end, not a sample just short of it.
+        if (points.Count == 1)
+            points.Add(line[^1]);
+        else if (points[^1].DistanceSquaredTo(line[^1]) <= 0.25f)
+            points[^1] = line[^1];
+        else
+            points.Add(line[^1]);
+        return points.ToArray();
+    }
+
     /// <summary>Deterministic value in [0, 1] from a cell index and a seed.</summary>
     public static float Hash(int k, int seed)
     {

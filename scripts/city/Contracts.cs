@@ -32,6 +32,39 @@ public static class Contracts
     /// </summary>
     private const float MaxWinding = 1.7f;
 
+    /// <summary>The most the graded ground may rise or fall between points a meter apart, away from walls and the water.</summary>
+    private const float MaxGroundStep = 0.6f;
+
+    /// <summary>Ground this near a platform's edge is too narrow to ease a step and is held up by its retaining wall.</summary>
+    private const float WallGap = 2.5f;
+
+    /// <summary>Ground this near the water may fall steeply to it: a bridge's approach and its wing walls.</summary>
+    private const float BankReach = 8;
+
+    /// <summary>The share of graded points whose ground may break where the plan leaves no room to join it.</summary>
+    private const float MaxBreakShare = 0.0001f;
+
+    /// <summary>Within this distance of a bridge's end a road is on its approach and may stand off the ground.</summary>
+    private const float ApproachReach = 100;
+
+    /// <summary>
+    /// How much the graded ground may differ between a house's corners, and the share of houses that may exceed it
+    /// (a house deeper than its plot's platform, or set back from the street, reaches onto the yard behind).
+    /// </summary>
+    private const float MaxFloorStep = 0.5f, MaxUnevenShare = 0.1f;
+
+    /// <summary>
+    /// Leveling a road across its width on a side slope cuts one edge and fills the other on top of the center line's
+    /// own cut or fill; so does a tilted market at its edges. The most that may add, in meters.
+    /// </summary>
+    private const float MaxCrossFall = 2;
+
+    /// <summary>The largest share of the roads' length that may stay steeper than its class allows.</summary>
+    private const float MaxSteepShare = 0.25f;
+
+    /// <summary>The steepest the market plane can be set, as rise over run.</summary>
+    private const float MaxMarketGrade = 0.08f;
+
     public static readonly IReadOnlyList<Invariant> All = new Invariant[]
     {
         new(Keys.Grid, GridRules),
@@ -59,6 +92,8 @@ public static class Contracts
         new(Keys.Roads, RoadRules),
         new(Keys.Blocks, BlockRules),
         new(Keys.Parcels, ParcelRules),
+        new(Keys.Bridges, BridgeRules),
+        new(Keys.Grading, GradingRules),
         new(Keys.Buildings, BuildingRules),
         new(Keys.Yards, YardRules),
         new(Keys.Fixtures, FixtureRules),
@@ -1067,6 +1102,245 @@ public static class Contracts
             yield return $"{dry} 个建成格 {Wells.Reach:0} m 内既没有井也没有水";
     }
 
+    /// <summary>
+    /// Every crossing a route uses has a bridge. A deck's ends stand on land, the deck clears the water, its piers stand
+    /// in the water no farther apart than allowed, and the road meets the deck at its height.
+    /// </summary>
+    private static IEnumerable<string> BridgeRules(IKeyReader r)
+    {
+        var bridges = r.Get(Keys.Bridges)!.Bridges;
+        var shore = r.Get(Keys.Shore)!;
+        foreach (var crossing in r.Get(Keys.Crossings)!.UsedBy(r.Get(Keys.Routes)!))
+        {
+            if (bridges.All(b => b.Crossing != crossing.Id))
+                yield return $"渡口 {crossing.Id} 没有桥";
+        }
+
+        var plan = r.Get(Keys.Grading);
+        foreach (var bridge in bridges)
+        {
+            if (shore.Nearest(bridge.Deck[0]) < 0 || shore.Nearest(bridge.Deck[^1]) < 0)
+                yield return $"桥 {bridge.Crossing} 的桥台在水里";
+            if (bridge.Height < bridge.Water + bridge.Clearance - 0.01f)
+                yield return $"桥 {bridge.Crossing} 的桥面只高出水面 {bridge.Height - bridge.Water:0.0} m";
+            // A pier between two wet points of a straight deck may stand on a spit of the bank; not farther in than that.
+            if (bridge.Piers.Any(p => shore.Nearest(p) > 4))
+                yield return $"桥 {bridge.Crossing} 有桥墩在岸上";
+            // The spans: between piers, and from the outer piers to the banks (the water's edge, found along the deck).
+            var wet = Geometry.Samples(bridge.Deck, 0.5f).Where(p => shore.Nearest(p) < 0).ToList();
+            var supports = wet.Count == 0 ? bridge.Deck.ToList() : bridge.Piers.Prepend(wet[0]).Append(wet[^1]).ToList();
+            for (int i = 1; i < supports.Count; i++)
+            {
+                if (supports[i].DistanceTo(supports[i - 1]) > bridge.MaxSpan + 0.5f)
+                    yield return $"桥 {bridge.Crossing} 有一跨 {supports[i].DistanceTo(supports[i - 1]):0} m，超过 {bridge.MaxSpan:0} m";
+            }
+
+            if (plan == null || plan.Corridors.Count == 0)
+                continue;
+            foreach (var end in new[] { bridge.Deck[0], bridge.Deck[^1] })
+            {
+                bool met = plan.Corridors.Where(k => k.Edge == bridge.Edge).Any(k => Enumerable.Range(0, k.Points.Length)
+                    .Any(i => k.Points[i].DistanceSquaredTo(end) < 0.01f && MathF.Abs(k.Heights[i] - bridge.Height) <= 0.05f));
+                if (!met)
+                    yield return $"桥 {bridge.Crossing} 的桥头处道路不在桥面的高度上";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Grading leaves the water, the rim of the map and everything away from the roads and platforms as the terrain has
+    /// them. A road's center line stays within the earthwork limit of the terrain; a road not marked steep keeps to
+    /// its grade limit, and only a small share is steep; the roads meeting at a junction meet at one height; a road is
+    /// level across; the market is one plane.
+    /// </summary>
+    private static IEnumerable<string> GradingRules(IKeyReader r)
+    {
+        var plan = r.Get(Keys.Grading)!;
+        var patch = plan.Patch;
+        var shore = r.Get(Keys.Shore)!;
+        float half = r.Terrain.Half;
+        if (!patch.Offsets.All(float.IsFinite))
+            yield return "修整后的高度存在非有限值";
+
+        int wet = 0, rim = 0, moved = 0;
+        for (int z = 0; z < patch.Nz; z++)
+        {
+            for (int x = 0; x < patch.Nx; x++)
+            {
+                if (MathF.Abs(patch.Offsets[z * patch.Nx + x]) < 1e-4f)
+                    continue;
+                moved++;
+                var p = new Vector2(patch.X0 + x, patch.Z0 + z);
+                if (shore.Nearest(p) < 0)
+                    wet++;
+                if (half - MathF.Max(MathF.Abs(p.X), MathF.Abs(p.Y)) < GradeBake.Rim - 0.01f)
+                    rim++;
+            }
+        }
+
+        if (wet > 0)
+            yield return $"{wet} 个水面点被挖填";
+        if (rim > 0)
+            yield return $"{rim} 个离图边 {GradeBake.Rim:0} m 以内的点被挖填";
+        // The reach counts lattice steps, a diagonal as one, so it may stretch to the reach times √2.
+        float reach = GradeBake.Reach * 1.5f;
+        double room = plan.Corridors.Sum(c => (double)(c.Length + 2 * reach) * (c.Width + 2 * reach + 2))
+            + plan.Platforms.Sum(p => p.Area.Offset(reach + 1).Area);
+        if (moved > room)
+            yield return $"被挖填的地面 {moved} m² 超出道路和平台周围的范围 {room:0} m²";
+        var bridges = r.Get(Keys.Bridges)!.Bridges;
+        // A bridge's approaches rise to its deck, however far that stands above the bank.
+        float lift = bridges.Select(b => MathF.Max(b.Height - r.Terrain.HeightAt(b.Deck[0]), b.Height - r.Terrain.HeightAt(b.Deck[^1])))
+            .DefaultIfEmpty(0).Max();
+        if (plan.MaxCut > plan.EarthworkLimit + MaxCrossFall || plan.MaxFill > plan.EarthworkLimit + MaxCrossFall + MathF.Max(0, lift))
+            yield return $"最深挖 {plan.MaxCut:0.0} m、最高填 {plan.MaxFill:0.0} m，超过上限 {plan.EarthworkLimit:0.0} m 加横坡余量";
+
+        // Inside the market a road lies in the market's plane, which may sit farther from the terrain.
+        var markets = plan.Platforms.Where(p => p.Kind == PlatformKind.Market).Select(p => p.Area).ToList();
+        foreach (var error in Continuity(r, plan))
+            yield return error;
+
+        float total = 0, steep = 0;
+        int deep = 0, tilted = 0, crossChecked = 0;
+        var meet = new Dictionary<(int, int), (float Low, float High)>();
+        foreach (var corridor in plan.Corridors)
+        {
+            total += corridor.Length;
+            if (corridor.Steep)
+                steep += corridor.Length;
+            else if (corridor.MaxGrade > corridor.GradeLimit * 1.02f + 0.01f)
+                yield return $"路段 {corridor.Edge} 坡度 {corridor.MaxGrade:P1}，超过上限 {corridor.GradeLimit:P1}";
+
+            for (int i = 0; i < corridor.Points.Length; i++)
+            {
+                var p = corridor.Points[i];
+                bool water = shore.Nearest(p) < 0;
+                if (!water && MathF.Abs(corridor.Heights[i] - r.Terrain.HeightAt(p)) > plan.EarthworkLimit + RoadProfiles.Slack + 0.05f
+                    && !markets.Any(m => m.Contains(p))
+                    && !bridges.Any(b => b.Deck[0].DistanceTo(p) < ApproachReach || b.Deck[^1].DistanceTo(p) < ApproachReach))
+                    deep++;
+                // Level across, away from the ends (where other roads take over), the water and the rim.
+                if (i < 5 || i >= corridor.Points.Length - 5 || i % 5 != 0 || water
+                    || half - MathF.Max(MathF.Abs(p.X), MathF.Abs(p.Y)) < 2 * GradeBake.Rim + corridor.Width)
+                    continue;
+                var across = (corridor.Points[i + 1] - corridor.Points[i - 1]).Normalized().Orthogonal() * corridor.Width * 0.35f;
+                if (shore.Nearest(p + across) < 0 || shore.Nearest(p - across) < 0)
+                    continue;
+                crossChecked++;
+                if (MathF.Abs(plan.HeightAt(p + across) - plan.HeightAt(p - across)) > 0.15f)
+                    tilted++;
+            }
+
+            foreach (int i in new[] { 0, corridor.Points.Length - 1 })
+            {
+                var key = ((int)MathF.Round(corridor.Points[i].X * 10), (int)MathF.Round(corridor.Points[i].Y * 10));
+                float h = corridor.Heights[i];
+                meet[key] = meet.TryGetValue(key, out var range) ? (MathF.Min(range.Low, h), MathF.Max(range.High, h)) : (h, h);
+            }
+        }
+
+        if (deep > 0)
+            yield return $"{deep} 个路中线点离原地形超过挖填上限 {plan.EarthworkLimit:0.0} m";
+        if (total > 0 && steep > total * MaxSteepShare)
+            yield return $"陡坡段 {steep:0} m，占道路的 {steep / total:P0}，超过 {MaxSteepShare:P0}";
+        if (tilted > crossChecked * 0.05f)
+            yield return $"{tilted}/{crossChecked} 处路面两侧高差超过 0.15 m";
+        int apart = meet.Values.Count(range => range.High - range.Low > 0.05f);
+        if (apart > 0)
+            yield return $"{apart} 个路口处各条路的高度相差超过 5 cm";
+
+        int sloped = plan.Platforms.Count(p => p.Kind is PlatformKind.Plot or PlatformKind.Landmark && p.Plane.Grade > 0);
+        if (sloped > 0)
+            yield return $"{sloped} 块地块或地标平台不是水平的";
+        if (plan.Walls.Any(w => w.High <= w.Low || w.Points.Length < 2))
+            yield return "有挡土墙没有高差或不成线";
+
+        foreach (var platform in plan.Platforms.Where(p => p.Kind == PlatformKind.Market))
+        {
+            if (platform.Plane.Grade > MaxMarketGrade + 0.001f)
+                yield return $"市场平面坡度 {platform.Plane.Grade:P1}";
+            var inner = platform.Area.Offset(-1.5f);
+            var box = inner.Bounds;
+            int off = 0;
+            for (float z = MathF.Ceiling(box.Position.Y); z <= box.End.Y; z += 2)
+            {
+                for (float x = MathF.Ceiling(box.Position.X); x <= box.End.X; x += 2)
+                {
+                    var p = new Vector2(x, z);
+                    if (inner.Contains(p) && shore.Nearest(p) >= 0 && MathF.Abs(plan.HeightAt(p) - platform.Plane.HeightAt(p)) > 0.1f)
+                        off++;
+                }
+            }
+
+            if (off > 0)
+                yield return $"市场有 {off} 个点离它的平面超过 0.1 m";
+        }
+    }
+
+    /// <summary>
+    /// The graded ground is continuous: between neighboring lattice points it steps no more than the terrain did, plus a
+    /// little, or than a steep bank would. The exceptions are a platform's edge, and the ground within a couple of meters
+    /// of it, too narrow to ease the step (where a retaining wall stands), and the water's edge (where a bridge's
+    /// approach, filled up beside the river, falls to the bank within a few meters: a wing wall's place). A few breaks
+    /// remain where the plan puts two roads at different heights within meters of each other (the legs of a road
+    /// zigzagging up a slope, a track hugging a road); no ground could join them, so up to <see cref="MaxBreakShare"/>
+    /// of the graded points may break.
+    /// </summary>
+    private static IEnumerable<string> Continuity(IKeyReader r, GradePlan plan)
+    {
+        var patch = plan.Patch;
+        var shore = r.Get(Keys.Shore)!;
+        var buckets = new Dictionary<(int, int), List<GradePlatform>>();
+        foreach (var platform in plan.Platforms)
+        {
+            var box = platform.Area.Bounds;
+            for (int bz = (int)MathF.Floor(box.Position.Y / 16); bz <= (int)MathF.Floor(box.End.Y / 16); bz++)
+            {
+                for (int bx = (int)MathF.Floor(box.Position.X / 16); bx <= (int)MathF.Floor(box.End.X / 16); bx++)
+                {
+                    if (!buckets.TryGetValue((bx, bz), out var list))
+                        buckets[(bx, bz)] = list = new List<GradePlatform>();
+                    list.Add(platform);
+                }
+            }
+        }
+
+        IEnumerable<GradePlatform> Near(Vector2 p) =>
+            buckets.TryGetValue(((int)MathF.Floor(p.X / 16), (int)MathF.Floor(p.Y / 16)), out var list) ? list : [];
+        GradePlatform? On(Vector2 p) => Near(p).FirstOrDefault(q => q.Area.Contains(p));
+        bool ByWall(Vector2 p) => Near(p).Any(q => q.Kind is PlatformKind.Plot or PlatformKind.Landmark
+            && q.Area.Rings.Any(ring => Geometry.DistanceToRing(p, ring) <= WallGap));
+
+        int broken = 0, graded = 0;
+        string? example = null;
+        for (int z = patch.Z0 - 1; z < patch.Z0 + patch.Nz; z++)
+        {
+            for (int x = patch.X0 - 1; x < patch.X0 + patch.Nx; x++)
+            {
+                foreach (var (dx, dz) in new[] { (1, 0), (0, 1) })
+                {
+                    float da = patch.At(x, z), db = patch.At(x + dx, z + dz);
+                    if (dx == 1 && da != 0)
+                        graded++;
+                    if (MathF.Abs(da - db) < MaxGroundStep)
+                        continue;
+                    Vector2 p = new(x, z), q = new(x + dx, z + dz);
+                    float before = r.Terrain.HeightAt(q) - r.Terrain.HeightAt(p);
+                    float after = before + db - da;
+                    if (MathF.Abs(after) <= MathF.Max(MaxGroundStep, MathF.Abs(before) + MaxGroundStep / 2))
+                        continue;
+                    if (shore.Nearest(p) < BankReach || shore.Nearest(q) < BankReach || !ReferenceEquals(On(p), On(q)) || ByWall(p) || ByWall(q))
+                        continue;
+                    broken++;
+                    example ??= $"({x}, {z}) 处高差 {MathF.Abs(after):0.0} m";
+                }
+            }
+        }
+
+        if (broken > graded * MaxBreakShare)
+            yield return $"{broken} 处相邻两点间的地面断开（{example}），不在平台边或水边，超过修整面积 {graded} m² 的 {MaxBreakShare:P2}";
+    }
+
     private static IEnumerable<string> BuildingRules(IKeyReader r)
     {
         var parcels = r.Get(Keys.Parcels)!.Parcels;
@@ -1085,6 +1359,20 @@ public static class Contracts
 
         foreach (var (a, b) in Overlaps(regions))
             yield return $"建筑 {a} 与 {b} 重叠";
+
+        // On graded ground a house stands level: few have corners at different heights.
+        if (r.Get(Keys.Grading) is { Platforms.Count: > 0 } grading && grading.Platforms.Any(p => p.Kind == PlatformKind.Plot))
+        {
+            // Measured a little inside the walls: at a wall shared with a neighbor the ground steps to its platform.
+            int uneven = buildings.Count(b =>
+            {
+                var middle = (b.Corners[0] + b.Corners[2]) / 2;
+                var under = b.Corners.Select(v => grading.HeightAt(v.MoveToward(middle, 1.5f))).ToList();
+                return under.Max() - under.Min() > MaxFloorStep;
+            });
+            if (uneven > buildings.Count * MaxUnevenShare)
+                yield return $"{uneven}/{buildings.Count} 栋房屋四角处的地面高差超过 {MaxFloorStep} m";
+        }
     }
 
     private static HashSet<int> Reachable(RoadGraph roads)
